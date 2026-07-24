@@ -1,0 +1,428 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Torre de Control FASA · V3</title>
+<style>
+:root {
+  --bg:#F0F4F3; --card:#fff; --border:#E2EAE6;
+  --txt:#111D17; --muted:#6B7C74; --faint:#9aab9f;
+  --green:#0F6E56; --green-bg:#E1F5EE; --green-chip:#1D9E75;
+  --red:#B91C1C;  --red-bg:#FEE2E2;   --red-chip:#EF4444;
+  --amber:#92600A;--amber-bg:#FEF3C7; --amber-chip:#F59E0B;
+  --gray:#374151; --gray-bg:#F3F4F6;  --gray-chip:#9CA3AF;
+  --blue:#085041;
+  --font:'Inter',system-ui,sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:var(--font);background:var(--bg);color:var(--txt);min-height:100vh}
+
+/* HEADER */
+header{background:var(--blue);padding:0 28px;height:56px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100}
+.hdr-left{display:flex;align-items:center;gap:12px}
+.hdr-logo{width:32px;height:32px;background:rgba(255,255,255,.15);border-radius:8px;display:flex;align-items:center;justify-content:center}
+.hdr-title{color:#fff;font-size:15px;font-weight:700;letter-spacing:.02em}
+.hdr-sub{color:rgba(255,255,255,.55);font-size:10px;letter-spacing:.1em;text-transform:uppercase}
+.version-badge{background:rgba(255,255,255,.15);color:rgba(255,255,255,.9);font-size:10px;font-weight:700;padding:3px 8px;border-radius:20px;letter-spacing:.08em}
+
+/* TABS */
+.tabs{background:#fff;border-bottom:1px solid var(--border);display:flex;gap:0;padding:0 28px}
+.tab{padding:14px 20px;font-size:13px;font-weight:600;color:var(--muted);cursor:pointer;border-bottom:2px solid transparent;transition:.2s}
+.tab:hover{color:var(--txt)}
+.tab.active{color:var(--green);border-bottom-color:var(--green-chip)}
+
+/* MAIN */
+main{padding:24px 28px;max-width:1200px;margin:0 auto}
+
+/* CONTROLS BAR */
+.controls{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:20px}
+.ctrl-label{font-size:12px;color:var(--muted);font-weight:600}
+select,input[type=datetime-local]{font-size:13px;border:1px solid var(--border);border-radius:8px;padding:6px 10px;background:#fff;color:var(--txt);outline:none}
+select:focus,input:focus{border-color:var(--green-chip)}
+.btn-load{background:var(--green-chip);color:#fff;font-size:13px;font-weight:700;border:none;padding:7px 18px;border-radius:8px;cursor:pointer;transition:.2s}
+.btn-load:hover{background:var(--green)}
+
+/* LEGEND */
+.legend{display:flex;align-items:center;gap:14px;margin-bottom:16px;flex-wrap:wrap}
+.leg-item{display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted)}
+.leg-dot{width:10px;height:10px;border-radius:50%}
+
+/* COLADAS LIST */
+.coladas-list{display:flex;flex-direction:column;gap:8px}
+
+.colada-card{background:#fff;border:1px solid var(--border);border-radius:12px;overflow:hidden;transition:.15s}
+.colada-card:hover{border-color:#B0CFC4;box-shadow:0 2px 8px rgba(0,0,0,.06)}
+
+.colada-row{display:flex;align-items:center;gap:12px;padding:12px 16px;cursor:pointer;user-select:none}
+.colada-horno{width:36px;height:36px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;flex-shrink:0}
+.h2{background:#DBEAFE;color:#1E40AF}
+.h4{background:#D1FAE5;color:#065F46}
+.h-other{background:#F3F4F6;color:#374151}
+
+.colada-info{flex:1;min-width:0}
+.colada-num{font-size:13px;font-weight:700;color:var(--txt)}
+.colada-meta{font-size:11px;color:var(--muted);margin-top:1px}
+
+.pc-strip{display:flex;gap:4px;align-items:center;flex-wrap:nowrap}
+.pc-chip{font-size:10px;font-weight:700;padding:3px 7px;border-radius:20px;white-space:nowrap;letter-spacing:.04em}
+.pc-GRIS  {background:var(--gray-bg);color:var(--gray-chip)}
+.pc-VERDE {background:var(--green-bg);color:var(--green)}
+.pc-AMBAR {background:var(--amber-bg);color:var(--amber)}
+.pc-ROJO  {background:var(--red-bg);color:var(--red)}
+
+.latencia-badge{font-size:10px;font-weight:700;background:#FEE2E2;color:#B91C1C;padding:2px 8px;border-radius:20px;flex-shrink:0}
+
+.chevron{color:var(--faint);font-size:16px;flex-shrink:0;transition:.2s}
+.colada-card.open .chevron{transform:rotate(180deg)}
+
+/* DETAIL PANEL */
+.detail-panel{border-top:1px solid var(--border);padding:0 16px;max-height:0;overflow:hidden;transition:max-height .3s ease,padding .3s}
+.colada-card.open .detail-panel{max-height:800px;padding:16px}
+
+.carriles-grid{display:flex;flex-direction:column;gap:8px}
+
+.carril-row{display:flex;align-items:flex-start;gap:12px;padding:10px 12px;border-radius:10px;border:1px solid var(--border)}
+.carril-row.GRIS  {background:var(--gray-bg);border-color:#E5E7EB}
+.carril-row.VERDE {background:var(--green-bg);border-color:#A7F3D0}
+.carril-row.AMBAR {background:var(--amber-bg);border-color:#FDE68A}
+.carril-row.ROJO  {background:var(--red-bg);border-color:#FECACA}
+
+.carril-id{font-size:11px;font-weight:800;width:36px;flex-shrink:0;padding-top:2px}
+.carril-id.GRIS {color:var(--gray-chip)}
+.carril-id.VERDE{color:var(--green)}
+.carril-id.AMBAR{color:var(--amber-chip)}
+.carril-id.ROJO {color:var(--red-chip)}
+
+.carril-body{flex:1;min-width:0}
+.carril-señal{font-size:12px;font-weight:600;color:var(--txt)}
+.carril-motivo{font-size:11px;color:var(--muted);margin-top:2px}
+.carril-valor{font-size:13px;font-weight:700;margin-top:4px}
+.carril-detalle{font-size:11px;color:var(--muted);margin-top:3px}
+.carril-protocolo{font-size:11px;font-weight:700;color:var(--red);margin-top:4px}
+
+.latencia-row{font-size:11px;color:var(--red);font-weight:600;margin-top:4px}
+.latencia-row span{background:#FEE2E2;padding:1px 6px;border-radius:4px}
+
+/* EJECUTIVO TAB */
+.kpi-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px;margin-bottom:20px}
+.kpi-card{background:#fff;border:1px solid var(--border);border-radius:12px;padding:16px}
+.kpi-label{font-size:11px;color:var(--muted);font-weight:600;letter-spacing:.06em;text-transform:uppercase}
+.kpi-val{font-size:28px;font-weight:800;color:var(--txt);margin-top:4px;line-height:1}
+.kpi-sub{font-size:11px;color:var(--muted);margin-top:4px}
+
+.section-title{font-size:12px;font-weight:700;color:var(--muted);letter-spacing:.08em;text-transform:uppercase;margin-bottom:12px}
+.card{background:#fff;border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:16px}
+
+.loading-msg{text-align:center;color:var(--muted);padding:48px 0;font-size:14px}
+.empty-msg{text-align:center;color:var(--muted);padding:48px 0;font-size:13px}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="hdr-left">
+    <div class="hdr-logo">
+      <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+        <path d="M9 2L16 6V12L9 16L2 12V6L9 2Z" stroke="white" stroke-width="1.5"/>
+        <path d="M9 2V16M2 6L16 12M16 6L2 12" stroke="white" stroke-width="1" stroke-opacity=".4"/>
+      </svg>
+    </div>
+    <div>
+      <div class="hdr-title">Torre de Control · FASA</div>
+      <div class="hdr-sub">Fundición · Arena Cold Box</div>
+    </div>
+  </div>
+  <div style="display:flex;align-items:center;gap:10px">
+    <span class="version-badge">V3 · Contrato de Visibilidad</span>
+    <a href="/v2" style="color:rgba(255,255,255,.5);font-size:11px;text-decoration:none">← V2</a>
+  </div>
+</header>
+
+<div class="tabs">
+  <div class="tab active" data-tab="gestion">Gestión · Carriles</div>
+  <div class="tab" data-tab="ejecutivo">Ejecutivo</div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════ GESTIÓN TAB -->
+<div id="tab-gestion">
+<main>
+
+  <div class="controls">
+    <span class="ctrl-label">Ventana</span>
+    <select id="sel-horas">
+      <option value="8">8 h</option>
+      <option value="24">24 h</option>
+      <option value="48" selected>48 h</option>
+      <option value="72">72 h</option>
+    </select>
+    <span class="ctrl-label">Referencia</span>
+    <input type="datetime-local" id="inp-ref" value="2025-12-19T08:00"/>
+    <button class="btn-load" onclick="cargarColadas()">Cargar</button>
+  </div>
+
+  <div class="legend">
+    <span class="leg-item"><span class="leg-dot" style="background:#1D9E75"></span>VERDE — dentro de ventana</span>
+    <span class="leg-item"><span class="leg-dot" style="background:#F59E0B"></span>ÁMBAR — ventana por vencer</span>
+    <span class="leg-item"><span class="leg-dot" style="background:#EF4444"></span>ROJO — fuera de ventana · activa protocolo</span>
+    <span class="leg-item"><span class="leg-dot" style="background:#9CA3AF"></span>GRIS — sin dato evaluable (honestidad, no falla)</span>
+  </div>
+
+  <div id="lista-coladas" class="coladas-list">
+    <div class="loading-msg">Cargando coladas…</div>
+  </div>
+
+</main>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════ EJECUTIVO TAB -->
+<div id="tab-ejecutivo" style="display:none">
+<main>
+  <div class="kpi-grid" id="ej-kpis">
+    <div class="loading-msg" style="grid-column:1/-1">Cargando datos ejecutivos…</div>
+  </div>
+  <div class="section-title">Rechazo mensual 2025</div>
+  <div class="card" id="ej-mensual"></div>
+</main>
+</div>
+
+<script>
+// ── Helpers ──────────────────────────────────────────────────────────────────
+const fmtDt = s => {
+  if (!s) return '—'
+  const d = new Date(s)
+  return isNaN(d) ? s : d.toLocaleString('es-MX',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})
+}
+const fmtSeg = s => {
+  if (s == null) return null
+  if (s < 60) return `${s} s`
+  if (s < 3600) return `${Math.floor(s/60)} min`
+  return `${(s/3600).toFixed(1)} h`
+}
+const hornoClass = h => h===2?'h2':h===4?'h4':'h-other'
+
+const ESTADO_COLOR = { VERDE:'#1D9E75', AMBAR:'#F59E0B', ROJO:'#EF4444', GRIS:'#9CA3AF' }
+const PC_IDS = ['PC-1','PC-2','PC-3','PC-4','PC-5','PC-6','PC-7']
+
+// ── Tabs ─────────────────────────────────────────────────────────────────────
+document.querySelectorAll('.tab').forEach(t => {
+  t.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'))
+    t.classList.add('active')
+    const tab = t.dataset.tab
+    document.getElementById('tab-gestion').style.display  = tab==='gestion'  ? '' : 'none'
+    document.getElementById('tab-ejecutivo').style.display = tab==='ejecutivo'? '' : 'none'
+    if (tab === 'ejecutivo') cargarEjecutivo()
+  })
+})
+
+// ── Carril detail renderer ────────────────────────────────────────────────────
+function renderCarril(c) {
+  const est = c.estado
+  const latHtml = c.latencia_seg
+    ? `<div class="latencia-row">⏱ Tiempo en ${est}: <span>${fmtSeg(c.latencia_seg)}</span> · objetivo ≤ ${c.latencia_objetivo||'?'} min</div>`
+    : ''
+  const valHtml = c.valor != null
+    ? `<div class="carril-valor">${c.valor} ${c.ventana_de_control_unidad||''}</div>`
+    : ''
+
+  let detalleHtml = ''
+  if (c.detalle && Object.keys(c.detalle).length) {
+    const d = c.detalle
+    if (c.id_pc === 'PC-2') {
+      if (d.elementos) {
+        const elem = d.elementos
+        const chips = Object.entries(elem).map(([el, st]) => {
+          const col = st === 'PASS' ? '#1D9E75' : st === 'FAIL' ? '#EF4444' : st === 'LÍMITE' ? '#F59E0B' : '#9CA3AF'
+          return `<span style="background:${col};color:#fff;padding:1px 6px;border-radius:4px;font-size:11px;font-weight:700">${el}</span>`
+        }).join(' ')
+        const fuera = d.fuera_de_spec?.length ? ` · fuera: ${d.fuera_de_spec.join(', ')}` : ''
+        detalleHtml = `<div class="carril-detalle" style="display:flex;flex-wrap:wrap;gap:4px;align-items:center">${chips}</div>`
+        if (fuera) detalleHtml += `<div class="carril-detalle" style="color:var(--red-chip)">${fuera}</div>`
+      }
+    } else if (c.id_pc === 'PC-4') {
+      if (d.n_tickets) {
+        const avg = d.temp_avg != null ? `${d.temp_avg} °C` : '—'
+        const rng = (d.tmin != null && d.tmax != null) ? ` · meta ${d.tmin}–${d.tmax} °C` : ''
+        detalleHtml = `<div class="carril-detalle">${d.n_tickets} tickets · ${d.n_ok} en rango${rng} · T&#772; ${avg}</div>`
+        if (d.nota) detalleHtml += `<div class="carril-detalle" style="font-style:italic">${d.nota}</div>`
+      }
+    } else if (c.id_pc === 'PC-5') {
+      if (d.con_dato) {
+        const avg = d.avg_h != null ? `${d.avg_h.toFixed(1)} h promedio` : '—'
+        const rng = (d.min_h != null && d.max_h != null) ? ` · rango ${d.min_h.toFixed(1)}–${d.max_h.toFixed(1)} h` : ''
+        detalleHtml = `<div class="carril-detalle">${d.con_dato}/${d.total_piezas} piezas con dato · ${avg}${rng}</div>`
+        detalleHtml += `<div class="carril-detalle" style="font-style:italic">sin ventana de control — pendiente definir por parte con Calidad</div>`
+      }
+    } else if (c.id_pc === 'PC-6') {
+      detalleHtml = `<div class="carril-detalle">${d.total_piezas} piezas · ${d.rechazos} rechazos${d.defecto_top ? ' · <strong>'+d.defecto_top+'</strong>' : ''}</div>`
+    } else if (c.id_pc === 'PC-7') {
+      const dias = d.dias_transcurridos != null ? ` · ${d.dias_transcurridos} días desde vaciado` : ''
+      const pct  = d.pct_limp != null ? ` · ${d.pct_limp}% con limpieza` : ''
+      detalleHtml = `<div class="carril-detalle">${d.terminadas}/${d.total_piezas} piezas · ${d.kg_vaciados?.toFixed(0)} kg${pct}${dias}</div>`
+    }
+  }
+
+  const motivoHtml = c.motivo_gris
+    ? `<div class="carril-motivo">${c.motivo_gris}</div>`
+    : `<div class="carril-motivo">${c.fuente}</div>`
+
+  const protoHtml = c.protocolo
+    ? `<div class="carril-protocolo">▲ Activar ${c.protocolo}</div>`
+    : ''
+
+  return `
+    <div class="carril-row ${est}">
+      <div class="carril-id ${est}">${c.id_pc}</div>
+      <div class="carril-body">
+        <div class="carril-señal">${c.señal}</div>
+        ${motivoHtml}
+        ${valHtml}
+        ${detalleHtml}
+        ${latHtml}
+        ${protoHtml}
+      </div>
+    </div>`
+}
+
+// ── Load carriles for a colada (on expand) ───────────────────────────────────
+async function loadCarriles(idColada, container) {
+  container.innerHTML = '<div style="color:var(--muted);font-size:12px;padding:8px 0">Cargando carriles…</div>'
+  try {
+    const res = await fetch(`/v3/gestion/colada/${idColada}/carriles`)
+    const data = await res.json()
+    if (!data.carriles) { container.innerHTML = '<div class="empty-msg">Sin datos</div>'; return }
+    container.innerHTML = `<div class="carriles-grid">${data.carriles.map(renderCarril).join('')}</div>`
+  } catch(e) {
+    container.innerHTML = `<div style="color:red;font-size:12px">Error: ${e.message}</div>`
+  }
+}
+
+// ── Build colada row ──────────────────────────────────────────────────────────
+function buildColadaCard(col) {
+  const estados = col.estados || {}
+  const chips = PC_IDS.map(pc => {
+    const est = estados[pc] || 'GRIS'
+    return `<span class="pc-chip pc-${est}">${pc}</span>`
+  }).join('')
+
+  const latBadge = col.latencia_pc6_seg
+    ? `<span class="latencia-badge">⏱ ${fmtSeg(col.latencia_pc6_seg)}</span>`
+    : ''
+
+  const card = document.createElement('div')
+  card.className = 'colada-card'
+  card.innerHTML = `
+    <div class="colada-row">
+      <div class="colada-horno ${hornoClass(col.horno)}">H${col.horno}</div>
+      <div class="colada-info">
+        <div class="colada-num">Colada ${col.u_colada}</div>
+        <div class="colada-meta">${fmtDt(col.inicio_fusion)} · ${col.piezas||0} pzas · ${(col.kilos||0).toFixed(0)} kg${col.temp_avg ? ' · '+col.temp_avg+' °C' : ''}</div>
+      </div>
+      <div class="pc-strip">${chips}</div>
+      ${latBadge}
+      <div class="chevron">▾</div>
+    </div>
+    <div class="detail-panel"></div>`
+
+  const row     = card.querySelector('.colada-row')
+  const detail  = card.querySelector('.detail-panel')
+  let loaded    = false
+
+  row.addEventListener('click', () => {
+    const isOpen = card.classList.contains('open')
+    // Close all others
+    document.querySelectorAll('.colada-card.open').forEach(c => c.classList.remove('open'))
+    if (!isOpen) {
+      card.classList.add('open')
+      if (!loaded) {
+        loaded = true
+        loadCarriles(col.id_colada, detail)
+      }
+    }
+  })
+
+  return card
+}
+
+// ── Main load ─────────────────────────────────────────────────────────────────
+async function cargarColadas() {
+  const horas = document.getElementById('sel-horas').value
+  const ref   = document.getElementById('inp-ref').value
+  const lista = document.getElementById('lista-coladas')
+  lista.innerHTML = '<div class="loading-msg">Cargando coladas…</div>'
+
+  try {
+    const url = `/v3/gestion/coladas?referencia=${encodeURIComponent(ref)}&horas=${horas}`
+    const res  = await fetch(url)
+    const data = await res.json()
+
+    if (!data.coladas || !data.coladas.length) {
+      lista.innerHTML = '<div class="empty-msg">Sin coladas en la ventana seleccionada</div>'
+      return
+    }
+
+    lista.innerHTML = ''
+    data.coladas.forEach(col => lista.appendChild(buildColadaCard(col)))
+  } catch(e) {
+    lista.innerHTML = `<div style="color:red;padding:24px">Error al cargar: ${e.message}</div>`
+  }
+}
+
+// ── Ejecutivo tab ─────────────────────────────────────────────────────────────
+let ejLoaded = false
+async function cargarEjecutivo() {
+  if (ejLoaded) return
+  ejLoaded = true
+  try {
+    const res  = await fetch('/v2/ejecutivo/resumen-anual?anio=2025')
+    const data = await res.json()
+    const a    = data.anual || {}
+
+    document.getElementById('ej-kpis').innerHTML = `
+      <div class="kpi-card">
+        <div class="kpi-label">Piezas 2025</div>
+        <div class="kpi-val">${(a.n||0).toLocaleString('es-MX')}</div>
+        <div class="kpi-sub">${a.coladas||0} coladas</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">% Rechazo</div>
+        <div class="kpi-val" style="color:${(a.rate||0)<7?'var(--green)':'var(--red-chip)'}">${(a.rate||0).toFixed(1)}%</div>
+        <div class="kpi-sub">Meta: &lt; 7 %</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Mejor mes</div>
+        <div class="kpi-val" style="font-size:20px">${data.best?.lbl||'—'}</div>
+        <div class="kpi-sub">${data.best?.rate||0}% rechazo</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Peor mes</div>
+        <div class="kpi-val" style="font-size:20px">${data.worst?.lbl||'—'}</div>
+        <div class="kpi-sub">${data.worst?.rate||0}% rechazo</div>
+      </div>`
+
+    const mensual = data.mensual || []
+    const maxRate = Math.max(...mensual.map(m => m.rate||0), 1)
+    document.getElementById('ej-mensual').innerHTML = `
+      <div style="display:flex;align-items:flex-end;gap:6px;height:100px">
+        ${mensual.map(m => {
+          const h = Math.max(4, (m.rate/maxRate)*90)
+          const col = m.rate < 7 ? '#1D9E75' : m.rate < 15 ? '#F59E0B' : '#EF4444'
+          return `<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:3px">
+            <div style="font-size:9px;color:var(--muted)">${m.rate.toFixed(1)}</div>
+            <div style="height:${h}px;background:${col};border-radius:4px 4px 0 0;width:100%"></div>
+            <div style="font-size:9px;color:var(--muted)">${m.lbl}</div>
+          </div>`
+        }).join('')}
+      </div>
+      <div style="margin-top:8px;font-size:11px;color:var(--muted);text-align:center">% Rechazo mensual · Meta 7 % (verde)</div>`
+  } catch(e) {
+    document.getElementById('ej-kpis').innerHTML = `<div style="color:red">Error: ${e.message}</div>`
+  }
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+cargarColadas()
+</script>
+</body>
+</html>

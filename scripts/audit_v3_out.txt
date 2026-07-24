@@ -1,0 +1,147 @@
+=== PC-4: timestamps duplicados por colada (FHrVaciado) ===
+Coladas con 1 solo timestamp para multiples tickets (problema): 10 encontradas
+  (54424, 1, 19)
+  (56262, 1, 16)
+  (71425, 1, 16)
+  (57676, 1, 15)
+  (56903, 1, 14)
+  (54854, 1, 13)
+  (66177, 1, 13)
+  (54987, 1, 13)
+  (56970, 1, 12)
+  (71921, 1, 12)
+
+=== PC-4: distribución — cuántos tickets comparten mismo FHrVaciado por colada ===
+(ts_distintos_por_colada, n_coladas_con_ese_patron):
+  (1, 6819)
+  (2, 12234)
+  (3, 4030)
+  (4, 655)
+  (5, 141)
+  (6, 43)
+  (7, 24)
+  (8, 6)
+  (9, 2)
+  (10, 1)
+  (11, 1)
+
+=== PC-3: % c_FechaInoculante1 poblado ===
+ERROR: unsupported operand type(s) for *: 'float' and 'decimal.Decimal'
+
+=== PC-3: % c_FechaTrasvase1 poblado ===
+ERROR: unsupported operand type(s) for *: 'float' and 'decimal.Decimal'
+
+=== PC-5: % m_tenfriamiento poblado (cscmega_06modelosvaciado) ===
+ERROR: unsupported operand type(s) for *: 'float' and 'decimal.Decimal'
+
+=== PC-5: % FHrDESM y FHrMOLD poblados (cscmega_08ruta) ===
+ERROR: unsupported operand type(s) for *: 'float' and 'decimal.Decimal'
+
+=== PC-7: columnas con 'aref' o 'batch' en TODAS las tablas ia_fasa ===
+ERROR arefBatch ia_fasa: (1684, "Table 'ia_fasa'.'alfamega_02_pks_coladacargametalica' was skipped since its definition is being modified by concurrent DDL statement")
+
+=== PC-7: tablas con 'batch' en corex_test ===
+
+=== PC-1: SHOW COLUMNS corex_test.modelocastingrecetas ===
+('Baja', 'varchar(1)', 'NO', '', '', '')
+('FechaCreacion', 'datetime', 'YES', '', None, '')
+('IdUsuarioCreacion', 'int(11)', 'NO', '', '0', '')
+('FechaModificacion', 'datetime', 'YES', '', None, '')
+('IdUsuarioModificacion', 'int(11)', 'NO', '', '0', '')
+('FechaBaja', 'datetime', 'YES', '', None, '')
+('IdUsuarioBaja', 'int(11)', 'NO', '', '0', '')
+('IdModCastReceta', 'int(11)', 'NO', 'PRI', None, 'auto_increment')
+('IdModCastCajaModelo', 'int(11)', 'NO', 'MUL', '0', '')
+('IdModCastCajaCorazon', 'int(11)', 'NO', 'MUL', '0', '')
+('Resina1', 'int(11)', 'NO', '', '0', '')
+('Resina2', 'int(11)', 'NO', '', '0', '')
+('Careo1', 'int(11)', 'NO', '', '0', '')
+('Careo2', 'int(11)', 'NO', '', '0', '')
+('Relleno1', 'int(11)', 'NO', '', '0', '')
+('Relleno2', 'int(11)', 'NO', '', '0', '')
+('TiempoEntrada1', 'int(11)', 'NO', '', '0', '')
+('TiempoEntrada2', 'int(11)', 'NO', '', '0', '')
+('TiempoDuracion1', 'int(11)', 'NO', '', '0', '')
+('TiempoDuracion2', 'int(11)', 'NO', '', '0', '')
+('CompactIntensidad', 'int(11)', 'NO', '', '0', '')
+('CompactRemo', 'varchar(1)', 'NO', '', 'N', '')
+('CompactNeumatica', 'varchar(1)', 'NO', '', 'N', '')
+
+=== PC-1: SHOW COLUMNS alfamega_07_cargametalicos ===
+('idTicket', 'varchar(19)', 'NO', 'MUL', None, '')
+('FHrVaciado', 'datetime', 'YES', '', None, '')
+('IntExt', 'varchar(3)', 'YES', '', None, '')
+('nomDefecto', 'varchar(100)', 'YES', '', None, '')
+('Kgs11_0000', 'decimal(42,6)', 'YES', '', None, '')
+('Kgs11_0004', 'decimal(42,6)', 'YES', '', None, '')
+('Kgs11_0005', 'decimal(42,6)', 'YES', '', None, '')
+('Kgs11_0007', 'decimal(42,6)', 'YES', '', None, '')
+('Kgs11_0010', 'decimal(42,6)', 'YES', '', None, '')
+('Kgs11_0016', 'decimal(42,6)', 'YES', '', None, '')
+('Kgs11_0035', 'decimal(42,6)', 'YES', '', None, '')
+('Kgs11_0115', 'decimal(42,6)', 'YES', '', None, '')
+('Kgs11_0120', 'decimal(42,6)', 'YES', '', None, '')
+('Kgs11_0124', 'decimal(42,6)', 'YES', '', None, '')
+('Kgs11_0130', 'decimal(42,6)', 'YES', '', None, '')
+('Kgs11_0131', 'decimal(42,6)', 'YES', '', None, '')
+('Kgs11_0136', 'decimal(42,6)', 'YES', '', None, '')
+('Kgs11_0137', 'decimal(42,6)', 'YES', '', None, '')
+('Kgs11_0138', 'decimal(42,6)', 'YES', '', None, '')
+('Kgs11_0139', 'decimal(42,6)', 'YES', '', None, '')
+('Kgs11_0140', 'decimal(42,6)', 'YES', '', None, '')
+('Kgs11_0144', 'decimal(42,6)', 'YES', '', None, '')
+('Kgs31_0000', 'decimal(42,6)', 'YES', '', None, '')
+('Kgs31_0009', 'decimal(42,6)', 'YES', '', None, '')
+('Kgs31_0011', 'decimal(42,6)', 'YES', '', None, '')
+('Kgs31_0057', 'decimal(42,6)', 'YES', '', None, '')
+('Kgs31_0058', 'decimal(42,6)', 'YES', '', None, '')
+('Kgs31_0088', 'decimal(42,6)', 'YES', '', None, '')
+('Kgs31_0091', 'decimal(42,6)', 'YES', '', None, '')
+('Kgs31_0092', 'decimal(42,6)', 'YES', '', None, '')
+('Kgs31_0093', 'decimal(42,6)', 'YES', '', None, '')
+('Kgs31_0095', 'decimal(42,6)', 'YES', '', None, '')
+('Kgs31_0096', 'decimal(42,6)', 'YES', '', None, '')
+('Kgs31_0098', 'decimal(42,6)', 'YES', '', None, '')
+('Kgs31_0106', 'decimal(42,6)', 'YES', '', None, '')
+('Kgs31_0109', 'decimal(42,6)', 'YES', '', None, '')
+('Kgs31_0110', 'decimal(42,6)', 'YES', '', None, '')
+MUESTRA: ['idTicket', 'FHrVaciado', 'IntExt', 'nomDefecto', 'Kgs11_0000', 'Kgs11_0004', 'Kgs11_0005', 'Kgs11_0007', 'Kgs11_0010', 'Kgs11_0016', 'Kgs11_0035', 'Kgs11_0115', 'Kgs11_0120', 'Kgs11_0124', 'Kgs11_0130', 'Kgs11_0131', 'Kgs11_0136', 'Kgs11_0137', 'Kgs11_0138', 'Kgs11_0139', 'Kgs11_0140', 'Kgs11_0144', 'Kgs31_0000', 'Kgs31_0009', 'Kgs31_0011', 'Kgs31_0057', 'Kgs31_0058', 'Kgs31_0088', 'Kgs31_0091', 'Kgs31_0092', 'Kgs31_0093', 'Kgs31_0095', 'Kgs31_0096', 'Kgs31_0098', 'Kgs31_0106', 'Kgs31_0109', 'Kgs31_0110']
+  ('010223003103200101', datetime.datetime(2023, 2, 3, 13, 37, 22), 'Ok', None, Decimal('0.000000'), Decimal('0.000000'), Decimal('0.000000'), Decimal('0.000000'), Decimal('0.000000'), Decimal('615.000000'), Decimal('0.000000'), Decimal('0.000000'), Decimal('405.000000'), Decimal('0.000000'), Decimal('0.000000'), Decimal('149.000000'), Decimal('0.000000'), Decimal('0.000000'), Decimal('0.000000'), Decimal('0.000000'), Decimal('0.000000'), Decimal('0.000000'), Decimal('0.000000'), Decimal('0.000000'), Decimal('0.000000'), Decimal('0.000000'), Decimal('255.000000'), Decimal('0.000000'), Decimal('0.000000'), Decimal('0.000000'), Decimal('75.000000'), Decimal('0.000000'), Decimal('0.000000'), Decimal('0.000000'), Decimal('0.000000'), Decimal('0.000000'), Decimal('0.000000'))
+  ('010223003103200201', datetime.datetime(2023, 2, 3, 12, 59, 32), 'Ok', None, Decimal('0.000000'), Decimal('0.000000'), Decimal('0.000000'), Decimal('0.000000'), Decimal('0.000000'), Decimal('615.000000'), Decimal('0.000000'), Decimal('0.000000'), Decimal('406.000000'), Decimal('0.000000'), Decimal('0.000000'), Decimal('151.000000'), Decimal('0.000000'), Decimal('0.000000'), Decimal('0.000000'), Decimal('0.000000'), Decimal('0.000000'), Decimal('0.000000'), Decimal('0.000000'), Decimal('0.000000'), Decimal('0.000000'), Decimal('0.000000'), Decimal('255.000000'), Decimal('0.000000'), Decimal('0.000000'), Decimal('0.000000'), Decimal('75.000000'), Decimal('0.000000'), Decimal('0.000000'), Decimal('0.000000'), Decimal('0.000000'), Decimal('0.000000'), Decimal('0.000000'))
+  ('010223003103200301', datetime.datetime(2023, 2, 3, 15, 0, 18), 'Ok', None, Decimal('0.000000'), Decimal('0.000000'), Decimal('0.000000'), Decimal('0.000000'), Decimal('0.000000'), Decimal('618.000000'), Decimal('0.000000'), Decimal('0.000000'), Decimal('408.000000'), Decimal('0.000000'), Decimal('0.000000'), Decimal('150.000000'), Decimal('0.000000'), Decimal('0.000000'), Decimal('0.000000'), Decimal('0.000000'), Decimal('0.000000'), Decimal('0.000000'), Decimal('0.000000'), Decimal('0.000000'), Decimal('0.000000'), Decimal('0.000000'), Decimal('255.000000'), Decimal('0.000000'), Decimal('0.000000'), Decimal('0.000000'), Decimal('75.000000'), Decimal('0.000000'), Decimal('0.000000'), Decimal('0.000000'), Decimal('0.000000'), Decimal('0.000000'), Decimal('0.000000'))
+
+=== PC-2: SHOW COLUMNS cscmega_05aquimicoscumplimiento ===
+('u_Anio', 'int(4)', 'YES', '', None, '')
+('u_Month', 'int(2)', 'YES', '', None, '')
+('idTicketQuoted', 'varchar(21)', 'YES', '', None, '')
+('idTicket', 'varchar(19)', 'YES', '', '', '')
+('bRechazo', 'int(1)', 'YES', '', None, '')
+('IntExt', 'varchar(3)', 'YES', '', None, '')
+('u_Fecha', 'datetime', 'YES', '', '0000-00-00 00:00:00', '')
+('u_Colada', 'int(11)', 'YES', '', None, '')
+('u_Horno', 'int(11)', 'YES', '', None, '')
+('u_ColadaAsChar', 'varchar(11)', 'YES', '', None, '')
+('u_HornoAsChar', 'varchar(11)', 'YES', '', None, '')
+('CumplimientoAnalisisQuimico', 'varchar(27)', 'NO', '', None, '')
+('bCe_B', 'varchar(5)', 'YES', '', None, '')
+('bC_B', 'varchar(5)', 'YES', '', None, '')
+('bSi_B', 'varchar(5)', 'YES', '', None, '')
+('bMg_B', 'varchar(5)', 'YES', '', None, '')
+('bMn_B', 'varchar(5)', 'YES', '', None, '')
+('bCu_B', 'varchar(5)', 'YES', '', None, '')
+('bS_B', 'varchar(5)', 'YES', '', None, '')
+('bCr_B', 'varchar(5)', 'YES', '', None, '')
+('bP_B', 'varchar(5)', 'YES', '', None, '')
+('bAl_B', 'varchar(5)', 'YES', '', None, '')
+('bSn_B', 'varchar(5)', 'YES', '', None, '')
+('bCe_F', 'varchar(5)', 'YES', '', None, '')
+('bC_F', 'varchar(5)', 'YES', '', None, '')
+('bSi_F', 'varchar(5)', 'YES', '', None, '')
+('bMg_F', 'varchar(5)', 'YES', '', None, '')
+('bMn_F', 'varchar(5)', 'YES', '', None, '')
+('bCu_F', 'varchar(5)', 'YES', '', None, '')
+('bS_F', 'varchar(5)', 'YES', '', None, '')
+('bCr_F', 'varchar(5)', 'YES', '', None, '')
+('bP_F', 'varchar(5)', 'YES', '', None, '')
+('bAl_F', 'varchar(5)', 'YES', '', None, '')
+('bSn_F', 'varchar(5)', 'YES', '', None, '')

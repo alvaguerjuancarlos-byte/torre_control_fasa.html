@@ -1,0 +1,515 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>FASA — Dashboard de Gestión</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/tabler-icons.min.css">
+<style>
+:root{
+  --bg:#0f1117;--bg2:#161b25;--bg3:#1e2537;
+  --border:#2a3350;--border2:#3a4460;
+  --text:#e2e8f0;--text2:#8892a4;--text3:#5a6478;
+  --brand:#4f8ef7;--brand-dim:rgba(79,142,247,.12);
+  --ok:#1d9e75;--ok-bg:rgba(29,158,117,.12);
+  --warn:#e6a817;--warn-bg:rgba(230,168,23,.12);
+  --crit:#e24b4a;--crit-bg:rgba(226,75,74,.12);
+  --info:#5bb8f5;--info-bg:rgba(91,184,245,.12);
+  --fusion:#4f8ef7;--fusion-bg:rgba(79,142,247,.25);
+  --vaciado:#1d9e75;--vaciado-bg:rgba(29,158,117,.25);
+  --r-sm:6px;--r-md:10px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:12px;min-height:100vh}
+
+/* ── HEADER ── */
+.hdr{background:var(--bg2);border-bottom:1px solid var(--border);padding:10px 20px;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.hdr-title{font-size:13px;font-weight:700;color:var(--text);white-space:nowrap}
+.hdr-sub{font-size:10px;color:var(--text2)}
+.hdr-gap{flex:1}
+.nav-link{font-size:10px;padding:4px 10px;border-radius:5px;border:1px solid var(--border);color:var(--text2);text-decoration:none;transition:.12s}
+.nav-link:hover{border-color:var(--brand);color:var(--brand)}
+
+/* ── TOOLBAR ── */
+.toolbar{background:var(--bg2);border-bottom:1px solid var(--border);padding:8px 20px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.tb-label{font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;white-space:nowrap}
+.tb-sep{width:1px;height:16px;background:var(--border);margin:0 4px}
+.btn{font-size:10px;font-weight:600;padding:4px 11px;border-radius:5px;border:1px solid var(--border);background:var(--bg3);color:var(--text2);cursor:pointer;transition:.12s;white-space:nowrap}
+.btn:hover{border-color:var(--brand);color:var(--brand)}
+.btn.on{background:var(--brand);color:#fff;border-color:var(--brand)}
+.btn-apply{background:var(--brand);color:#fff;border-color:var(--brand)}
+.btn-apply:hover{opacity:.85}
+input[type=date],input[type=datetime-local]{font-size:10px;padding:3px 8px;border-radius:5px;border:1px solid var(--border);background:var(--bg3);color:var(--text);outline:none}
+input[type=date]:focus,input[type=datetime-local]:focus{border-color:var(--brand)}
+.api-badge{font-size:9px;padding:2px 7px;border-radius:4px;background:var(--bg3);color:var(--text3);margin-left:auto}
+
+/* ── LAYOUT ── */
+.layout{display:grid;grid-template-columns:1fr;gap:0}
+@media(min-width:1100px){.layout{grid-template-columns:1fr 380px}}
+
+/* ── GANTT PANEL ── */
+.gantt-panel{padding:16px 20px;overflow-x:auto}
+.gantt-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+.gantt-title{font-size:11px;font-weight:600}
+.gantt-legend{display:flex;gap:12px;align-items:center}
+.leg{display:flex;align-items:center;gap:4px;font-size:9px;color:var(--text2)}
+.leg-dot{width:10px;height:10px;border-radius:2px}
+
+/* ── TIME AXIS ── */
+.gantt-container{min-width:600px}
+.time-axis{display:flex;margin-left:180px;margin-bottom:4px;border-bottom:1px solid var(--border);padding-bottom:4px;position:relative}
+.time-label{font-size:8px;color:var(--text3);position:absolute;transform:translateX(-50%)}
+.time-line{position:absolute;top:0;bottom:0;width:1px;background:var(--border);opacity:.4}
+
+/* ── COLADA ROWS ── */
+.colada-rows{display:flex;flex-direction:column;gap:4px}
+.colada-row{display:flex;align-items:center;gap:0;cursor:pointer;border-radius:var(--r-sm);transition:.1s;padding:2px 0}
+.colada-row:hover{background:var(--bg3)}
+.colada-row.selected{background:var(--brand-dim);outline:1px solid var(--brand)}
+
+.row-meta{width:180px;flex-shrink:0;padding:4px 8px;display:flex;flex-direction:column;gap:2px}
+.row-id{font-size:10px;font-weight:600;white-space:nowrap}
+.row-sub{font-size:9px;color:var(--text2);white-space:nowrap}
+.row-badges{display:flex;gap:4px;flex-wrap:wrap}
+
+.row-track{flex:1;height:28px;position:relative;background:var(--bg3);border-radius:3px;overflow:hidden}
+.bar{position:absolute;height:100%;border-radius:3px;transition:.2s;display:flex;align-items:center;padding:0 5px;overflow:hidden;min-width:4px}
+.bar-fusion{background:var(--fusion-bg);border:1px solid var(--fusion)}
+.bar-vaciado{background:var(--vaciado-bg);border:1px solid var(--vaciado)}
+.bar-warn{background:var(--warn-bg);border:1px solid var(--warn)}
+.bar-crit{background:var(--crit-bg);border:1px solid var(--crit)}
+.bar-label{font-size:8px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+.badge{font-size:8px;font-weight:600;padding:1px 5px;border-radius:3px;white-space:nowrap}
+.badge-ok{background:var(--ok-bg);color:var(--ok)}
+.badge-warn{background:var(--warn-bg);color:var(--warn)}
+.badge-crit{background:var(--crit-bg);color:var(--crit)}
+.badge-info{background:var(--info-bg);color:var(--info)}
+.badge-neutral{background:var(--bg3);color:var(--text2);border:1px solid var(--border)}
+
+.now-line{position:absolute;top:0;bottom:0;width:2px;background:var(--crit);opacity:.6;z-index:2}
+.now-label{position:absolute;top:-14px;font-size:7px;color:var(--crit);transform:translateX(-50%);white-space:nowrap}
+
+/* ── DETAIL PANEL ── */
+.detail-panel{background:var(--bg2);border-left:1px solid var(--border);padding:16px;overflow-y:auto;max-height:calc(100vh - 88px)}
+.detail-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;height:200px;color:var(--text3);gap:8px;font-size:11px}
+.detail-empty i{font-size:28px}
+
+.det-header{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:12px}
+.det-title{font-size:13px;font-weight:700}
+.det-sub{font-size:10px;color:var(--text2);margin-top:2px}
+
+.det-section{margin-bottom:14px}
+.det-section-title{font-size:9px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px;padding-bottom:4px;border-bottom:1px solid var(--border)}
+
+.kpi-row{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:10px}
+.kpi-box{background:var(--bg3);border:1px solid var(--border);border-radius:var(--r-sm);padding:7px 9px}
+.kpi-lbl{font-size:8px;color:var(--text2);margin-bottom:3px}
+.kpi-val{font-size:15px;font-weight:700;line-height:1}
+.kpi-unit{font-size:9px;color:var(--text2)}
+
+/* ── CHEMISTRY MINI ── */
+.chem-mini{display:grid;grid-template-columns:repeat(4,1fr);gap:4px}
+.chem-cell{background:var(--bg3);border:1px solid var(--border);border-radius:4px;padding:5px 6px;text-align:center}
+.chem-el{font-size:8px;color:var(--text2);margin-bottom:2px}
+.chem-v{font-size:11px;font-weight:600}
+.chem-v.ok{color:var(--ok)}
+.chem-v.warn{color:var(--warn)}
+.chem-v.nd{color:var(--text3);font-weight:400;font-size:9px}
+
+/* ── SKU TABLE ── */
+.sku-table{width:100%;border-collapse:collapse}
+.sku-table th{font-size:8px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.04em;padding:4px 6px;text-align:left;border-bottom:1px solid var(--border)}
+.sku-table td{font-size:10px;padding:5px 6px;border-bottom:1px solid var(--border);vertical-align:middle}
+.sku-table tr:last-child td{border-bottom:none}
+.sku-table tr:hover td{background:var(--bg3)}
+.pct-bar-wrap{background:var(--bg3);border-radius:2px;height:4px;width:60px;overflow:hidden}
+.pct-bar{height:100%;border-radius:2px}
+
+/* ── FLUJO DE ETAPAS ── */
+.flujo-stages{display:flex;align-items:center;gap:0;margin-top:6px;overflow-x:auto}
+.stage{display:flex;flex-direction:column;align-items:center;min-width:60px}
+.stage-icon{width:32px;height:32px;border-radius:50%;border:2px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:14px;background:var(--bg3);position:relative}
+.stage-icon.done{border-color:var(--ok);background:var(--ok-bg)}
+.stage-icon.partial{border-color:var(--warn);background:var(--warn-bg)}
+.stage-count{font-size:9px;font-weight:600;margin-top:3px}
+.stage-name{font-size:8px;color:var(--text2);text-align:center;margin-top:1px}
+.stage-arrow{color:var(--text3);font-size:14px;margin-bottom:14px;flex-shrink:0}
+
+/* ── BRECHAS BADGE ── */
+.brecha-tag{font-size:8px;background:var(--warn-bg);color:var(--warn);border:1px solid rgba(230,168,23,.3);border-radius:3px;padding:1px 5px}
+
+/* ── EMPTY STATE ── */
+.empty-gantt{padding:40px;text-align:center;color:var(--text3)}
+.empty-gantt i{font-size:32px;margin-bottom:8px;display:block}
+
+/* ── SCROLLBAR ── */
+::-webkit-scrollbar{width:5px;height:5px}
+::-webkit-scrollbar-track{background:var(--bg)}
+::-webkit-scrollbar-thumb{background:var(--border2);border-radius:3px}
+</style>
+</head>
+<body>
+
+<div class="hdr">
+  <div>
+    <div class="hdr-title"><i class="ti ti-activity"></i> Dashboard de Gestión · FASA</div>
+    <div class="hdr-sub">Flujo de coladas y piezas en proceso</div>
+  </div>
+  <div class="hdr-gap"></div>
+  <a href="/" class="nav-link"><i class="ti ti-layout-dashboard"></i> Panel Ejecutivo</a>
+</div>
+
+<div class="toolbar">
+  <span class="tb-label">Ventana:</span>
+  <button class="btn" onclick="setHoras(8,this)">8 h</button>
+  <button class="btn" onclick="setHoras(24,this)">24 h</button>
+  <button class="btn on" onclick="setHoras(48,this)">48 h</button>
+  <button class="btn" onclick="setHoras(72,this)">72 h</button>
+  <div class="tb-sep"></div>
+  <span class="tb-label">Hasta:</span>
+  <input type="datetime-local" id="input-hasta" value="2025-12-20T00:00">
+  <button class="btn btn-apply" onclick="cargar()">&#9654; Cargar</button>
+  <div class="tb-sep"></div>
+  <span class="tb-label">Horno:</span>
+  <select id="sel-horno" style="font-size:10px;padding:3px 8px;border-radius:5px;border:1px solid var(--border);background:var(--bg3);color:var(--text);outline:none" onchange="cargar()">
+    <option value="">Todos</option>
+    <option value="1">Horno 1</option>
+    <option value="2">Horno 2</option>
+    <option value="4">Horno 4</option>
+  </select>
+  <span class="api-badge" id="api-badge">conectando...</span>
+</div>
+
+<div class="layout">
+  <!-- ── GANTT ── -->
+  <div class="gantt-panel">
+    <div class="gantt-header">
+      <div class="gantt-title"><i class="ti ti-timeline"></i> Coladas en proceso</div>
+      <div class="gantt-legend">
+        <div class="leg"><div class="leg-dot" style="background:var(--fusion);opacity:.7"></div>Fusión</div>
+        <div class="leg"><div class="leg-dot" style="background:var(--vaciado);opacity:.7"></div>Vaciado</div>
+        <div class="leg"><div class="leg-dot" style="background:var(--ok)"></div>&lt;7% rec.</div>
+        <div class="leg"><div class="leg-dot" style="background:var(--warn)"></div>7-12%</div>
+        <div class="leg"><div class="leg-dot" style="background:var(--crit)"></div>&gt;12%</div>
+      </div>
+    </div>
+    <div class="gantt-container" id="gantt-container">
+      <div class="empty-gantt"><i class="ti ti-loader"></i>Cargando coladas...</div>
+    </div>
+  </div>
+
+  <!-- ── DETAIL ── -->
+  <div class="detail-panel" id="detail-panel">
+    <div class="detail-empty">
+      <i class="ti ti-click"></i>
+      <span>Selecciona una colada en el Gantt<br>para ver su detalle</span>
+    </div>
+  </div>
+</div>
+
+<script>
+var HORAS = 48;
+var COLADAS = [];
+var SEL_ID = null;
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+function fmtHora(iso) {
+  if (!iso) return '—';
+  var d = new Date(iso);
+  return d.toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit'});
+}
+function fmtFecha(iso) {
+  if (!iso) return '—';
+  var d = new Date(iso);
+  return d.toLocaleDateString('es-MX',{day:'2-digit',month:'short'}) + ' ' + fmtHora(iso);
+}
+function pctClass(pct) {
+  if (pct === null || pct === undefined) return 'neutral';
+  return pct < 7 ? 'ok' : pct < 12 ? 'warn' : 'crit';
+}
+function pctColor(pct) {
+  if (pct === null || pct === undefined) return 'var(--brand)';
+  return pct < 7 ? 'var(--ok)' : pct < 12 ? 'var(--warn)' : 'var(--crit)';
+}
+
+// ── API ───────────────────────────────────────────────────────────────────────
+
+async function apiFetch(path) {
+  var badge = document.getElementById('api-badge');
+  try {
+    var r = await fetch(path, {cache:'no-store'});
+    if (!r.ok) {
+      if (badge) { badge.textContent='Error '+r.status; badge.style.color='var(--crit)'; }
+      return null;
+    }
+    var d = await r.json();
+    if (badge) { badge.textContent='API OK'; badge.style.color='var(--ok)'; }
+    return d;
+  } catch(e) {
+    if (badge) { badge.textContent='Sin conexion'; badge.style.color='var(--warn)'; }
+    return null;
+  }
+}
+
+// ── Window setup ─────────────────────────────────────────────────────────────
+
+function setHoras(h, btn) {
+  HORAS = h;
+  document.querySelectorAll('.toolbar .btn:not(.btn-apply)').forEach(function(b){ b.classList.remove('on'); });
+  if (btn) btn.classList.add('on');
+}
+
+function getVentana() {
+  var hastaStr = document.getElementById('input-hasta').value;
+  var hasta = hastaStr ? new Date(hastaStr) : new Date();
+  var desde = new Date(hasta.getTime() - HORAS * 3600000);
+  return {
+    desde: desde.toISOString().slice(0,10),
+    hasta: hasta.toISOString().slice(0,10),
+    desdeMs: desde.getTime(),
+    hastaMs: hasta.getTime(),
+    durMs: hasta.getTime() - desde.getTime()
+  };
+}
+
+// ── Gantt render ─────────────────────────────────────────────────────────────
+
+function renderGantt(coladas, ventana) {
+  var cont = document.getElementById('gantt-container');
+  if (!coladas || !coladas.length) {
+    cont.innerHTML = '<div class="empty-gantt"><i class="ti ti-mood-empty"></i>Sin coladas en este periodo.<br><span style="font-size:10px">Ajusta la ventana o la fecha de referencia.</span></div>';
+    return;
+  }
+
+  // Agrupar por horno
+  var hornos = {};
+  coladas.forEach(function(c) {
+    if (!hornos[c.horno]) hornos[c.horno] = [];
+    hornos[c.horno].push(c);
+  });
+
+  var hornoFiltro = document.getElementById('sel-horno').value;
+
+  // Time axis
+  var numLabels = HORAS <= 24 ? HORAS / 4 : HORAS / 8;
+  var stepMs = ventana.durMs / numLabels;
+  var axisHTML = '<div class="time-axis" style="height:20px">';
+  for (var i = 0; i <= numLabels; i++) {
+    var pct = (i / numLabels * 100).toFixed(1);
+    var ts = new Date(ventana.desdeMs + i * stepMs);
+    var lbl = ts.toLocaleString('es-MX',{month:'short',day:'2-digit',hour:'2-digit',minute:'2-digit'});
+    axisHTML += '<span class="time-label" style="left:'+pct+'%">'+lbl+'</span>';
+  }
+  axisHTML += '</div>';
+
+  // Rows
+  var rowsHTML = '<div class="colada-rows">';
+  coladas.forEach(function(c) {
+    var startMs = c.inicio_fusion ? new Date(c.inicio_fusion).getTime() : null;
+    var endFusion = c.fin_fusion ? new Date(c.fin_fusion).getTime() : null;
+    var startVac = c.inicio_vaciado ? new Date(c.inicio_vaciado).getTime() : null;
+    var endVac = c.fin_vaciado ? new Date(c.fin_vaciado).getTime() : null;
+
+    // Calcular barra de fusión
+    var fusionLeft = null, fusionW = null, vacLeft = null, vacW = null;
+    if (startMs && endFusion) {
+      fusionLeft = Math.max(0, (startMs - ventana.desdeMs) / ventana.durMs * 100);
+      var endClipped = Math.min(endFusion, ventana.hastaMs);
+      fusionW = Math.max(0.3, (endClipped - Math.max(startMs, ventana.desdeMs)) / ventana.durMs * 100);
+    }
+    if (startVac && endVac) {
+      vacLeft = Math.max(0, (startVac - ventana.desdeMs) / ventana.durMs * 100);
+      var endVacClipped = Math.min(endVac, ventana.hastaMs);
+      vacW = Math.max(0.3, (endVacClipped - Math.max(startVac, ventana.desdeMs)) / ventana.durMs * 100);
+    }
+
+    var pct = c.pct_rechazo;
+    var barClass = pct === null ? 'bar-fusion' : (pct < 7 ? 'bar-fusion' : pct < 12 ? 'bar-warn' : 'bar-crit');
+    var badgeClass = 'badge-' + pctClass(pct);
+    var sel = SEL_ID === c.id_colada ? ' selected' : '';
+    var ceStr = c.ce_pct ? c.ce_pct.toFixed(2) + '%' : '<span class="brecha-tag">SIN QUIMICA</span>';
+    var pctStr = pct !== null ? pct + '%' : '—';
+
+    rowsHTML += '<div class="colada-row'+sel+'" onclick="selColada('+c.id_colada+')" data-id="'+c.id_colada+'">';
+    // Meta
+    rowsHTML += '<div class="row-meta">';
+    rowsHTML += '<div class="row-id">Col '+c.num_colada+' &nbsp;<span style="color:var(--text2);font-weight:400">H'+c.horno+'</span></div>';
+    rowsHTML += '<div class="row-sub">'+(c.inicio_fusion ? fmtFecha(c.inicio_fusion) : '—')+'</div>';
+    rowsHTML += '<div class="row-badges">';
+    rowsHTML += '<span class="badge '+badgeClass+'">'+pctStr+' rec.</span>';
+    rowsHTML += '<span class="badge badge-neutral">'+c.min_fusion+' min</span>';
+    if (c.ce_pct) rowsHTML += '<span class="badge badge-info">CE '+c.ce_pct.toFixed(2)+'%</span>';
+    rowsHTML += '</div></div>';
+    // Track
+    rowsHTML += '<div class="row-track">';
+    if (fusionLeft !== null) {
+      rowsHTML += '<div class="bar '+barClass+'" style="left:'+fusionLeft.toFixed(1)+'%;width:'+fusionW.toFixed(1)+'%">';
+      rowsHTML += '<span class="bar-label">Fusión '+(c.kilos||'')+(c.kilos?' kg':'')+'</span></div>';
+    }
+    if (vacLeft !== null && vacW > 0) {
+      rowsHTML += '<div class="bar bar-vaciado" style="left:'+vacLeft.toFixed(1)+'%;width:'+Math.max(vacW,0.5).toFixed(1)+'%;z-index:1">';
+      rowsHTML += '<span class="bar-label" style="color:var(--vaciado)">Vaciado '+(c.total_piezas||'')+'pz</span></div>';
+    }
+    rowsHTML += '</div>';
+    rowsHTML += '</div>';
+  });
+  rowsHTML += '</div>';
+
+  cont.innerHTML = axisHTML + rowsHTML;
+}
+
+// ── Detail panel ─────────────────────────────────────────────────────────────
+
+async function selColada(idColada) {
+  SEL_ID = idColada;
+  document.querySelectorAll('.colada-row').forEach(function(r){
+    r.classList.toggle('selected', parseInt(r.dataset.id) === idColada);
+  });
+
+  var colada = COLADAS.find(function(c){ return c.id_colada === idColada; });
+  var panel = document.getElementById('detail-panel');
+  panel.innerHTML = '<div style="color:var(--text2);padding:20px;text-align:center"><i class="ti ti-loader"></i> Cargando...</div>';
+
+  var skus  = await apiFetch('/gestion/colada/'+idColada+'/skus');
+  var flujo = await apiFetch('/gestion/colada/'+idColada+'/flujo');
+
+  panel.innerHTML = renderDetail(colada, skus, flujo);
+}
+
+function renderDetail(c, skus, flujo) {
+  if (!c) return '<div class="detail-empty"><i class="ti ti-alert-circle"></i><span>Sin datos</span></div>';
+
+  var pct = c.pct_rechazo;
+  var html = '';
+
+  // Header
+  html += '<div class="det-header">';
+  html += '<div><div class="det-title">Colada '+c.num_colada+' — Horno '+c.horno+'</div>';
+  html += '<div class="det-sub">ID '+c.id_colada+' &middot; '+c.c_Status+'</div></div>';
+  html += '<span class="badge badge-'+pctClass(pct)+'" style="font-size:11px">'+( pct !== null ? pct+'% rechazo' : '— %')+'</span>';
+  html += '</div>';
+
+  // KPIs
+  html += '<div class="kpi-row">';
+  html += '<div class="kpi-box"><div class="kpi-lbl">Piezas</div><div class="kpi-val">'+(c.total_piezas||'—')+'</div></div>';
+  html += '<div class="kpi-box"><div class="kpi-lbl">Rechazos</div><div class="kpi-val" style="color:var(--crit)">'+(c.rechazos||0)+'</div></div>';
+  html += '<div class="kpi-box"><div class="kpi-lbl">Kilos</div><div class="kpi-val">'+(c.kilos||'—')+'<span class="kpi-unit"> kg</span></div></div>';
+  html += '</div>';
+
+  // Línea de tiempo
+  html += '<div class="det-section">';
+  html += '<div class="det-section-title">Línea de tiempo</div>';
+  html += '<table style="width:100%;font-size:10px;border-collapse:collapse">';
+  html += '<tr><td style="color:var(--text2);padding:3px 0;width:100px">Inicio fusión</td><td>'+fmtFecha(c.inicio_fusion)+'</td></tr>';
+  html += '<tr><td style="color:var(--text2);padding:3px 0">Fin fusión</td><td>'+fmtFecha(c.fin_fusion)+'</td></tr>';
+  html += '<tr><td style="color:var(--text2);padding:3px 0">Tiempo fusión</td><td>'+(c.min_fusion||'—')+' min</td></tr>';
+  html += '<tr><td style="color:var(--text2);padding:3px 0">1er vaciado</td><td>'+(c.inicio_vaciado ? fmtFecha(c.inicio_vaciado) : '<span class="brecha-tag">SIN DATO directo — reconst. de ruta</span>')+'</td></tr>';
+  html += '<tr><td style="color:var(--text2);padding:3px 0">Últ. vaciado</td><td>'+fmtFecha(c.fin_vaciado)+'</td></tr>';
+  if (flujo && flujo.fin_limpieza) html += '<tr><td style="color:var(--text2);padding:3px 0">Fin limpieza</td><td>'+fmtFecha(flujo.fin_limpieza)+'</td></tr>';
+  html += '</table></div>';
+
+  // Química
+  html += '<div class="det-section">';
+  html += '<div class="det-section-title">Química de la colada (SpectroMAX)</div>';
+  if (c.ce_pct) {
+    html += '<div class="chem-mini">';
+    var cval = c.c_pct, sival = c.si_pct, mgval = c.mg_pct, ce = c.ce_pct;
+    html += '<div class="chem-cell"><div class="chem-el">%C</div><div class="chem-v ok">'+(cval?cval.toFixed(2):'—')+'</div></div>';
+    html += '<div class="chem-cell"><div class="chem-el">%Si</div><div class="chem-v ok">'+(sival?sival.toFixed(2):'—')+'</div></div>';
+    html += '<div class="chem-cell"><div class="chem-el">%Mg</div><div class="chem-v '+(mgval>0.035?'ok':'warn')+'">'+(mgval?mgval.toFixed(3):'—')+'</div></div>';
+    var ceOk = ce >= 4.1 && ce <= 4.6;
+    html += '<div class="chem-cell"><div class="chem-el">CE%</div><div class="chem-v '+(ceOk?'ok':'warn')+'" style="font-size:14px">'+ce.toFixed(2)+'</div></div>';
+    html += '</div>';
+  } else {
+    html += '<div style="color:var(--text3);font-size:10px;padding:6px 0"><span class="brecha-tag">SIN QUÍMICA</span> No hay análisis SpectroMAX para esta colada.</div>';
+  }
+  html += '</div>';
+
+  // Flujo de etapas
+  if (flujo && flujo.total_con_ruta > 0) {
+    html += '<div class="det-section">';
+    html += '<div class="det-section-title">Flujo de piezas por etapa</div>';
+    var etapas = [
+      {key:'paso_moldeo',  label:'Moldeo',    icon:'ti-box'},
+      {key:'paso_vaciado', label:'Vaciado',   icon:'ti-droplet'},
+      {key:'paso_limpieza',label:'Limpieza',  icon:'ti-wash'},
+      {key:'paso_desmoldeo',label:'Desmold.', icon:'ti-tool'},
+      {key:'paso_celdas',  label:'Celdas',    icon:'ti-circle-dot'},
+    ];
+    html += '<div class="flujo-stages">';
+    etapas.forEach(function(e, idx) {
+      var n = flujo[e.key] || 0;
+      var tot = flujo.total_con_ruta || 1;
+      var pctE = Math.round(n/tot*100);
+      var cls = pctE >= 90 ? 'done' : pctE > 0 ? 'partial' : '';
+      html += '<div class="stage">';
+      html += '<div class="stage-icon '+cls+'"><i class="ti '+e.icon+'"></i></div>';
+      html += '<div class="stage-count" style="color:'+(cls==='done'?'var(--ok)':cls==='partial'?'var(--warn)':'var(--text3)')+'">'+n+'</div>';
+      html += '<div class="stage-name">'+e.label+'</div>';
+      html += '</div>';
+      if (idx < etapas.length - 1) html += '<div class="stage-arrow"><i class="ti ti-chevron-right"></i></div>';
+    });
+    html += '</div></div>';
+  }
+
+  // SKUs
+  if (skus && skus.length) {
+    html += '<div class="det-section">';
+    html += '<div class="det-section-title">SKUs producidos ('+skus.length+' partes)</div>';
+    html += '<table class="sku-table"><thead><tr>';
+    html += '<th>No. Parte</th><th>Piezas</th><th>Rec.</th><th>%</th>';
+    html += '</tr></thead><tbody>';
+    skus.forEach(function(s) {
+      var pc = s.pct_rechazo || 0;
+      var bc = pctClass(pc);
+      html += '<tr>';
+      html += '<td style="font-family:monospace;font-size:9px">'+s.no_parte+'</td>';
+      html += '<td style="text-align:right;font-weight:600">'+s.piezas+'</td>';
+      html += '<td style="text-align:right;color:var(--crit)">'+(s.rechazos||0)+'</td>';
+      html += '<td>';
+      html += '<div style="display:flex;align-items:center;gap:4px">';
+      html += '<div class="pct-bar-wrap"><div class="pct-bar" style="width:'+Math.min(pc,100)+'%;background:'+pctColor(pc)+'"></div></div>';
+      html += '<span class="badge badge-'+bc+'" style="font-size:7px">'+pc+'%</span>';
+      html += '</div></td>';
+      html += '</tr>';
+    });
+    html += '</tbody></table></div>';
+  } else if (skus !== null) {
+    html += '<div style="color:var(--text3);font-size:10px;padding:6px 0"><span class="brecha-tag">SIN SKUs</span> No hay detalle de partes para esta colada en ia_fasa.</div>';
+  }
+
+  return html;
+}
+
+// ── Cargar datos ──────────────────────────────────────────────────────────────
+
+async function cargar() {
+  var v = getVentana();
+  var horno = document.getElementById('sel-horno').value;
+  var url = '/gestion/coladas?desde='+v.desde+'&hasta='+v.hasta;
+
+  var cont = document.getElementById('gantt-container');
+  cont.innerHTML = '<div class="empty-gantt"><i class="ti ti-loader"></i> Cargando...</div>';
+
+  var data = await apiFetch(url);
+  if (!data) return;
+
+  // Filtrar por horno si se seleccionó
+  COLADAS = horno ? data.filter(function(c){ return String(c.horno) === horno; }) : data;
+
+  renderGantt(COLADAS, v);
+
+  // Si había una colada seleccionada, mantener selección
+  if (SEL_ID) {
+    var sel = COLADAS.find(function(c){ return c.id_colada === SEL_ID; });
+    if (sel) selColada(SEL_ID);
+  }
+}
+
+// ── Arranque ──────────────────────────────────────────────────────────────────
+cargar();
+</script>
+</body>
+</html>

@@ -1,0 +1,426 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>FASA — Piso de Producción</title>
+<style>
+:root{
+  --bg:#f4f3ee;--bg2:#ffffff;--bg3:#eceae4;
+  --border:rgba(0,0,0,0.10);--border2:rgba(0,0,0,0.18);
+  --text:#1f1f1d;--text2:#5f5e5a;--text3:#9a9890;
+  --ok:#0F6E56;--ok-bg:#E1F5EE;
+  --warn:#854F0B;--warn-bg:#FAEEDA;
+  --crit:#A32D2D;--crit-bg:#FCEBEB;
+  --info:#185FA5;--info-bg:#E6F1FB;
+  --neu:#4a4a47;--neu-bg:#efefec;
+  /* etapas */
+  --c-vaci:#378ADD;--c-desm:#7F77DD;--c-limp:#1D9E75;--c-term:#0a5c44;
+  --r:8px;--r2:12px;
+  --font:system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:var(--font);background:var(--bg);color:var(--text);font-size:12px;min-height:100vh}
+
+/* HEADER */
+.hdr{background:var(--bg2);border-bottom:1px solid var(--border2);padding:10px 20px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.hdr-title{font-size:14px;font-weight:600}
+.hdr-sub{font-size:11px;color:var(--text2)}
+.gap{flex:1}
+a.nav{font-size:11px;padding:4px 10px;border-radius:5px;border:1px solid var(--border2);color:var(--text2);text-decoration:none;transition:.12s}
+a.nav:hover{border-color:var(--info);color:var(--info)}
+
+/* TOOLBAR */
+.tb{background:var(--bg2);border-bottom:1px solid var(--border);padding:8px 20px;display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+.tb-lbl{font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;white-space:nowrap}
+.sep{width:1px;height:16px;background:var(--border2);margin:0 3px}
+.btn{font-size:10px;font-weight:600;padding:4px 11px;border-radius:5px;border:1px solid var(--border2);background:var(--bg);color:var(--text2);cursor:pointer;transition:.12s}
+.btn:hover{border-color:var(--info);color:var(--info)}
+.btn.on{background:var(--text);color:#fff;border-color:var(--text)}
+.btn-go{background:var(--info);color:#fff;border-color:var(--info)}
+.btn-go:hover{opacity:.85}
+input[type=datetime-local]{font-size:10px;padding:3px 8px;border-radius:5px;border:1px solid var(--border2);background:var(--bg2);color:var(--text);font-family:var(--font);outline:none}
+input:focus{border-color:var(--info)}
+.status-badge{font-size:9px;padding:2px 8px;border-radius:4px;background:var(--neu-bg);color:var(--text3);margin-left:auto}
+
+/* KPI STRIP */
+.kpi-strip{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;padding:12px 20px}
+@media(min-width:600px){.kpi-strip{grid-template-columns:repeat(5,1fr)}}
+.kpi{background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);padding:10px 14px}
+.kpi-lbl{font-size:9px;color:var(--text2);text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px}
+.kpi-val{font-size:22px;font-weight:600;line-height:1}
+.kpi-sub{font-size:9px;color:var(--text3);margin-top:2px}
+
+/* MAIN */
+.main{padding:0 20px 20px}
+
+/* LEYENDA */
+.leyenda{display:flex;gap:14px;align-items:center;margin:12px 0 8px;flex-wrap:wrap}
+.leg{display:flex;align-items:center;gap:5px;font-size:10px;color:var(--text2)}
+.leg-sw{width:14px;height:8px;border-radius:2px}
+
+/* GANTT */
+.gantt-wrap{background:var(--bg2);border:1px solid var(--border);border-radius:var(--r2);overflow:hidden;margin-bottom:14px}
+.gantt-hdr{padding:10px 14px;border-bottom:1px solid var(--border);font-size:11px;font-weight:600;display:flex;align-items:center;justify-content:space-between}
+
+/* SITUACION ACTUAL */
+.kanban{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:14px}
+@media(min-width:800px){.kanban{grid-template-columns:repeat(4,1fr)}}
+.kstage{background:var(--bg2);border:1px solid var(--border);border-radius:var(--r2);overflow:hidden}
+.kstage-hdr{padding:8px 12px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:6px}
+.kstage-dot{width:8px;height:8px;border-radius:50%}
+.kstage-title{font-size:10px;font-weight:600}
+.kstage-count{margin-left:auto;font-size:10px;font-weight:600}
+.kstage-body{padding:6px 10px;display:flex;flex-direction:column;gap:4px;max-height:200px;overflow-y:auto}
+.kstage-empty{padding:12px;text-align:center;font-size:10px;color:var(--text3)}
+
+.colrow{display:flex;align-items:center;gap:6px;padding:4px 6px;border-radius:5px;background:var(--bg);font-size:10px;cursor:pointer;transition:.1s}
+.colrow:hover{background:var(--info-bg)}
+.colrow.sel{background:var(--info-bg);border:1px solid rgba(24,95,165,.3)}
+.colrow-id{font-family:var(--mono);font-weight:600;min-width:60px}
+.colrow-n{color:var(--text2)}
+.colrow-pct{margin-left:auto;font-size:9px;font-weight:600}
+
+/* DETALLE */
+.detalle{background:var(--bg2);border:1px solid var(--border);border-radius:var(--r2);overflow:hidden}
+.det-hdr{padding:10px 14px;border-bottom:1px solid var(--border);font-size:11px;font-weight:600;display:flex;align-items:center;gap:8px}
+.det-body{padding:14px}
+.det-empty{padding:24px;text-align:center;color:var(--text3);font-size:11px}
+
+/* SKU TABLE */
+.sku-tbl{width:100%;border-collapse:collapse;font-size:11px}
+.sku-tbl th{font-size:9px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.04em;padding:5px 8px;border-bottom:1px solid var(--border);text-align:left}
+.sku-tbl td{padding:6px 8px;border-bottom:1px solid var(--border);vertical-align:middle}
+.sku-tbl tr:last-child td{border-bottom:none}
+.sku-tbl tr:hover td{background:var(--bg)}
+.pbar{height:4px;background:var(--bg3);border-radius:2px;overflow:hidden;width:50px}
+.pbar-fill{height:100%;border-radius:2px}
+
+/* ETAPA PILL */
+.epill{font-size:8px;font-weight:600;padding:2px 6px;border-radius:3px;white-space:nowrap}
+.e-term{background:var(--ok-bg);color:var(--ok)}
+.e-limp{background:#e8f5f0;color:var(--ok)}
+.e-desm{background:#eeedf8;color:#5c57b0}
+.e-vaci{background:#e6f1fb;color:var(--info)}
+.e-nd{background:var(--neu-bg);color:var(--text3)}
+
+/* BADGE */
+.badge{font-size:8px;font-weight:600;padding:2px 6px;border-radius:3px}
+.b-ok{background:var(--ok-bg);color:var(--ok)}
+.b-warn{background:var(--warn-bg);color:var(--warn)}
+.b-crit{background:var(--crit-bg);color:var(--crit)}
+
+::-webkit-scrollbar{width:4px;height:4px}
+::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
+</style>
+</head>
+<body>
+
+<div class="hdr">
+  <div>
+    <div class="hdr-title">Piso de Producción — FASA</div>
+    <div class="hdr-sub">Seguimiento de piezas: vaciado → limpieza → terminado</div>
+  </div>
+  <div class="gap"></div>
+  <a href="/v2" class="nav">Torre de Control</a>
+  <a href="/gestion" class="nav">Gestión</a>
+</div>
+
+<div class="tb">
+  <span class="tb-lbl">Corte:</span>
+  <input type="datetime-local" id="inputRef" value="2025-12-19T08:00">
+  <div class="sep"></div>
+  <span class="tb-lbl">Ventana:</span>
+  <button class="btn" onclick="setH(24,this)">24 h</button>
+  <button class="btn on" onclick="setH(48,this)">48 h</button>
+  <button class="btn" onclick="setH(72,this)">72 h</button>
+  <button class="btn-go btn" onclick="cargar()">&#9654; Cargar</button>
+  <span class="status-badge" id="st">cargando...</span>
+</div>
+
+<!-- KPI Strip -->
+<div class="kpi-strip" id="kpis">
+  <div class="kpi"><div class="kpi-lbl">Total piezas</div><div class="kpi-val" id="k-total">—</div></div>
+  <div class="kpi"><div class="kpi-lbl">Terminadas</div><div class="kpi-val" style="color:var(--ok)" id="k-term">—</div></div>
+  <div class="kpi"><div class="kpi-lbl">En proceso</div><div class="kpi-val" style="color:var(--info)" id="k-proc">—</div></div>
+  <div class="kpi"><div class="kpi-lbl">Rechazos</div><div class="kpi-val" style="color:var(--crit)" id="k-rech">—</div></div>
+  <div class="kpi"><div class="kpi-lbl">Coladas</div><div class="kpi-val" id="k-col">—</div><div class="kpi-sub" id="k-pct"></div></div>
+</div>
+
+<div class="main">
+
+  <!-- Leyenda -->
+  <div class="leyenda">
+    <span style="font-size:10px;font-weight:600;color:var(--text2)">Etapas:</span>
+    <span class="leg"><span class="leg-sw" style="background:var(--c-vaci)"></span>Vaciado</span>
+    <span class="leg"><span class="leg-sw" style="background:var(--c-desm)"></span>Desmoldeo</span>
+    <span class="leg"><span class="leg-sw" style="background:var(--c-limp)"></span>Limpieza</span>
+    <span class="leg"><span class="leg-sw" style="background:var(--c-term)"></span>Terminado</span>
+    <span class="leg"><span class="leg-sw" style="background:var(--crit);border-radius:50%"></span>Rechazo &gt;10%</span>
+  </div>
+
+  <!-- Gantt extendido -->
+  <div class="gantt-wrap">
+    <div class="gantt-hdr">
+      <span>Línea de tiempo — ciclo completo vaciado → terminado</span>
+      <span id="gantt-rango" style="font-size:10px;color:var(--text3)"></span>
+    </div>
+    <div id="gantt-body" style="padding:10px 14px;overflow-x:auto">
+      <div style="text-align:center;padding:20px;color:var(--text3)">Cargando...</div>
+    </div>
+  </div>
+
+  <!-- Situación actual (Kanban) -->
+  <div style="font-size:11px;font-weight:600;margin-bottom:8px;color:var(--text2)">Situación actual — dónde están las piezas</div>
+  <div class="kanban" id="kanban">
+    <div class="kstage"><div class="kstage-hdr"><div class="kstage-dot" style="background:var(--c-vaci)"></div><div class="kstage-title">En vaciado</div></div><div class="kstage-empty">—</div></div>
+    <div class="kstage"><div class="kstage-hdr"><div class="kstage-dot" style="background:var(--c-desm)"></div><div class="kstage-title">En desmoldeo</div></div><div class="kstage-empty">—</div></div>
+    <div class="kstage"><div class="kstage-hdr"><div class="kstage-dot" style="background:var(--c-limp)"></div><div class="kstage-title">En limpieza</div></div><div class="kstage-empty">—</div></div>
+    <div class="kstage"><div class="kstage-hdr"><div class="kstage-dot" style="background:var(--c-term)"></div><div class="kstage-title">Terminado</div></div><div class="kstage-empty">—</div></div>
+  </div>
+
+  <!-- Detalle de colada seleccionada -->
+  <div class="detalle" id="detalle">
+    <div class="det-hdr">Detalle de colada</div>
+    <div class="det-empty" id="det-body">Haz clic en una colada del Gantt o del Kanban para ver sus piezas por SKU.</div>
+  </div>
+
+</div>
+
+<script>
+var HORAS = 48;
+var DATA = null;
+var SEL = null; // {u_colada, horno}
+
+function setH(h, btn) {
+  HORAS = h;
+  document.querySelectorAll('.tb .btn:not(.btn-go)').forEach(function(b){ b.classList.remove('on'); });
+  if(btn) btn.classList.add('on');
+}
+
+function fmt(n) { return n !== null && n !== undefined ? parseInt(n).toLocaleString('es-MX') : '—'; }
+function pctBadge(p) {
+  if(p===null||p===undefined) return '';
+  var cls = p<7?'b-ok':p<12?'b-warn':'b-crit';
+  return '<span class="badge '+cls+'">'+p+'%</span>';
+}
+function etapaPill(e) {
+  var map = {'Terminada':'e-term','En limpieza':'e-limp','En desmoldeo':'e-desm','En vaciado':'e-vaci'};
+  return '<span class="epill '+(map[e]||'e-nd')+'">'+e+'</span>';
+}
+
+async function cargar() {
+  var ref = document.getElementById('inputRef').value;
+  if(!ref) return;
+  var st = document.getElementById('st');
+  st.textContent = 'Cargando...';
+
+  var r = await fetch('/piso/flujo?referencia='+encodeURIComponent(ref)+'&horas='+HORAS);
+  if(!r.ok){ st.textContent='Error de API'; return; }
+  DATA = await r.json();
+
+  // KPIs
+  var k = DATA.kpis;
+  document.getElementById('k-total').textContent = fmt(k.total_piezas);
+  document.getElementById('k-term').textContent  = fmt(k.terminadas);
+  document.getElementById('k-proc').textContent  = fmt(k.en_proceso);
+  document.getElementById('k-rech').textContent  = fmt(k.rechazos);
+  document.getElementById('k-col').textContent   = k.coladas;
+  document.getElementById('k-pct').textContent   = k.pct_rechazo+'% rechazo';
+  st.textContent = k.coladas+' coladas · '+ref.replace('T',' ');
+
+  renderGantt();
+  renderKanban();
+}
+
+// ── GANTT EXTENDIDO ──────────────────────────────────────────────────────────
+function renderGantt() {
+  if(!DATA || !DATA.coladas.length) return;
+  var cols = DATA.coladas;
+  var anchor = DATA.anchor;
+  var ws = anchor - HORAS*60, we = anchor;
+  var dur = we - ws;
+  var L = 140, R = 680;
+  function xq(t) { return L + Math.max(0, Math.min(1, (t-ws)/dur)) * (R-L); }
+  var top=32, lh=22, n=cols.length, bot=top+n*lh+4;
+
+  // Eje de tiempo
+  var stepH = HORAS<=24?4:HORAS<=48?6:12;
+  var stepMin = stepH*60;
+  var grid='', labs='';
+  for(var h=Math.ceil(ws/stepMin)*stepMin; h<=we; h+=stepMin){
+    var x=xq(h).toFixed(1);
+    var dt = new Date(new Date(DATA.referencia).getTime() + (h-anchor)*60000);
+    var lbl = dt.toLocaleString('es-MX',{month:'short',day:'2-digit',hour:'2-digit',minute:'2-digit'});
+    grid += '<line x1="'+x+'" y1="24" x2="'+x+'" y2="'+bot+'" stroke="#ccc" stroke-width="0.5"/>';
+    labs += '<text x="'+x+'" y="18" font-size="8" fill="#9a9890" text-anchor="middle">'+lbl+'</text>';
+  }
+
+  var rows='', overlay='';
+  cols.forEach(function(c,i){
+    var y = top + i*lh, by=y+6, bh=10, mid=by+bh/2;
+    var sel = SEL && SEL.u_colada===c.u_colada && SEL.horno===c.horno;
+    if(sel) rows += '<rect x="0" y="'+y+'" width="700" height="'+lh+'" fill="#E6F1FB" opacity="0.5"/>';
+
+    function bar(a,b,col){
+      if(a===null||b===null) return '';
+      var x1=xq(a),x2=xq(b),w=Math.max(2,x2-x1);
+      return '<rect x="'+x1.toFixed(1)+'" y="'+by+'" width="'+w.toFixed(1)+'" height="'+bh+'" rx="2" fill="'+col+'"/>';
+    }
+    // Vaciado (azul)
+    rows += bar(c.vaci_ini, c.vaci_fin!==c.vaci_ini?c.vaci_fin:(c.vaci_ini+5), 'var(--c-vaci)');
+    // Desmoldeo (violeta)
+    if(c.desm_ini) rows += bar(c.desm_ini, c.desm_fin||c.desm_ini+30, 'var(--c-desm)');
+    // Limpieza (verde)
+    if(c.limp_ini) rows += bar(c.limp_ini, c.limp_fin||c.limp_ini+60, c.etapa==='Terminado'?'var(--c-term)':'var(--c-limp)');
+
+    // Etiqueta izquierda
+    var rechColor = c.pct_rechazo>10?'#A32D2D':'#5f5e5a';
+    rows += '<text x="4" y="'+(y+14)+'" font-size="9" fill="'+rechColor+'">Col '+c.u_colada+' H'+c.horno+'</text>';
+    // Piezas label
+    if(c.vaci_ini!==null){
+      var xlab = xq(c.vaci_ini)+3;
+      rows += '<text x="'+xlab.toFixed(1)+'" y="'+(mid+3)+'" font-size="8" fill="#fff">'+c.piezas+'pz</text>';
+    }
+    // Click overlay
+    overlay += '<rect x="0" y="'+y+'" width="700" height="'+lh+'"'
+              +' fill="transparent" style="cursor:pointer"'
+              +' onclick="selColada('+c.u_colada+','+c.horno+')"></rect>';
+  });
+
+  // Línea "ahora"
+  var ax = xq(anchor).toFixed(1);
+  rows += '<line x1="'+ax+'" y1="24" x2="'+ax+'" y2="'+bot+'" stroke="#A32D2D" stroke-width="1.5" stroke-dasharray="4 3"/>';
+  rows += '<text x="'+ax+'" y="18" font-size="9" fill="#A32D2D" text-anchor="end">corte</text>';
+
+  var svg = '<svg width="100%" viewBox="0 0 700 '+(bot+6)+'" style="min-width:550px">'
+    + grid + labs + rows + overlay + '</svg>';
+
+  // Rango
+  var ref = new Date(DATA.referencia);
+  var dsd = new Date(ref.getTime() - HORAS*3600000);
+  document.getElementById('gantt-rango').textContent =
+    dsd.toLocaleDateString('es-MX',{day:'2-digit',month:'short'})+' → '+
+    ref.toLocaleDateString('es-MX',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'});
+
+  document.getElementById('gantt-body').innerHTML = svg;
+}
+
+// ── KANBAN (situación actual) ────────────────────────────────────────────────
+function renderKanban() {
+  if(!DATA) return;
+  var etapas = ['En vaciado','En desmoldeo','En limpieza','Terminado'];
+  var colores = {'En vaciado':'var(--c-vaci)','En desmoldeo':'var(--c-desm)',
+                 'En limpieza':'var(--c-limp)','Terminado':'var(--c-term)'};
+  var grupos = {};
+  etapas.forEach(function(e){ grupos[e]=[]; });
+
+  DATA.coladas.forEach(function(c){
+    var e = c.etapa;
+    if(grupos[e]) grupos[e].push(c);
+  });
+
+  var html = '';
+  etapas.forEach(function(e){
+    var items = grupos[e];
+    var total = items.reduce(function(s,c){return s+c.piezas;},0);
+    html += '<div class="kstage">';
+    html += '<div class="kstage-hdr"><div class="kstage-dot" style="background:'+colores[e]+'"></div>';
+    html += '<div class="kstage-title">'+e+'</div>';
+    html += '<div class="kstage-count">'+total+' pzas</div></div>';
+    if(!items.length){
+      html += '<div class="kstage-empty">—</div>';
+    } else {
+      html += '<div class="kstage-body">';
+      items.forEach(function(c){
+        var sel = SEL && SEL.u_colada===c.u_colada && SEL.horno===c.horno;
+        html += '<div class="colrow'+(sel?' sel':'')+'" onclick="selColada('+c.u_colada+','+c.horno+')">';
+        html += '<span class="colrow-id">Col '+c.u_colada+' H'+c.horno+'</span>';
+        html += '<span class="colrow-n">'+c.piezas+' pzas</span>';
+        html += '<span class="colrow-pct">'+pctBadge(c.pct_rechazo)+'</span>';
+        html += '</div>';
+      });
+      html += '</div>';
+    }
+    html += '</div>';
+  });
+  document.getElementById('kanban').innerHTML = html;
+}
+
+// ── DETALLE DE COLADA ────────────────────────────────────────────────────────
+async function selColada(u_colada, horno) {
+  SEL = {u_colada: u_colada, horno: horno};
+  renderGantt();
+  renderKanban();
+
+  var det = document.getElementById('det-body');
+  det.innerHTML = '<div class="det-empty">Cargando piezas de Col '+u_colada+' H'+horno+'...</div>';
+
+  var ref = document.getElementById('inputRef').value;
+  var refDt = new Date(ref);
+  var dsdDt = new Date(refDt.getTime() - HORAS*3600000);
+  var desde = dsdDt.toISOString().slice(0,10);
+  var hasta  = refDt.toISOString().slice(0,10);
+
+  var r = await fetch('/piso/colada/'+u_colada+'/'+horno+'/piezas?desde='+desde+'&hasta='+hasta);
+  if(!r.ok){ det.innerHTML = '<div class="det-empty">Error cargando piezas.</div>'; return; }
+  var d = await r.json();
+
+  // Buscar el colada en DATA para contexto
+  var col = DATA ? DATA.coladas.find(function(c){ return c.u_colada===u_colada && c.horno===horno; }) : null;
+
+  var html = '<div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap">';
+  html += '<span style="font-size:14px;font-weight:600">Colada '+u_colada+' · Horno '+horno+'</span>';
+  if(col){
+    html += pctBadge(col.pct_rechazo);
+    html += '<span style="font-size:10px;color:var(--text2)">'+col.piezas+' piezas · '+col.rechazos+' rechazos · '+col.etapa+'</span>';
+  }
+  html += '</div>';
+
+  // Tabla de SKUs
+  html += '<div style="font-size:10px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">Por SKU</div>';
+  html += '<table class="sku-tbl"><thead><tr>';
+  html += '<th>No. Parte</th><th style="text-align:right">Total</th><th style="text-align:right">OK</th><th style="text-align:right">Rech.</th><th>% Rec.</th><th>Terminadas</th><th>En proceso</th>';
+  html += '</tr></thead><tbody>';
+  d.skus.forEach(function(s){
+    var pct = s.total>0 ? Math.round(s.rechazos/s.total*100) : 0;
+    var bc = pct<7?'b-ok':pct<12?'b-warn':'b-crit';
+    html += '<tr>';
+    html += '<td style="font-family:var(--mono);font-size:10px">'+s.sku+'</td>';
+    html += '<td style="text-align:right;font-weight:600">'+s.total+'</td>';
+    html += '<td style="text-align:right;color:var(--ok)">'+s.ok+'</td>';
+    html += '<td style="text-align:right;color:var(--crit)">'+s.rechazos+'</td>';
+    html += '<td><div class="pbar"><div class="pbar-fill" style="width:'+Math.min(pct,100)+'%;background:'+(pct<7?'var(--ok)':pct<12?'var(--warn)':'var(--crit)')+'"></div></div>'
+            +'<span class="badge '+bc+'" style="font-size:8px;margin-left:4px">'+pct+'%</span></td>';
+    html += '<td style="text-align:right;color:var(--ok)">'+s.terminadas+'</td>';
+    html += '<td style="text-align:right;color:var(--info)">'+s.en_proceso+'</td>';
+    html += '</tr>';
+  });
+  html += '</tbody></table>';
+
+  // Muestra de piezas individuales (primeras 20)
+  if(d.piezas && d.piezas.length) {
+    html += '<div style="font-size:10px;font-weight:600;color:var(--text3);text-transform:uppercase;margin:14px 0 8px">Piezas individuales ('+d.total_piezas+')</div>';
+    html += '<div style="display:flex;flex-wrap:wrap;gap:4px">';
+    d.piezas.slice(0,60).forEach(function(p){
+      var cls = p.bRechazo ? 'e-crit' : (p.etapa==='Terminada'?'e-term':'e-limp');
+      var label = p.sku ? p.sku.slice(-8) : '—';
+      var title = p.sku + (p.defecto?' — '+p.defecto:'') + ' · ' + p.etapa;
+      html += '<span class="epill '+(p.bRechazo?'e-nd':'e-term')+'" style="'
+              +(p.bRechazo?'background:var(--crit-bg);color:var(--crit)':'')+'" title="'+title+'">'
+              +label+'</span>';
+    });
+    if(d.piezas.length>60) html += '<span style="font-size:9px;color:var(--text3)">...y '+(d.piezas.length-60)+' más</span>';
+    html += '</div>';
+  }
+
+  det.innerHTML = html;
+}
+
+// Arranque
+document.getElementById('inputRef').addEventListener('change', function(){ /* solo si presionan Cargar */ });
+cargar();
+</script>
+</body>
+</html>

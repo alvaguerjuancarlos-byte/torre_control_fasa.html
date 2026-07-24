@@ -1,0 +1,447 @@
+=== SHOW TABLES ia_fasa ===
+alfamega_00_cargasmetalicas
+alfamega_00_coladaprocesodemoras
+alfamega_00_corridasrechazo
+alfamega_00_corridasrechazosuavizado
+alfamega_00_ticketsconvaciadodirecto
+alfamega_01_rechazosbyidticket
+alfamega_02_pks_coladacargametalica
+alfamega_02_pks_ticketcoladacargametalica
+alfamega_02_pks_ticketcorrida
+alfamega_02_pks_ticketsorigen
+alfamega_02_pks_ticketvaciadohornocolada
+alfamega_02pks_coladacargametalica
+alfamega_02pks_corridas
+alfamega_03_coladasproceso
+alfamega_06_vaciado
+alfamega_07_cargaferroaleaciones
+alfamega_07_cargametalicos
+alfamega_07_cargametalicosprc
+alfamega_08_ticketrutacritica
+alfamega_temp_seqcorridasrechazo
+alfamega_tmp_coladacargametalica
+alfamega_tmp_coladacargametalica2
+alfamega_tmp_coladacargametalica3
+alfamega_tmp_coladacargametalica4
+alfamega_tmp_pkscorridastabladesdehasta
+alfamega_tmp_rutamapa
+alfamega_tmp_secuenciador
+backup_alfamega_02_pks_corridas2
+borrar01
+borrar02
+borrar03
+borrar04
+cscmega_00_corridas
+cscmega_00_corridasrechazo
+cscmega_00_corridasrechazosuavizado
+cscmega_00_tickets
+cscmega_00_ticketsproducidos
+cscmega_00_ticketssalierondevaciado
+cscmega_01_rechazosbyidticket
+cscmega_01rechazosbyidticket
+cscmega_01resultadoidticket
+cscmega_02_pkscorridastabladesdehasta_paso
+cscmega_02pks
+cscmega_02pks_corridas
+cscmega_02pkscorridas
+cscmega_02pksquimicos
+cscmega_03coladacargametalica
+cscmega_04clase
+cscmega_05aquimicoscumplimiento
+cscmega_05bquimicosfinal
+cscmega_05cquimicosbase
+cscmega_06modelosvaciado
+cscmega_07mantenimiento
+cscmega_07v2_mantenimiento
+cscmega_07v3_mantenimiento
+cscmega_08ruta
+cscmega_08rutasidticket
+cscmentor_lv_det
+
+=== PC-4: SHOW COLUMNS alfamega_06_vaciado ===
+('idTicket', 'varchar(19)')
+('FHrVaciado', 'datetime')
+('No_Parte', 'varchar(35)')
+('bRechazo', 'int(1)')
+('IntExt', 'varchar(3)')
+('nomDefecto', 'varchar(100)')
+('c_IdColada', 'int(11)')
+('c_IdCargaMetalica', 'int(11)')
+('cm_idClase', 'int(4)')
+('Horno', 'int(11)')
+('Colada', 'int(11)')
+('vt_Baja', 'varchar(1)')
+('vt_IdVacTicket', 'int(11)')
+('vt_IdVaciado', 'int(11)')
+('vt_LineaVaciado', 'varchar(20)')
+('vt_TiempoVaciado', 'int(11)')
+('vt_EncendidoGases', 'varchar(1)')
+('vt_Olla', 'int(11)')
+('vt_IdTrabajador', 'int(11)')
+('vt_IdModelo', 'int(11)')
+('m_tmin', 'decimal(7,2)')
+('m_tmax', 'decimal(7,2)')
+('vt_TemperaturaVaciado', 'int(11)')
+('bCumplimientoTemperaturaRango', 'varchar(4)')
+('bCumplimientoTemperaturaOk', 'int(1)')
+
+=== PC-4: muestra alfamega_06_vaciado (3 filas) ===
+COLS: ['idTicket', 'FHrVaciado', 'No_Parte', 'bRechazo', 'IntExt', 'nomDefecto', 'c_IdColada', 'c_IdCargaMetalica', 'cm_idClase', 'Horno', 'Colada', 'vt_Baja', 'vt_IdVacTicket', 'vt_IdVaciado', 'vt_LineaVaciado', 'vt_TiempoVaciado', 'vt_EncendidoGases', 'vt_Olla', 'vt_IdTrabajador', 'vt_IdModelo', 'm_tmin', 'm_tmax', 'vt_TemperaturaVaciado', 'bCumplimientoTemperaturaRango', 'bCumplimientoTemperaturaOk']
+('010223003103200101', datetime.datetime(2023, 2, 3, 13, 37, 22), '867060- RC', 0, 'Ok', None, 54596, 301, 2, 2, 291, '', 52964, 8416, 'LV5 - LV6', 0, 'S', 1, 143, 34, Decimal('1355.00'), Decimal('1375.00'), 1375, 'Ok', 1)
+('010223003103200201', datetime.datetime(2023, 2, 3, 12, 59, 32), '867060- RC', 0, 'Ok', None, 54595, 301, 2, 4, 254, '', 52952, 8415, 'LV5 - LV6', 0, 'S', 1, 368, 34, Decimal('1355.00'), Decimal('1375.00'), 1375, 'Ok', 1)
+('010223003103200301', datetime.datetime(2023, 2, 3, 15, 0, 18), '867060- RC', 0, 'Ok', None, 54599, 301, 2, 4, 256, '', 52999, 8419, 'LV5 - LV6', 0, 'S', 1, 368, 34, Decimal('1355.00'), Decimal('1375.00'), 1375, 'Ok', 1)
+
+=== PC-4: SHOW COLUMNS cscmega_06modelosvaciado ===
+('u_Anio', 'int(4)')
+('u_Month', 'int(2)')
+('idTicketQuoted', 'varchar(21)')
+('idTicket', 'varchar(19)')
+('bRechazo', 'int(1)')
+('IntExt', 'varchar(3)')
+('u_Fecha', 'datetime')
+('u_Colada', 'int(11)')
+('u_Horno', 'int(11)')
+('u_ColadaAsChar', 'varchar(11)')
+('u_HornoAsChar', 'varchar(11)')
+('m', 'varchar(15)')
+('m_no_parte', 'varchar(30)')
+('m_descripcionpza', 'varchar(80)')
+('m_idcb', 'int(4)')
+('m_peso_tot', 'decimal(7,2)')
+('m_tmin', 'decimal(7,2)')
+('m_tmax', 'decimal(7,2)')
+('m_tdes', 'decimal(7,2)')
+('m_area', 'varchar(5)')
+('m_mold_imp', 'int(4)')
+('m_cve', 'varchar(50)')
+('m_tipomolde', 'varchar(10)')
+('m_tarimas', 'int(11)')
+('m_in_tipo', 'varchar(15)')
+('m_in_can', 'decimal(3,2)')
+('m_in_can_oo', 'decimal(3,2)')
+('m_pesopieza', 'decimal(7,2)')
+('m_mo_k1000', 'time')
+('m_vdimensional', 'int(1)')
+('m_tienehermano', 'int(1)')
+('m_reposo', 'int(2)')
+('m_tiempofabricacion', 'time')
+('m_tiempoceldas', 'time')
+('m_loc_pen', 'varchar(5)')
+('m_estrellas', 'int(2)')
+('m_clase', 'varchar(10)')
+('m_bahiamoldeo', 'varchar(10)')
+('m_nummoldeo', 'varchar(5)')
+('m_tenfriamiento', 'time')
+('m_idcbbase', 'int(4)')
+('m_heatcode', 'varchar(20)')
+('m_quees', 'varchar(20)')
+('m_idcbtipo', 'int(4)')
+('m_tiempovaciado', 'int(11)')
+('m_moldesxolla', 'int(11)')
+('m_pinturapza', 'varchar(15)')
+('m_kgsarena', 'decimal(8,2)')
+('m_familia', 'varchar(25)')
+('vt', 'varchar(25)')
+('vt_Baja', 'varchar(1)')
+('vt_FechaCreacion', 'datetime')
+('vt_IdUsuarioCreacion', 'int(11)')
+('vt_FechaModificacion', 'datetime')
+('vt_IdUsuarioModificacion', 'int(11)')
+('vt_FechaBaja', 'datetime')
+('vt_IdUsuarioBaja', 'int(11)')
+('vt_IdVacTicket', 'int(11)')
+('vt_IdVaciado', 'int(11)')
+('vt_IdTicket', 'varchar(20)')
+('vt_LineaVaciado', 'varchar(20)')
+('vt_TemperaturaVaciado', 'int(11)')
+('vt_NumComentario', 'int(11)')
+('vt_TiempoVaciado', 'int(11)')
+('vt_EncendidoGases', 'varchar(1)')
+('vt_Olla', 'int(11)')
+('vt_IdTrabajador', 'int(11)')
+('vt_IdModelo', 'int(11)')
+('bCumplimientoTemperaturaRango', 'varchar(4)')
+('bCumplimientoTemperaturaOk', 'int(1)')
+
+=== PC-4: muestra cscmega_06modelosvaciado (3 filas) ===
+COLS: ['u_Anio', 'u_Month', 'idTicketQuoted', 'idTicket', 'bRechazo', 'IntExt', 'u_Fecha', 'u_Colada', 'u_Horno', 'u_ColadaAsChar', 'u_HornoAsChar', 'm', 'm_no_parte', 'm_descripcionpza', 'm_idcb', 'm_peso_tot', 'm_tmin', 'm_tmax', 'm_tdes', 'm_area', 'm_mold_imp', 'm_cve', 'm_tipomolde', 'm_tarimas', 'm_in_tipo', 'm_in_can', 'm_in_can_oo', 'm_pesopieza', 'm_mo_k1000', 'm_vdimensional', 'm_tienehermano', 'm_reposo', 'm_tiempofabricacion', 'm_tiempoceldas', 'm_loc_pen', 'm_estrellas', 'm_clase', 'm_bahiamoldeo', 'm_nummoldeo', 'm_tenfriamiento', 'm_idcbbase', 'm_heatcode', 'm_quees', 'm_idcbtipo', 'm_tiempovaciado', 'm_moldesxolla', 'm_pinturapza', 'm_kgsarena', 'm_familia', 'vt', 'vt_Baja', 'vt_FechaCreacion', 'vt_IdUsuarioCreacion', 'vt_FechaModificacion', 'vt_IdUsuarioModificacion', 'vt_FechaBaja', 'vt_IdUsuarioBaja', 'vt_IdVacTicket', 'vt_IdVaciado', 'vt_IdTicket', 'vt_LineaVaciado', 'vt_TemperaturaVaciado', 'vt_NumComentario', 'vt_TiempoVaciado', 'vt_EncendidoGases', 'vt_Olla', 'vt_IdTrabajador', 'vt_IdModelo', 'bCumplimientoTemperaturaRango', 'bCumplimientoTemperaturaOk']
+(2025, 1, "'060125144800600401'", '060125144800600401', 0, 'Ok', datetime.datetime(2025, 1, 6, 11, 58, 1), 30, 1, '30', '1', 'piso_ia.modelos', '2C-2473-000', 'TRACKFRAME -RAW', 1448, Decimal('490.00'), Decimal('1370.00'), Decimal('1385.00'), Decimal('4.00'), 'AF2', 1, '204', 'CYD', 2, 'R6 SIN CRI', Decimal('0.00'), Decimal('0.00'), Decimal('394.00'), None, 1, 0, 0, None, datetime.timedelta(seconds=4200), 'LP3', None, '100-70-03', '3', '1226', None, 1448, None, 'CASTING', None, 36, 3, 'N/A', Decimal('1144.00'), 'CARCAZA', 'corex_test.vaciadotickets', '', datetime.datetime(2025, 1, 6, 11, 58, 1), 1354, datetime.datetime(2025, 1, 6, 11, 58, 1), 1354, None, 0, 151109, 23782, '060125144800600401', 'B2', 1390, 0, 0, 'N', 1, 29, 1616, 'Alta', 0)
+(2025, 1, "'060125144800600501'", '060125144800600501', 0, 'Ok', datetime.datetime(2025, 1, 6, 11, 58, 1), 30, 1, '30', '1', 'piso_ia.modelos', '2C-2473-000', 'TRACKFRAME -RAW', 1448, Decimal('490.00'), Decimal('1370.00'), Decimal('1385.00'), Decimal('4.00'), 'AF2', 1, '204', 'CYD', 2, 'R6 SIN CRI', Decimal('0.00'), Decimal('0.00'), Decimal('394.00'), None, 1, 0, 0, None, datetime.timedelta(seconds=4200), 'LP3', None, '100-70-03', '3', '1226', None, 1448, None, 'CASTING', None, 36, 3, 'N/A', Decimal('1144.00'), 'CARCAZA', 'corex_test.vaciadotickets', '', datetime.datetime(2025, 1, 6, 11, 58, 1), 1354, datetime.datetime(2025, 1, 6, 11, 58, 1), 1354, None, 0, 151110, 23782, '060125144800600501', 'B2', 1390, 0, 0, 'N', 1, 29, 1616, 'Alta', 0)
+(2025, 1, "'060125144800600601'", '060125144800600601', 0, 'Ok', datetime.datetime(2025, 1, 6, 11, 58, 1), 30, 1, '30', '1', 'piso_ia.modelos', '2C-2473-000', 'TRACKFRAME -RAW', 1448, Decimal('490.00'), Decimal('1370.00'), Decimal('1385.00'), Decimal('4.00'), 'AF2', 1, '204', 'CYD', 2, 'R6 SIN CRI', Decimal('0.00'), Decimal('0.00'), Decimal('394.00'), None, 1, 0, 0, None, datetime.timedelta(seconds=4200), 'LP3', None, '100-70-03', '3', '1226', None, 1448, None, 'CASTING', None, 36, 3, 'N/A', Decimal('1144.00'), 'CARCAZA', 'corex_test.vaciadotickets', '', datetime.datetime(2025, 1, 6, 11, 58, 1), 1354, datetime.datetime(2025, 1, 6, 11, 58, 1), 1354, None, 0, 151111, 23782, '060125144800600601', 'B2', 1390, 0, 0, 'N', 1, 29, 1616, 'Alta', 0)
+
+=== PC-4: timestamps duplicados en alfamega_06_vaciado ===
+ERROR ts-dup alfamega: (1054, "Unknown column 'vf_FechaHora' in 'field list'")
+
+=== PC-4: % temperatura poblada (cscmega_06modelosvaciado) ===
+  total=44128  con_temp=41324  %=93.6
+  min=0  max=14153  avg_filtrada=1367.3
+
+=== PC-3: SHOW COLUMNS cscmega_03coladacargametalica ===
+('u_Anio', 'int(4)')
+('u_Month', 'int(2)')
+('idTicketQuoted', 'varchar(21)')
+('idTicket', 'varchar(19)')
+('bRechazo', 'int(1)')
+('IntExt', 'varchar(3)')
+('u_Fecha', 'datetime')
+('u_Colada', 'int(11)')
+('u_Horno', 'int(11)')
+('u_ColadaAsChar', 'varchar(11)')
+('u_HornoAsChar', 'varchar(11)')
+('c', 'varchar(18)')
+('c_IdColada', 'int(11)')
+('c_IdColadaError', 'int(11)')
+('Clave', 'varchar(50)')
+('Descripcion', 'text')
+('c_FechaDocumento', 'datetime')
+('c_Horno', 'int(11)')
+('c_Colada', 'int(11)')
+('c_IdCargaMetalica', 'int(11)')
+('c_Baja', 'varchar(1)')
+('c_Status', 'varchar(20)')
+('c_Folio', 'varchar(10)')
+('c_Kilos', 'decimal(20,6)')
+('c_RequiereAjuste', 'varchar(1)')
+('c_TiempoFundicion', 'int(11)')
+('c_ItacaLadle', 'int(11)')
+('c_InoculanteEnHornos', 'varchar(1)')
+('c_PesoReal1', 'decimal(20,6)')
+('c_PesoReal2', 'decimal(20,6)')
+('c_KiloWatts', 'varchar(20)')
+('c_IdTrabajadorHornero', 'int(11)')
+('c_IdMapaGrupo', 'int(11)')
+('c_FechaCreacion', 'datetime')
+('c_FechaModificacion', 'datetime')
+('c_FechaBaja', 'datetime')
+('c_FechaCarga', 'datetime')
+('c_FechaInicial', 'datetime')
+('c_FechaFinal', 'datetime')
+('c_FechaLiberado', 'datetime')
+('c_FechaCronometro', 'datetime')
+('c_FechaAnalisis', 'datetime')
+('c_FechaTrasvase1', 'datetime')
+('c_FechaTrasvase2', 'datetime')
+('c_FechaInoculante1', 'datetime')
+('c_FechaInoculante2', 'datetime')
+('c_FechaInicioVaciado1', 'datetime')
+('c_FechaInicioVaciado2', 'datetime')
+('c_FechaFinalVaciado', 'datetime')
+('c_FechaFinalVaciado1', 'datetime')
+('c_FechaFinalVaciado2', 'datetime')
+('c_IdUsuarioCreacion', 'int(11)')
+('c_IdUsuarioModificacion', 'int(11)')
+('c_IdUsuarioBaja', 'int(11)')
+('cmCAT', 'varchar(26)')
+('cm_Baja', 'varchar(1)')
+('cm_FechaCreacion', 'datetime')
+('cm_FechaModificacion', 'datetime')
+('cm_FechaBaja', 'datetime')
+('cm_IdUsuarioCreacion', 'int(11)')
+('cm_IdUsuarioModificacion', 'int(11)')
+('cm_IdUsuarioBaja', 'int(11)')
+('cm_IdCargaMetalica', 'int(11)')
+('cm_IdClase', 'int(11)')
+('cm_Clave', 'varchar(100)')
+('cm_Descripcion', 'text')
+('cm_Revision', 'varchar(20)')
+('cm_Status', 'varchar(10)')
+('cm_Carga', 'varchar(10)')
+('cm_Proceso', 'varchar(50)')
+('cm_ReiniciarColada', 'varchar(1)')
+('cm_Bitacora', 'text')
+('cm_Codigo', 'varchar(20)')
+('cm_RequiereSeguimiento', 'varchar(1)')
+('cm_EsVisible', 'varchar(1)')
+
+=== PC-3: % c_InoculanteEnHornos poblado ===
+  total=44092  con_valor=0  %=0.0
+
+=== PC-2: % química base poblada (cscmega_05cquimicosbase) ===
+  aB_C: 19322/45825 = 42.2%
+  aB_Si: 19322/45825 = 42.2%
+  aB_Mn: 19322/45825 = 42.2%
+  aB_S: 19322/45825 = 42.2%
+  aB_P: 19322/45825 = 42.2%
+  aB_Mg: 19291/45825 = 42.1%
+
+=== PC-1: tablas con 'carga' o 'receta' en ia_fasa ===
+  alfamega_00_cargasmetalicas
+  alfamega_02_pks_coladacargametalica
+  alfamega_02_pks_ticketcoladacargametalica
+  alfamega_02_pks_ticketvaciadohornocolada
+  alfamega_02pks_coladacargametalica
+  alfamega_07_cargaferroaleaciones
+  alfamega_07_cargametalicos
+  alfamega_07_cargametalicosprc
+  alfamega_tmp_coladacargametalica
+  alfamega_tmp_coladacargametalica2
+  alfamega_tmp_coladacargametalica3
+  alfamega_tmp_coladacargametalica4
+  cscmega_03coladacargametalica
+
+=== PC-1: SHOW COLUMNS cscmega_03coladacargametalica (carga metálica) ===
+('u_Anio', 'int(4)')
+('u_Month', 'int(2)')
+('idTicketQuoted', 'varchar(21)')
+('idTicket', 'varchar(19)')
+('bRechazo', 'int(1)')
+('IntExt', 'varchar(3)')
+('u_Fecha', 'datetime')
+('u_Colada', 'int(11)')
+('u_Horno', 'int(11)')
+('u_ColadaAsChar', 'varchar(11)')
+('u_HornoAsChar', 'varchar(11)')
+('c', 'varchar(18)')
+('c_IdColada', 'int(11)')
+('c_IdColadaError', 'int(11)')
+('Clave', 'varchar(50)')
+('Descripcion', 'text')
+('c_FechaDocumento', 'datetime')
+('c_Horno', 'int(11)')
+('c_Colada', 'int(11)')
+('c_IdCargaMetalica', 'int(11)')
+('c_Baja', 'varchar(1)')
+('c_Status', 'varchar(20)')
+('c_Folio', 'varchar(10)')
+('c_Kilos', 'decimal(20,6)')
+('c_RequiereAjuste', 'varchar(1)')
+('c_TiempoFundicion', 'int(11)')
+('c_ItacaLadle', 'int(11)')
+('c_InoculanteEnHornos', 'varchar(1)')
+('c_PesoReal1', 'decimal(20,6)')
+('c_PesoReal2', 'decimal(20,6)')
+('c_KiloWatts', 'varchar(20)')
+('c_IdTrabajadorHornero', 'int(11)')
+('c_IdMapaGrupo', 'int(11)')
+('c_FechaCreacion', 'datetime')
+('c_FechaModificacion', 'datetime')
+('c_FechaBaja', 'datetime')
+('c_FechaCarga', 'datetime')
+('c_FechaInicial', 'datetime')
+('c_FechaFinal', 'datetime')
+('c_FechaLiberado', 'datetime')
+('c_FechaCronometro', 'datetime')
+('c_FechaAnalisis', 'datetime')
+('c_FechaTrasvase1', 'datetime')
+('c_FechaTrasvase2', 'datetime')
+('c_FechaInoculante1', 'datetime')
+('c_FechaInoculante2', 'datetime')
+('c_FechaInicioVaciado1', 'datetime')
+('c_FechaInicioVaciado2', 'datetime')
+('c_FechaFinalVaciado', 'datetime')
+('c_FechaFinalVaciado1', 'datetime')
+('c_FechaFinalVaciado2', 'datetime')
+('c_IdUsuarioCreacion', 'int(11)')
+('c_IdUsuarioModificacion', 'int(11)')
+('c_IdUsuarioBaja', 'int(11)')
+('cmCAT', 'varchar(26)')
+('cm_Baja', 'varchar(1)')
+('cm_FechaCreacion', 'datetime')
+('cm_FechaModificacion', 'datetime')
+('cm_FechaBaja', 'datetime')
+('cm_IdUsuarioCreacion', 'int(11)')
+('cm_IdUsuarioModificacion', 'int(11)')
+('cm_IdUsuarioBaja', 'int(11)')
+('cm_IdCargaMetalica', 'int(11)')
+('cm_IdClase', 'int(11)')
+('cm_Clave', 'varchar(100)')
+('cm_Descripcion', 'text')
+('cm_Revision', 'varchar(20)')
+('cm_Status', 'varchar(10)')
+('cm_Carga', 'varchar(10)')
+('cm_Proceso', 'varchar(50)')
+('cm_ReiniciarColada', 'varchar(1)')
+('cm_Bitacora', 'text')
+('cm_Codigo', 'varchar(20)')
+('cm_RequiereSeguimiento', 'varchar(1)')
+('cm_EsVisible', 'varchar(1)')
+
+=== PC-1: tablas con 'hic' o 'receta' en corex_test ===
+  cargasmetalicas
+  cargasmetalicasdetalle
+  catcargasmetalicas
+  catcargasmetalicassololectura
+  catdocumentocargas
+  cattrailercarga
+  combocargasmetalicas
+  combocargasmetalicasclases
+  combocargasmetalicasfiltroclase
+  combodocumentocargas
+  combodocumentocargasactivos
+  documentocargas
+  documentocargasdetalle
+  documentocargasremisiones
+  modelocastingrecetas
+  reporteprogramamoldeorecetas
+  reportetrailercarga
+  trailercarga
+  trailercargadetalle
+
+=== PC-7: tablas con 'historial' o 'colada' en ia_fasa ===
+  alfamega_00_coladaprocesodemoras
+  alfamega_02_pks_coladacargametalica
+  alfamega_02_pks_ticketcoladacargametalica
+  alfamega_02_pks_ticketvaciadohornocolada
+  alfamega_02pks_coladacargametalica
+  alfamega_03_coladasproceso
+  alfamega_tmp_coladacargametalica
+  alfamega_tmp_coladacargametalica2
+  alfamega_tmp_coladacargametalica3
+  alfamega_tmp_coladacargametalica4
+  cscmega_03coladacargametalica
+
+=== PC-7: SHOW COLUMNS tabla coladas ===
+  ('u_Colada', 'int(11)')
+  ('u_ColadaAsChar', 'varchar(11)')
+  ('c_IdColada', 'int(11)')
+  ('c_IdColadaError', 'int(11)')
+  ('c_Colada', 'int(11)')
+  ('cm_ReiniciarColada', 'varchar(1)')
+
+=== PC-5: SHOW COLUMNS cscmega_08ruta ===
+('u_NoParte', 'varchar(35)')
+('u_idTicket', 'varchar(19)')
+('u_idTicketAsTxt', 'varchar(21)')
+('u_FechaProg', 'date')
+('bVaciado', 'bigint(1)')
+('u_FechaVaciado', 'datetime')
+('ProcesosAsLong', 'varchar(14)')
+('u_ProcesosSale', 'mediumtext')
+('u_ProcesosVaa', 'mediumtext')
+('u_MapaProcesosByFecha', 'mediumtext')
+('u_MapaProcesosByName', 'mediumtext')
+('ProcesosAsShort', 'varchar(15)')
+('u_ProcesosSaleShort', 'mediumtext')
+('u_ProcesosVaaShort', 'mediumtext')
+('u_MapaProcesosShortByFecha', 'mediumtext')
+('u_MapaProcesosShortByName', 'mediumtext')
+('SoloProcesosCriticos', 'varchar(20)')
+('bCELD', 'bigint(1)')
+('bDESM', 'bigint(1)')
+('bEMPA', 'bigint(1)')
+('bMOLD', 'bigint(1)')
+('bVACI', 'bigint(1)')
+('bLIMP', 'bigint(1)')
+('FHrCELD', 'datetime')
+('FHrDESM', 'datetime')
+('FHrEMPA', 'datetime')
+('FHrMOLD', 'datetime')
+('FhrVACI', 'datetime')
+('FHrLIMP', 'datetime')
+('FHrIni', 'datetime')
+('FHrFin', 'datetime')
+('u_CriticosSale', 'mediumtext')
+('u_CriticosVaa', 'mediumtext')
+('u_MapaCriticosByFecha', 'mediumtext')
+('u_MapaCriticosByName', 'mediumtext')
+
+=== PC-6: tablas con 'evc', 'inspec', 'hbw', 'nodular', 'liber' en ia_fasa ===
+
+=== PC-6: tablas con 'evc', 'inspec', 'hbw', 'nodular' en corex_test ===
+  catinspeccionherramental
+  defectoseninspeccion
+  inspeccionherramentales
+  inspeccionherramentalesdetalle
+  tarimasrecepcioninspeccion
+  trasladosdefectoseninspeccion
+  trasladosinspeccion

@@ -1,0 +1,20 @@
+=== PC-3: FechaInoculante1 ===
+  total=44092  con_valor=33367  %=75.7
+
+=== PC-3: FechaTrasvase1 ===
+  total=44092  con_valor=41338  %=93.8
+
+=== PC-5: m_tenfriamiento ===
+  total=44128  con_valor=0  %=0.0
+  valores distintos: []
+
+=== PC-5: FHrMOLD y FHrDESM ===
+  total=66921  FHrMOLD=44053(65.8%)  FHrDESM=43252(64.6%)  ambos=43219(64.6%)
+
+=== PC-7: arefBatch scan ia_fasa (skip tablas con error) ===
+  cscmega_03coladacargametalica.c_ItacaLadle
+  cscmega_04clase.cls_ClaseITACA
+
+=== PC-2: % CumplimientoAnalisisQuimico poblado ===
+  total=45927  con_valor=45927  %=100.0
+  valores: ['CumplimientoAnalisisQuimico']

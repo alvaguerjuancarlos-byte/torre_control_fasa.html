@@ -1,0 +1,7 @@
+fastapi>=0.111
+uvicorn[standard]>=0.29
+pymysql>=1.1
+sqlalchemy>=2.0
+python-dotenv>=1.0
+pandas>=2.0
+openpyxl>=3.1

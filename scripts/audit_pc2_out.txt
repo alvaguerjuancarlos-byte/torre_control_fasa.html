@@ -1,0 +1,112 @@
+=== Valores distintos en flags _B ===
+  bC_B: ['(N)1', '(N)-1', '(S)1', '(S)-1', 'None', '(S)0', '(N)0']
+  bSi_B: ['(S)-1', '(S)1', '(N)-1', 'None', '(S)0']
+  bMg_B: ['(N)-1', 'None', '(N)0']
+  bS_B: ['(S)-1', '(S)1', '(N)-1', 'None', '(S)0', '(N)1']
+  bP_B: ['(S)1', '(N)-1', 'None', '(S)-1', '(S)0']
+  bMn_B: ['(S)-1', '(S)1', '(N)-1', '(S)0', 'None']
+
+=== Valores distintos en flags _F ===
+  bC_F: ['(N)-1', 'None', '(S)-1', '(N)1', '(N)0', '(S)1']
+  bSi_F: ['(S)1', '(S)-1', 'None', '(N)-1', '(S)0']
+  bMg_F: ['(N)-1', 'None', '(S)-1', '(N)0', '(S)1']
+  bS_F: ['(S)1', '(S)-1', 'None', '(N)-1', '(S)0']
+  bP_F: ['(S)1', 'None', '(N)-1', '(S)-1', '(S)0']
+  bMn_F: ['(S)-1', '(S)1', 'None', '(N)-1', '(S)0']
+
+=== Filas por u_Colada+u_Horno (distribución) ===
+  1 filas → 7 coladas
+  2 filas → 5 coladas
+  3 filas → 15 coladas
+  4 filas → 31 coladas
+  5 filas → 9 coladas
+  6 filas → 18 coladas
+  7 filas → 19 coladas
+  8 filas → 7 coladas
+  9 filas → 18 coladas
+  10 filas → 21 coladas
+  11 filas → 25 coladas
+  12 filas → 19 coladas
+  13 filas → 14 coladas
+  14 filas → 17 coladas
+  15 filas → 18 coladas
+  16 filas → 14 coladas
+  17 filas → 18 coladas
+  18 filas → 12 coladas
+  19 filas → 16 coladas
+  20 filas → 17 coladas
+  21 filas → 11 coladas
+  22 filas → 5 coladas
+  23 filas → 8 coladas
+  24 filas → 6 coladas
+  25 filas → 4 coladas
+  26 filas → 5 coladas
+  27 filas → 8 coladas
+  28 filas → 2 coladas
+  29 filas → 3 coladas
+  30 filas → 6 coladas
+  31 filas → 2 coladas
+  32 filas → 8 coladas
+  33 filas → 9 coladas
+  34 filas → 7 coladas
+  35 filas → 11 coladas
+  36 filas → 11 coladas
+  37 filas → 13 coladas
+  38 filas → 13 coladas
+  39 filas → 20 coladas
+  40 filas → 25 coladas
+  41 filas → 24 coladas
+  42 filas → 27 coladas
+  43 filas → 31 coladas
+  44 filas → 38 coladas
+  45 filas → 29 coladas
+  46 filas → 39 coladas
+  47 filas → 40 coladas
+  48 filas → 23 coladas
+  49 filas → 36 coladas
+  50 filas → 39 coladas
+  51 filas → 47 coladas
+  52 filas → 41 coladas
+  53 filas → 41 coladas
+  54 filas → 35 coladas
+  55 filas → 36 coladas
+  56 filas → 22 coladas
+  57 filas → 25 coladas
+  58 filas → 22 coladas
+  59 filas → 21 coladas
+  60 filas → 18 coladas
+  61 filas → 13 coladas
+  62 filas → 10 coladas
+  63 filas → 11 coladas
+  64 filas → 5 coladas
+  65 filas → 6 coladas
+  66 filas → 9 coladas
+  67 filas → 2 coladas
+  68 filas → 3 coladas
+  69 filas → 3 coladas
+  70 filas → 2 coladas
+  71 filas → 2 coladas
+  72 filas → 1 coladas
+  73 filas → 1 coladas
+  75 filas → 1 coladas
+  77 filas → 1 coladas
+  79 filas → 1 coladas
+  83 filas → 1 coladas
+  87 filas → 1 coladas
+  90 filas → 1 coladas
+
+=== Muestra de 3 filas con flags ===
+  colada=41 horno=4 | _B: C=(N)1 Si=(S)-1 Mg=(N)-1 S=(S)-1 P=(S)1 | _F: C=(N)-1 Si=(S)1 Mg=(N)-1 S=(S)1 P=(S)1
+  colada=41 horno=4 | _B: C=(N)1 Si=(S)-1 Mg=(N)-1 S=(S)-1 P=(S)1 | _F: C=(N)-1 Si=(S)1 Mg=(N)-1 S=(S)1 P=(S)1
+  colada=41 horno=4 | _B: C=(N)1 Si=(S)-1 Mg=(N)-1 S=(S)-1 P=(S)1 | _F: C=(N)-1 Si=(S)1 Mg=(N)-1 S=(S)1 P=(S)1
+
+=== Join test: química vs coladas principales (últimas 100 coladas) ===
+  últimas 100 coladas: 1 total, 0 con química (0.0%)
+
+=== bC_F distribución completa ===
+  'None' → 28641 filas
+  '(N)-1' → 3331 filas
+  '(N)0' → 430 filas
+  '(N)1' → 13463 filas
+  '(S)-1' → 42 filas
+  '(S)1' → 20 filas

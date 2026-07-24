@@ -1,0 +1,30 @@
+{
+  "feature_columns": [
+    "pct_quimica_ok",
+    "n_quimica_disponible",
+    "temp_ok_n",
+    "pc5_cumple_n",
+    "inoc_s_n",
+    "mes",
+    "rate_parte_2024",
+    "rate_parte_2024_flag",
+    "log_peso",
+    "horno_0",
+    "horno_1",
+    "horno_2",
+    "horno_4",
+    "horno_8",
+    "horno_9"
+  ],
+  "sentinel": -1.0,
+  "global_mean": 0.1092,
+  "global_median_peso": 134.5,
+  "trained_on": "2025-01-01 / 2025-12-31",
+  "auc_cv": 0.734,
+  "n_samples": 44041,
+  "n_features": 15,
+  "calibration": "platt",
+  "oof_raw_mean": 0.1508,
+  "oof_cal_mean": 0.1509,
+  "real_mean": 0.1509
+}

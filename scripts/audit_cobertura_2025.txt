@@ -1,0 +1,94 @@
+
+  AUDITORÍA DE COBERTURA — 7 PUNTOS DE CONTROL  |  FASA Torre de Control
+  Rango analizado: 2025-01-01  ->  2025-12-31
+======================================================================================================================================================
+  PC      Nombre                    C1              C2 %útil                       C3 join                     C4 cumpl          ESTADO 
+------------------------------------------------------------------------------------------------------------------------------------------------------
+  PC-1    Carga al horno            OK               100.0%                         100.0%              Sin ventana de cumplim  [ÁMBAR ]
+  PC-2    Análisis químico          OK               37.6%                          100.0%              bC_F: 78.0% PASS / 2.5  [ÁMBAR ]
+  PC-3    Inoculación / fading      OK               76.4%                          76.4%               Ventana fading: NOT en  [ GRIS ]
+  PC-4    Temperatura de vaciado    OK               93.4%                          22.9%               54.2% dentro / 45.8% f  [ÁMBAR ]
+  PC-5    Tiempo en molde           OK               98.0%                        Columnas c            Ventana tiempo en mold  [ GRIS ]
+  PC-6    Rechazo del lote          OK               100.0%                       c_IdColada            5 partes con tasa>20%   [VERDE ]
+  PC-7    Cierre de colada          OK               100.0%                       alfamega_0            Integridad referencial  [ÁMBAR ]
+======================================================================================================================================================
+
+  DETALLE POR PC
+======================================================================================================================================================
+
+  ===== PC-1 — Carga al horno  [ÁMBAR]
+    tabla.campo : alfamega_07_cargametalicos.Kgs*(33 cols)
+    C1 Existencia  : EXISTE — 33 cols Kgs + idTicket + FHrVaciado
+    C2 Poblamiento : 100.0% útil (Kgs>0) | 0.0% delta=0 espurio (esperado ~53%) | 49402 pesajes en período
+    C3 Comparab.   : 100.0% join idTicket->tickets | Receta TBL-HIC (corex_test.modelocastingrecetas): sin campo c_IdColada — join receta<->colada INACCIONABLE
+    C4 Cumplimiento: Sin ventana de cumplimiento en FUS-001 para carga al horno
+    ► BLOQUEADOR   : Receta TBL-HIC sin c_IdColada en corex_test — join carga_real<->receta_planificada pendiente
+
+  ===== PC-2 — Análisis químico  [ÁMBAR]
+    tabla.campo : cscmega_05aquimicoscumplimiento.bX_B/bX_F
+    C1 Existencia  : Flags bX_B/bX_F EXISTEN (cscmega_05aquimicoscumplimiento) | Valores SpectroMAX: cscmega_05cquimicosbase (~42%) | Copa ITACA (arefBatch): c_ItacaLadle EXISTE | CumplimientoAnalisisQuimico: COLUMNA-BUG (almacena literal string)
+    C2 Poblamiento : 37.6% bC_F útil (17286/45927) | bMg_B: 0.0% tipo (S) vs (N) — sesgo detectado (solo tipo N registra) | Spectro valores cuantitativos: NO integrados en ia_fasa
+    C3 Comparab.   : 100.0% join química->colada en muestra de 300 pares (u_Colada+u_Horno) | c_ItacaLadle disponible en coladas para rastreo ITACA
+    C4 Cumplimiento: bC_F: 78.0% PASS / 2.5% LÍMITE / 19.5% FAIL | bMg_B sesgo pendiente validar con COREX/Calidad
+    ► BLOQUEADOR   : SpectroMAX sin integración digital; bMg_B solo tipo (N) — validar sesgo con COREX/Calidad antes de encender semáforo
+
+  ===== PC-3 — Inoculación / fading  [GRIS]
+    tabla.campo : cscmega_03coladacargametalica.c_FechaInoculante1
+    C1 Existencia  : c_FechaInoculante1: EXISTE | c_FechaTrasvase1: EXISTE | DOSIS inoculante (cantidad): NO EXISTE en ia_fasa — requiere ITACA
+    C2 Poblamiento : FechaInoculante1: 76.4% (33367/43666) | FechaTrasvase1: 94.7% | Dosis inoculante: 0% — no capturado por colada en ia_fasa
+    C3 Comparab.   : 76.4% coladas con c_IdColada + FechaInoculante1 (join trivial) | Dosis inoculante: INACCIONABLE sin ITACA | Ventana fading: NO definida en FUS-001 — pendiente rastreo ITACA
+    C4 Cumplimiento: Ventana fading: NOT en FUS-001 — pendiente de rastreo a ITACA (no usar ≤10 min como proxy)
+    ► BLOQUEADOR   : Dosis inoculante sin captura por colada en ia_fasa. Requiere acceso ITACA (usuario sapiens sin acceso confirmado al 2026-06-15)
+
+  ===== PC-4 — Temperatura de vaciado  [ÁMBAR]
+    tabla.campo : alfamega_06_vaciado.vt_TemperaturaVaciado
+    C1 Existencia  : EXISTE — alfamega_06_vaciado.vt_TemperaturaVaciado | bCumplimientoTemperaturaOk: EXISTE | c_IdColada: EXISTE
+    C2 Poblamiento : 93.4% en rango 1100-1600°C (46897/50214) | avg temp=1369.4°C | 6.4% nulos/cero
+    C3 Comparab.   : Join a colada (c_IdColada): OK para 7966 coladas | PROBLEMA RELOJ: 1822/7966 coladas (22.9%) con ts único — join idTicket<->temperatura INVÁLIDO | max tickets compartiendo mismo ts: 19
+    C4 Cumplimiento: 54.2% dentro / 45.8% fuera de rango | ADVERTENCIA: atribución ticket-específica inválida por ts compartidos
+    ► BLOQUEADOR   : Timestamps compartidos (hasta 9 tickets / colada) invalidan join idTicket<->temperatura a nivel ticket. Reparar sincronía reloj en vaciadofusion -> mover a VERDE
+
+  ===== PC-5 — Tiempo en molde  [GRIS]
+    tabla.campo : cscmega_08ruta.FHrMOLD/FHrDESM (calculado)
+    C1 Existencia  : m_tenfriamiento (campo directo): EXISTE pero 0% poblado en histórico (centinela vacío) | FHrMOLD: EXISTE | FHrDESM: EXISTE | Temp arena al desmolde (VPODP): SIN CAMPO en ia_fasa
+    C2 Poblamiento : 98.0% FHrMOLD+FHrDESM válidos (43169/44053) | tiempo en molde avg≈2663 min | m_tenfriamiento directo: 0% (campo vacío históricamente)
+    C3 Comparab.   : Columnas clave en cscmega_08ruta: ['u_NoParte'] — join a colada indirecto/imposible
+    C4 Cumplimiento: Ventana tiempo en molde: sin especificación cuantitativa en FUS-001 | Temp arena al desmolde: sin campo en ia_fasa (vive en VPODP)
+    ► BLOQUEADOR   : Tiempo en molde directo (m_tenfriamiento) sin dato útil. Alternativa FHrMOLD−FHrDESM: sin join a colada o sin datos en período
+
+  ===== PC-6 — Rechazo del lote  [VERDE]
+    tabla.campo : alfamega_01_rechazosbyidticket.bRechazo
+    C1 Existencia  : EXISTE — bRechazo (0/1 flag) | c_IdColada: NO (join via idTicket) | no_parte: EXISTE | HBW (Brinell): SIN CAMPO en ia_fasa | Nodularidad: SIN CAMPO en ia_fasa
+    C2 Poblamiento : 100.0% bRechazo poblado (50118/50118) | tasa rechazo observada: 14.9% | HBW/nodularidad: 0% (sin campo en ia_fasa)
+    C3 Comparab.   : c_IdColada no en tabla — join via idTicket | no_parte para ventana
+    C4 Cumplimiento: 5 partes con tasa>20% en período | Top: A5E34072602B:100.0%, A5E34052794B :100.0%, D 120384- RC:100.0%
+    ► BLOQUEADOR   : Señal de rechazo activa. HBW/nodularidad (causa metalúrgica cuantitativa) pendiente integración fuente digital
+
+  ===== PC-7 — Cierre de colada  [ÁMBAR]
+    tabla.campo : cscmega_03coladacargametalica.c_IdColada/c_ItacaLadle
+    C1 Existencia  : EXISTE — c_IdColada (PK) | c_ItacaLadle (arefBatch): EXISTE | c_Folio COREX: EXISTE
+    C2 Poblamiento : 100.0% coladas cerradas (FechaFinal+Kilos>0) | c_ItacaLadle: 0.0% | c_Folio COREX: 100.0%
+    C3 Comparab.   : alfamega_01_rechazosbyidticket: sin c_IdColada — join cadena incompleta
+    C4 Cumplimiento: Integridad referencial: 0.0% cadena completa (0/43666) | sin FechaFinal: 7 | sin c_ItacaLadle: 43666
+    ► BLOQUEADOR   : Join cadena colada->ticket <90% — integridad referencial incompleta
+
+======================================================================================================================================================
+  RESUMEN DE ESTADOS
+------------------------------------------------------------------------------------------------------------------------------------------------------
+  VERDE    (1 PCs) -> PC-6
+  ÁMBAR    (4 PCs) -> PC-1, PC-2, PC-4, PC-7
+  GRIS     (2 PCs) -> PC-3, PC-5
+
+======================================================================================================================================================
+  ORDEN RECOMENDADO DE WIRING — palanca vs dependencia externa
+------------------------------------------------------------------------------------------------------------------------------------------------------
+  1. PC-6 Rechazo del lote        Señal bRechazo activa ya. Bajo esfuerzo de integración. [internas]
+  2. PC-7 Cierre de colada        Integridad referencial alta. ITACA cuando reactive acceso sapiens.
+  3. PC-4 Temperatura vaciado     Dato existe. Reparar sincronía reloj vaciadofusion -> join ticket válido.
+  4. PC-2 Análisis químico        Integrar SpectroMAX digital + validar sesgo bMg_B con COREX/Calidad.
+  5. PC-5 Tiempo en molde         Definir ventana FUS-001; conectar VPODP temp arena al desmolde.
+  6. PC-1 Carga al horno          Mapear receta TBL-HIC a c_IdColada en corex_test.
+  7. PC-3 Inoculación/fading      DEPENDENCIA EXTERNA: requiere acceso ITACA (usuario sapiens).
+
+  Script read-only. Re-ejecutar con --desde/--hasta cuando se conecte nueva fuente.
+
