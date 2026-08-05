@@ -190,6 +190,7 @@ main{padding:16px 20px;max-width:1100px;margin:0 auto}
   <div class="tab" data-tab="sim" onclick="switchTab('sim')">Simulador · Parte</div>
   <div class="tab" data-tab="pron" onclick="switchTab('pron')">Pronóstico · Programa</div>
   <div class="tab" data-tab="pedidos" onclick="switchTab('pedidos')">Clientes · Pedidos · Partes</div>
+  <div class="tab" data-tab="beta" onclick="switchTab('beta')">🤖 Agente Beta</div>
 </div>
 
 <!-- ═══════════════════ EJECUTIVO ═══════════════════ -->
@@ -1109,7 +1110,7 @@ async function initPronostico() {
 // ════════════════════════════════════════════════════════════
 // TAB SYSTEM
 // ════════════════════════════════════════════════════════════
-const TABS = ['ejecutivo','alertas','flujo','riesgo','crit','sim','pron','pedidos']
+const TABS = ['ejecutivo','alertas','flujo','riesgo','crit','sim','pron','pedidos','beta']
 const tabLoaded = {}
 
 function switchTab(name) {
@@ -1127,6 +1128,7 @@ function switchTab(name) {
     if (name === 'sim')  initSimPanel()
     if (name === 'pron') initPronPanel()
     if (name === 'pedidos') initPedidosPanel()
+    if (name === 'beta') window.initBetaPanel()
   }
 }
 
@@ -3717,6 +3719,151 @@ function pronRenderCombos(md) {
   var btn = document.getElementById('pn-btn')
   if (btn) btn.addEventListener('click', pronCargar)
 })()
+</script>
+
+<!-- ═══════════════════ AGENTE BETA · CALIDAD (v1) ═══════════════════ -->
+<div id="tab-beta" style="display:none">
+<main>
+<section id="p-beta" class="panel">
+  <div class="cr-eyebrow">Agente Beta · criticidad histórica + disponibilidad de compuerta química</div>
+
+  <div class="bt-search">
+    <input id="bt-input" type="text" placeholder="No. de parte, ej. X62008071010" />
+    <button id="bt-btn">Evaluar →</button>
+  </div>
+  <div id="bt-msg" class="bt-msg"></div>
+
+  <div id="bt-result" style="display:none"></div>
+
+  <div class="cr-eyebrow" style="margin-top:24px">Partes en riesgo alto · clic para evaluar</div>
+  <div id="bt-lista"><div class="loading-msg">Cargando…</div></div>
+
+  <div class="cr-foot" style="margin-top:24px">
+    <b>Compuerta ① criticidad:</b> gamamega_01_riesgodefectoparte, tabulación histórica Defecto×Parte (misma
+    fuente que la pestaña Criticidad; aquí se lee en vivo, no como snapshot embebido).
+    <b>Compuerta ② química:</b> cscmega_05cquimicosbase (SpectroMAX) — se reporta "sin datos" cuando el ETL
+    lleva más de 7 días sin actualizar. Nunca se simula ni se infiere cuando falta.
+    <b>Nota:</b> Beta v1 solo genera una recomendación de texto para confirmación humana — no ejecuta ninguna
+    acción. Para el desglose completo por defecto de una parte, ver la pestaña Criticidad.
+  </div>
+</section>
+</main>
+</div>
+
+<style>
+#p-beta .bt-search{display:flex;gap:8px;margin:10px 0 4px}
+#p-beta .bt-search input{flex:1;max-width:320px;padding:8px 12px;font-size:13px;
+  border:0.5px solid var(--color-border-secondary);border-radius:var(--border-radius-md);
+  background:var(--color-background-primary);color:var(--color-text-primary)}
+#p-beta .bt-search button{padding:8px 16px;font-size:13px;font-weight:600;
+  border:0.5px solid var(--color-border-info);border-radius:var(--border-radius-md);
+  background:var(--color-background-info);color:var(--color-text-info);cursor:pointer}
+#p-beta .bt-msg{font-size:12px;color:var(--color-text-danger);min-height:16px;margin-top:4px}
+#p-beta .bt-card{background:var(--color-background-primary);border:0.5px solid var(--color-border-tertiary);
+  border-radius:var(--border-radius-lg);padding:16px 18px;margin-top:10px}
+#p-beta .bt-head{display:flex;align-items:center;gap:10px;margin-bottom:12px}
+#p-beta .bt-parte{font-family:monospace;font-size:15px;font-weight:600;color:var(--color-text-primary)}
+#p-beta .bt-badge{font-size:11px;font-weight:600;padding:3px 9px;border-radius:20px}
+#p-beta .bt-badge.alto{background:var(--color-background-danger);color:var(--color-text-danger)}
+#p-beta .bt-badge.normal{background:var(--color-background-success);color:var(--color-text-success)}
+#p-beta .bt-badge.sin{background:var(--color-background-secondary);color:var(--color-text-tertiary)}
+#p-beta .bt-gates{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px}
+#p-beta .bt-gate{border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-md);padding:10px 12px}
+#p-beta .bt-gate.off{opacity:.65}
+#p-beta .bt-gate-title{font-size:11px;font-weight:600;color:var(--color-text-secondary);margin-bottom:6px}
+#p-beta .bt-gate-row{font-size:12px;color:var(--color-text-primary);display:flex;justify-content:space-between;gap:8px;padding:2px 0}
+#p-beta .bt-reco{font-size:13px;line-height:1.5;color:var(--color-text-primary);
+  background:var(--color-background-tertiary);border-radius:var(--border-radius-md);padding:10px 12px}
+#p-beta .bt-row{display:grid;grid-template-columns:120px 1fr 80px 60px;gap:8px;align-items:center;
+  padding:8px 10px;font-size:12px;border-bottom:0.5px solid var(--color-border-tertiary);cursor:pointer}
+#p-beta .bt-row:hover{background:var(--color-background-secondary)}
+#p-beta .bt-row.head{font-weight:600;color:var(--color-text-secondary);cursor:default}
+#p-beta .bt-row.head:hover{background:none}
+#p-beta .bt-parte-mono{font-family:monospace}
+</style>
+<script>
+// AGENTE BETA
+let BT_LOADED = false
+window.initBetaPanel = function(){
+  if (BT_LOADED) return
+  BT_LOADED = true
+  document.getElementById('bt-btn').addEventListener('click', btEvaluar)
+  document.getElementById('bt-input').addEventListener('keydown', function(e){ if (e.key === 'Enter') btEvaluar() })
+  btCargarLista()
+}
+
+function btBadgeClase(label){
+  return label === 'alto' ? 'alto' : label === 'normal' ? 'normal' : 'sin'
+}
+
+async function btEvaluar(){
+  const np = document.getElementById('bt-input').value.trim()
+  const msg = document.getElementById('bt-msg')
+  const result = document.getElementById('bt-result')
+  msg.textContent = ''
+  if (!np) { msg.textContent = 'Escribe un número de parte.'; return }
+  result.style.display = ''
+  result.innerHTML = '<div class="loading-msg">Evaluando…</div>'
+  const d = await apiFetch('/api/beta/evaluar?no_parte=' + encodeURIComponent(np))
+  if (!d) { result.style.display = 'none'; result.innerHTML = ''; msg.textContent = 'Error consultando el agente.'; return }
+  result.innerHTML = btRenderResultado(d)
+}
+
+function btRenderResultado(d){
+  const c = d.compuerta_criticidad, q = d.compuerta_quimica
+  const badgeCls = c.disponible ? btBadgeClase(c.riesgo_label) : 'sin'
+  const badgeTxt = c.disponible
+    ? (c.riesgo_label === 'alto' ? 'Riesgo alto' : c.riesgo_label === 'normal' ? 'Riesgo normal' : 'Sin info')
+    : 'Sin datos'
+
+  const gate1 = '<div class="bt-gate' + (c.disponible ? '' : ' off') + '">'
+    + '<div class="bt-gate-title">① Criticidad histórica</div>'
+    + (c.disponible
+        ? '<div class="bt-gate-row"><span>Defecto dominante</span><b>' + c.defecto_dominante + '</b></div>'
+          + '<div class="bt-gate-row"><span>% rechazo histórico</span><b>' + (c.pct_rchz_total * 100).toFixed(2) + '%</b></div>'
+          + '<div class="bt-gate-row"><span>z-score</span><b>' + c.z_defecto_parte + '</b></div>'
+        : '<div class="bt-gate-row"><span>' + (c.motivo || 'sin datos') + '</span></div>')
+    + '</div>'
+
+  const gate2 = '<div class="bt-gate' + (q.disponible ? '' : ' off') + '">'
+    + '<div class="bt-gate-title">② Química en vivo</div>'
+    + (q.disponible
+        ? '<div class="bt-gate-row"><span>Estado</span><b>Disponible</b></div>'
+        : '<div class="bt-gate-row"><span>' + q.motivo + '</span></div>'
+          + '<div class="bt-gate-row"><span>Últ. actualización</span><b>' + (q.ultima_actualizacion || '—') + '</b></div>')
+    + '</div>'
+
+  return '<div class="bt-card">'
+    + '<div class="bt-head"><span class="bt-parte">' + d.no_parte + '</span>'
+      + '<span class="bt-badge ' + badgeCls + '">' + badgeTxt + '</span></div>'
+    + '<div class="bt-gates">' + gate1 + gate2 + '</div>'
+    + '<div class="bt-reco"><b>Recomendación (requiere confirmación humana):</b><br>' + d.recomendacion + '</div>'
+    + '</div>'
+}
+
+async function btCargarLista(){
+  const wrap = document.getElementById('bt-lista')
+  const d = await apiFetch('/api/beta/riesgo-alto?limit=20')
+  if (!d || !d.partes || !d.partes.length) {
+    wrap.innerHTML = '<div class="loading-msg">Sin partes en riesgo alto.</div>'
+    return
+  }
+  const head = '<div class="bt-row head"><span>No. Parte</span><span>Defecto dominante</span><span>% rechazo</span><span>z</span></div>'
+  const rows = d.partes.map(function(p){
+    return '<div class="bt-row" data-np="' + p.no_parte + '">'
+      + '<span class="bt-parte-mono">' + p.no_parte + '</span><span>' + p.defecto_dominante + '</span>'
+      + '<span>' + (p.pct_rchz_total * 100).toFixed(1) + '%</span><span>' + p.z_defecto_parte + '</span></div>'
+  }).join('')
+  wrap.innerHTML = head + rows
+  wrap.querySelectorAll('.bt-row[data-np]').forEach(function(row){
+    row.addEventListener('click', function(){ btDesdeLista(row.getAttribute('data-np')) })
+  })
+}
+
+function btDesdeLista(np){
+  document.getElementById('bt-input').value = np
+  btEvaluar()
+}
 </script>
 </body>
 </html>
