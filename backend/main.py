@@ -4334,3 +4334,120 @@ def produccion_tonelaje_mensual(anios: str = Query(default="2024,2025")):
         "total_por_anio": total_anual,
         "meses": resumen,
     }
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# AGENTE BETA — calidad / predictivo (v1, 2026-08-05)
+# ══════════════════════════════════════════════════════════════════════════════
+# Dos compuertas de datos, nunca mezcladas:
+#   1. Criticidad histórica — gamamega_01_riesgodefectoparte. Confirmado
+#      idéntica fila a fila (mismo z_defecto_parte con 10+ decimales) contra
+#      TabulacionDeCriticidad_junio28_2026.xlsx (tabulación manual de Carlos
+#      Cruz) — se decidió NO duplicarla en una tabla nueva, leer esta directo.
+#      FlagCriticidadDefectoParte/FlagTendInterAnual son -1/0/1/NULL, no
+#      binarios (713/575/87/6 filas resp.) — ver _riesgo_label().
+#   2. Química en vivo — cscmega_05cquimicosbase (SpectroMAX). ETL congelado
+#      desde 2025-12-29 (responsable: Jasso). Disponibilidad se calcula en
+#      vivo contra MAX(u_Fecha) real, nunca hardcodeada ni simulada/inferida
+#      cuando falta.
+
+QUIMICA_UMBRAL_DIAS = 7  # dato más viejo que esto => compuerta no disponible
+
+
+def _riesgo_label(flag) -> str:
+    """-1 y NULL se reportan igual como 'sin info' (v1, decisión de JC
+    2026-08-05) — no se distingue 'riesgo negativo' de 'no calculable'."""
+    if flag == 1:
+        return "alto"
+    if flag == 0:
+        return "normal"
+    return "sin info"
+
+
+def _compuerta_quimica() -> dict:
+    row = run("SELECT MAX(u_Fecha) AS mx FROM cscmega_05cquimicosbase", {})
+    ultima = row[0]["mx"] if row else None
+    disponible = bool(ultima) and (datetime.now() - ultima).days <= QUIMICA_UMBRAL_DIAS
+    return {
+        "disponible": disponible,
+        "motivo": None if disponible else "ETL congelado",
+        "ultima_actualizacion": ultima.strftime("%Y-%m-%d") if ultima else None,
+    }
+
+
+def _recomendacion_beta(defecto: str, riesgo_label: str, quimica: dict) -> str:
+    if riesgo_label != "alto":
+        return "Sin acción prioritaria — criticidad histórica no indica riesgo alto para esta parte."
+
+    base = "Aumentar frecuencia de inspección visual — criticidad histórica alta"
+    if not quimica["disponible"]:
+        base += ", sin corroboración química disponible"
+    base += "."
+
+    if defecto and defecto.upper() == "SOPLADURA":
+        base += (" Nota: SOPLADURA suele asociarse más a molde/inoculante que a "
+                  "composición química de colada — la falta de dato químico no "
+                  "es la limitante principal para este defecto.")
+    return base
+
+
+@app.get("/api/beta/evaluar")
+def beta_evaluar(no_parte: str = Query(...)):
+    rows = run("""
+        SELECT nomDefecto, PrcRchzTotal, zDefectoParte, FlagCriticidadDefectoParte
+        FROM gamamega_01_riesgodefectoparte
+        WHERE No_Parte = :np
+        ORDER BY zDefectoParte DESC
+    """, {"np": no_parte})
+
+    quimica = _compuerta_quimica()
+
+    if not rows:
+        return {
+            "no_parte": no_parte,
+            "compuerta_criticidad": {"disponible": False, "motivo": "sin historial en la tabulación"},
+            "compuerta_quimica": quimica,
+            "recomendacion": "Sin datos históricos suficientes para evaluar esta parte.",
+        }
+
+    top = rows[0]
+    riesgo_label = _riesgo_label(top["FlagCriticidadDefectoParte"])
+    defecto = str(top["nomDefecto"] or "")
+
+    return {
+        "no_parte": no_parte,
+        "compuerta_criticidad": {
+            "disponible": True,
+            "defecto_dominante": defecto,
+            "pct_rchz_total": round(float(top["PrcRchzTotal"] or 0), 4),
+            "z_defecto_parte": round(float(top["zDefectoParte"] or 0), 2),
+            "riesgo": top["FlagCriticidadDefectoParte"],
+            "riesgo_label": riesgo_label,
+        },
+        "compuerta_quimica": quimica,
+        "recomendacion": _recomendacion_beta(defecto, riesgo_label, quimica),
+    }
+
+
+@app.get("/api/beta/riesgo-alto")
+def beta_riesgo_alto(limit: int = Query(default=20, le=200)):
+    rows = run(f"""
+        SELECT No_Parte AS no_parte, nomDefecto AS defecto_dominante,
+               PrcRchzTotal AS pct_rchz_total, zDefectoParte AS z_defecto_parte
+        FROM gamamega_01_riesgodefectoparte
+        WHERE FlagCriticidadDefectoParte = 1
+        ORDER BY zDefectoParte DESC
+        LIMIT {int(limit)}
+    """, {})
+
+    return {
+        "partes": [
+            {
+                "no_parte": r["no_parte"],
+                "defecto_dominante": str(r["defecto_dominante"] or ""),
+                "pct_rchz_total": round(float(r["pct_rchz_total"] or 0), 4),
+                "z_defecto_parte": round(float(r["z_defecto_parte"] or 0), 2),
+            }
+            for r in rows
+        ]
+    }
