@@ -189,9 +189,8 @@ main{padding:16px 20px;max-width:1100px;margin:0 auto}
 
 <div class="tabs">
   <div class="tab active" data-tab="ejecutivo" onclick="switchTab('ejecutivo')">Ejecutivo</div>
-  <div class="tab" data-tab="alertas" onclick="switchTab('alertas')">🔔 Alertas y Protocolos</div>
-  <div class="tab" data-tab="flujo" onclick="switchTab('flujo')">Flujo del Proceso</div>
-  <div class="tab" data-tab="riesgo" onclick="switchTab('riesgo')">Riesgo · Parte</div>
+  <div class="tab" data-tab="flujo" onclick="switchTab('flujo')">Control del Proceso</div>
+  <div class="tab" data-tab="riesgo" onclick="switchTab('riesgo')">Calidad del Producto</div>
   <div class="tab" data-tab="pron" onclick="switchTab('pron')">Plan de Producción</div>
   <div class="tab" data-tab="pedidos" onclick="switchTab('pedidos')">Clientes · Pedidos · Partes</div>
   <div class="tab" data-tab="beta" onclick="switchTab('beta')">🤖 Agente Beta</div>
@@ -284,9 +283,16 @@ main{padding:16px 20px;max-width:1100px;margin:0 auto}
 </main>
 </div>
 
-<!-- ═══════════════════ ALERTAS Y PROTOCOLOS ═══════════════════ -->
-<div id="tab-alertas" style="display:none">
+<!-- ═══════════════════ CONTROL DEL PROCESO (unifica Alertas y Protocolos + Flujo del Proceso) ═══════════════════ -->
+<!-- Fusión 2026-08-05: Alertas y Protocolos (franja Andon, arriba) + Flujo del Proceso (mapa + detalle, abajo).
+     Flujo ya era en sí mismo la fusión de los antiguos "Puntos de Control del Proceso" + "Piso · Detalle" (2026-07-12).
+     Nivel 1: mapa de flujo por etapa con badge de alerta · Nivel 2: detalle de colada (7 PCs + SKUs)
+     · Nivel 3: protocolo de acción inline en PC-6 cuando aplica (dentro de renderCarril). -->
+<div id="tab-flujo" style="display:none">
 <main>
+
+  <!-- ── Alertas y Protocolos: franja Andon, siempre visible arriba del flujo ── -->
+  <div style="font-size:14px;font-weight:600;color:var(--color-text-primary);margin-bottom:8px">🔔 Alertas y Protocolos</div>
   <div class="controls">
     <span class="ctrl-label">Ventana</span>
     <select id="al-sel-horas">
@@ -310,25 +316,21 @@ main{padding:16px 20px;max-width:1100px;margin:0 auto}
     </button>
   </div>
 
-  <div id="al-panel-alertas" class="al-panel">
+  <div id="al-panel-alertas" class="al-panel collapsed">
     <div class="al-panel-title">Alertas activas — PC en ROJO o ÁMBAR en la ventana</div>
     <div id="al-lista-alertas"><div class="loading-msg">Cargando…</div></div>
   </div>
 
-  <div id="al-panel-protocolos" class="al-panel">
+  <div id="al-panel-protocolos" class="al-panel collapsed">
     <div class="al-panel-title">Protocolos de acción — puente Defecto→ElementoControl→Puesto/Proceso
       (<code>gamamega_02_recomendacionescontrol</code>)</div>
     <div id="al-lista-protocolos"><div class="loading-msg">Cargando…</div></div>
   </div>
-</main>
-</div>
 
-<!-- ═══════════════════ FLUJO DEL PROCESO ═══════════════════ -->
-<!-- Fusión de los antiguos tabs "Puntos de Control del Proceso" + "Piso · Detalle" (2026-07-12).
-     Nivel 1: mapa de flujo por etapa con badge de alerta · Nivel 2: detalle de colada (7 PCs + SKUs)
-     · Nivel 3: protocolo de acción inline en PC-6 cuando aplica (dentro de renderCarril). -->
-<div id="tab-flujo" style="display:none">
-<main>
+  <div style="margin:24px 0;border-top:1px solid var(--color-border-secondary)"></div>
+
+  <!-- ── Flujo del Proceso: mapa por etapa + detalle de colada ── -->
+  <div style="font-size:14px;font-weight:600;color:var(--color-text-primary);margin-bottom:8px">Flujo del Proceso</div>
   <div class="controls">
     <span class="ctrl-label">Ventana</span>
     <select id="fl-sel-horas">
@@ -1123,7 +1125,7 @@ async function initPronostico() {
 // ════════════════════════════════════════════════════════════
 // TAB SYSTEM
 // ════════════════════════════════════════════════════════════
-const TABS = ['ejecutivo','alertas','flujo','riesgo','pron','pedidos','beta','alfa']
+const TABS = ['ejecutivo','flujo','riesgo','pron','pedidos','beta','alfa']
 const tabLoaded = {}
 
 function switchTab(name) {
@@ -1134,8 +1136,7 @@ function switchTab(name) {
   if (!tabLoaded[name]) {
     tabLoaded[name] = true
     if (name === 'ejecutivo') initEjecutivo()
-    if (name === 'alertas') initAlertasPanel()
-    if (name === 'flujo') cargarFlujo()
+    if (name === 'flujo') { cargarFlujo(); initAlertasPanel() }
     if (name === 'riesgo') rpSwitchSub('semana')
     if (name === 'pron') initPronPanel()
     if (name === 'pedidos') initPedidosPanel()
@@ -1977,7 +1978,9 @@ function renderCarril(c){
 // ALERTAS Y PROTOCOLOS — Andon/Jidoka
 // ════════════════════════════════════════════════════════════
 let _alData = null
-const _alPanelOpen = { alertas: true, protocolos: true }
+// Colapsados por defecto (antes abiertos) -- desde la fusión 2026-08-05 esta franja
+// comparte página con Flujo del Proceso, ya no es el único contenido de su propio tab.
+const _alPanelOpen = { alertas: false, protocolos: false }
 
 function initAlertasPanel(){
   cargarAlertas()
