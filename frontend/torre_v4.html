@@ -3874,6 +3874,12 @@ function btDesdeLista(np){
 <section id="p-alfa" class="panel">
   <div class="cr-eyebrow">Agente Alfa · ritmo real, cuello de botella y proyección de entrega</div>
 
+  <div class="af-cliente-row">
+    <select id="af-cliente"><option value="">Cargando clientes…</option></select>
+  </div>
+  <div id="af-partes-cliente"><div class="loading-msg">Selecciona un cliente para ver sus partes con actividad.</div></div>
+
+  <div class="cr-eyebrow" style="margin-top:20px">O busca directamente por No. de parte</div>
   <div class="af-search">
     <input id="af-input" type="text" placeholder="No. de parte, ej. 2C-2473-000" />
     <button id="af-btn">Evaluar →</button>
@@ -3901,6 +3907,14 @@ function btDesdeLista(np){
 </div>
 
 <style>
+#p-alfa .af-cliente-row{margin:10px 0 4px}
+#p-alfa .af-cliente-row select{width:100%;max-width:360px;padding:8px 12px;font-size:13px;
+  border:0.5px solid var(--color-border-secondary);border-radius:var(--border-radius-md);
+  background:var(--color-background-primary);color:var(--color-text-primary)}
+#p-alfa .af-parte-mono{font-family:monospace}
+#p-alfa #af-partes-cliente .af-row{grid-template-columns:1fr 70px 90px 90px}
+#p-alfa #af-partes-cliente .af-row.click{cursor:pointer}
+#p-alfa #af-partes-cliente .af-row.click:hover{background:var(--color-background-secondary)}
 #p-alfa .af-search{display:flex;gap:8px;margin:10px 0 4px}
 #p-alfa .af-search input{flex:1;max-width:320px;padding:8px 12px;font-size:13px;
   border:0.5px solid var(--color-border-secondary);border-radius:var(--border-radius-md);
@@ -3942,7 +3956,46 @@ window.initAlfaPanel = function(){
   AF_LOADED = true
   document.getElementById('af-btn').addEventListener('click', afEvaluar)
   document.getElementById('af-input').addEventListener('keydown', function(e){ if (e.key === 'Enter') afEvaluar() })
+  document.getElementById('af-cliente').addEventListener('change', afCargarPartesCliente)
+  afCargarClientes()
   afCargarCuellos()
+}
+
+async function afCargarClientes(){
+  const sel = document.getElementById('af-cliente')
+  const d = await apiFetch('/api/alfa/clientes')
+  const clientes = (d && d.clientes) || []
+  if (!clientes.length) {
+    sel.innerHTML = '<option value="">Sin clientes con actividad reciente</option>'
+    return
+  }
+  sel.innerHTML = '<option value="">Selecciona un cliente…</option>'
+    + clientes.map(function(c){ return '<option value="' + c.replace(/"/g,'&quot;') + '">' + c + '</option>' }).join('')
+}
+
+async function afCargarPartesCliente(){
+  const cliente = document.getElementById('af-cliente').value
+  const wrap = document.getElementById('af-partes-cliente')
+  if (!cliente) { wrap.innerHTML = '<div class="loading-msg">Selecciona un cliente para ver sus partes con actividad.</div>'; return }
+  wrap.innerHTML = '<div class="loading-msg">Cargando…</div>'
+  const d = await apiFetch('/api/alfa/partes-cliente?cliente=' + encodeURIComponent(cliente) + '&dias=14')
+  if (!d || !d.partes || !d.partes.length) {
+    wrap.innerHTML = '<div class="loading-msg">Sin partes con actividad reciente para este cliente.</div>'
+    return
+  }
+  const head = '<div class="af-row head"><span>No. Parte</span><span>Proceso</span><span>Piezas (14d)</span><span>Piezas/día</span></div>'
+  const rows = d.partes.map(function(p){
+    return '<div class="af-row click" data-np="' + p.no_parte.replace(/"/g,'&quot;') + '">'
+      + '<span class="af-parte-mono">' + p.no_parte + '</span><span>' + (p.proceso || '—') + '</span>'
+      + '<span>' + p.piezas + '</span><span>' + p.ritmo_diario_prom + '</span></div>'
+  }).join('')
+  wrap.innerHTML = head + rows
+  wrap.querySelectorAll('.af-row.click[data-np]').forEach(function(row){
+    row.addEventListener('click', function(){
+      document.getElementById('af-input').value = row.getAttribute('data-np')
+      afEvaluar()
+    })
+  })
 }
 
 async function afEvaluar(){

@@ -4504,6 +4504,57 @@ def _resolver_proceso_cliente(no_partes: list) -> dict:
     return {r["no_parte"]: {"proceso": r["proceso"], "cliente": r["cliente"]} for r in rows}
 
 
+@app.get("/api/alfa/clientes")
+def alfa_clientes():
+    """Clientes con actividad de flujo real (cscmega_08ruta) en los últimos 90 días,
+    ordenados por piezas -- para el selector de descubrimiento del tab Alfa (JC señaló
+    que escribir el No_Parte a ciegas no era usable)."""
+    referencia = _referencia_actual_flujo()
+    ref_dt = datetime.fromisoformat(referencia)
+    desde_dt = ref_dt - timedelta(days=90)
+    rows = run("""
+        SELECT c.Cliente AS cliente, COUNT(*) AS piezas
+        FROM cscmega_08ruta r
+        JOIN corex_test.modelos m ON m.NoParte = r.u_NoParte
+        JOIN corex_test.clientes c ON c.IdCliente = m.IdCliente
+        WHERE r.FHrLIMP BETWEEN :d AND :h
+        GROUP BY c.Cliente
+        ORDER BY piezas DESC
+    """, {"d": desde_dt, "h": ref_dt})
+    return {"clientes": [r["cliente"] for r in rows]}
+
+
+@app.get("/api/alfa/partes-cliente")
+def alfa_partes_cliente(cliente: str = Query(...), dias: int = Query(default=14, le=90)):
+    """Partes de un cliente con ritmo real reciente -- puebla la lista clickeable
+    que reemplaza la búsqueda a ciegas por No_Parte."""
+    referencia = _referencia_actual_flujo()
+    ref_dt = datetime.fromisoformat(referencia)
+    desde_dt = ref_dt - timedelta(days=dias)
+    rows = run("""
+        SELECT r.u_NoParte AS no_parte, NULLIF(m.area, '') AS proceso, COUNT(*) AS piezas
+        FROM cscmega_08ruta r
+        JOIN corex_test.modelos m ON m.NoParte = r.u_NoParte
+        JOIN corex_test.clientes c ON c.IdCliente = m.IdCliente
+        WHERE c.Cliente = :cli AND r.FHrLIMP BETWEEN :d AND :h
+        GROUP BY r.u_NoParte, m.area
+        ORDER BY piezas DESC
+    """, {"cli": cliente, "d": desde_dt, "h": ref_dt})
+    return {
+        "cliente": cliente,
+        "dias": dias,
+        "partes": [
+            {
+                "no_parte": r["no_parte"],
+                "proceso": r["proceso"],
+                "piezas": int(r["piezas"]),
+                "ritmo_diario_prom": round(int(r["piezas"]) / dias, 2),
+            }
+            for r in rows
+        ],
+    }
+
+
 def _ritmo_parte(no_parte: str, dias: int, referencia: str) -> dict:
     """Ritmo real de una parte: piezas terminadas (FHrLIMP, equivalente a bLIMP=1)
     por día en la ventana, y tiempo de ciclo real por etapa (promedio en horas,
