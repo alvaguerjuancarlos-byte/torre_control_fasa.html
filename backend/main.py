@@ -4451,3 +4451,63 @@ def beta_riesgo_alto(limit: int = Query(default=20, le=200)):
             for r in rows
         ]
     }
+
+
+# ── Plan de Producción Mensual ────────────────────────────────────────────
+# detalle_referencial viene de la hoja `resumen` del Excel, que el responsable
+# confirmó que NO es fuente de verdad (zona de trabajo, sus totales internos
+# no reconcilian entre sí). Se expone con "autoritativo": false explícito en
+# cada fila para que ningún consumidor (dashboard, Agente Alfa/Beta) la use
+# por accidente para tomar o justificar una decisión.
+@app.get("/api/programa")
+def programa_mensual(mes: str = Query(..., description="YYYY-MM, ej. 2026-08")):
+    try:
+        anio_mes = datetime.strptime(mes, "%Y-%m").date().replace(day=1)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="mes debe tener formato YYYY-MM")
+
+    encabezado_rows = run("""
+        SELECT id, anio_mes, rev_no, fecha_rev, dias_habiles, ventas_ton, presup_ton,
+               buenas_ton, vaciadas_ton, rech_int_pct, linea_ton, desarrollo_ton,
+               linea_pct, desarrollo_pct, inv_total, archivo_origen, fecha_carga
+        FROM programa_produccion_mensual
+        WHERE anio_mes = :anio_mes
+        ORDER BY rev_no DESC LIMIT 1
+    """, {"anio_mes": anio_mes})
+
+    if not encabezado_rows:
+        raise HTTPException(status_code=404, detail=f"No hay plan cargado para {mes}")
+
+    encabezado = encabezado_rows[0]
+    programa_id = encabezado["id"]
+
+    ritmos_por_proceso = run("""
+        SELECT tipo_dia, proceso, moldes_dia, peso_prom_kg, kg_diarios
+        FROM programa_ritmos_vaciado
+        WHERE programa_id = :pid
+        ORDER BY FIELD(tipo_dia, 'LV', 'SAB'), proceso
+    """, {"pid": programa_id})
+
+    ritmos_agregados = run("""
+        SELECT tipo_dia, kg_vaciado_dia_con_ri, kg_diarios_buenos, coladas_diarias
+        FROM programa_ritmos_agregados
+        WHERE programa_id = :pid
+        ORDER BY FIELD(tipo_dia, 'LV', 'SAB')
+    """, {"pid": programa_id})
+
+    detalle_referencial = run("""
+        SELECT parte, sdo_final, peso_kg, kg_buenos, proceso, status, es_autoritativo
+        FROM programa_produccion_detalle_referencial
+        WHERE programa_id = :pid
+        ORDER BY parte
+    """, {"pid": programa_id})
+
+    return {
+        "encabezado": encabezado,
+        "ritmos_por_proceso": ritmos_por_proceso,
+        "ritmos_agregados": ritmos_agregados,
+        "detalle_referencial": [
+            {**fila, "autoritativo": False}
+            for fila in detalle_referencial
+        ],
+    }
