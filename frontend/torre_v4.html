@@ -3872,26 +3872,29 @@ function btDesdeLista(np){
 <div id="tab-alfa" style="display:none">
 <main>
 <section id="p-alfa" class="panel">
-  <div class="cr-eyebrow">Agente Alfa · flujo de proceso — 7 puntos de control + protocolo de acción</div>
+  <div class="cr-eyebrow">Agente Alfa · ritmo real, cuello de botella y proyección de entrega</div>
 
   <div class="af-search">
-    <input id="af-input" type="number" placeholder="ID de colada, ej. 78796" />
+    <input id="af-input" type="text" placeholder="No. de parte, ej. 2C-2473-000" />
     <button id="af-btn">Evaluar →</button>
   </div>
   <div id="af-msg" class="af-msg"></div>
 
   <div id="af-result" style="display:none"></div>
 
-  <div class="cr-eyebrow" style="margin-top:24px">Coladas con alerta activa · clic para evaluar</div>
-  <div id="af-lista"><div class="loading-msg">Cargando…</div></div>
+  <div class="cr-eyebrow" style="margin-top:24px">Cuello de botella · últimos 14 días vs. las 8 semanas previas</div>
+  <div id="af-cuellos"><div class="loading-msg">Cargando…</div></div>
 
   <div class="cr-foot" style="margin-top:24px">
-    <b>Fuente:</b> mismo motor del tab "Alertas y Protocolos" (7 puntos de control, evaluados en vivo,
-    sin duplicar reglas). PC-1 y PC-3 son GRIS estructural (sin fuente integrada en ia_fasa). El protocolo
-    de acción solo se resuelve para alertas de PC-6 (único carril con un defecto asociado); los demás PCs
-    son mediciones de proceso sin un defecto puntual que buscar en el puente Defecto→ElementoControl.
-    <b>Nota:</b> Alfa v1 solo genera una recomendación de texto para confirmación humana — no ejecuta
-    ninguna acción, y no guarda tendencia histórica (solo estado actual, sin escritura a base de datos).
+    <b>Ritmo:</b> piezas terminadas (FHrLIMP) por día en cscmega_08ruta. <b>Ciclo real por etapa:</b> promedio
+    en horas, filtrado a transiciones de 0-72h entre etapas consecutivas — hay huecos de meses en ~1-7% de
+    los tickets (probable rezago de escaneo, no proceso real) que se descartan con el mismo criterio que ya
+    usa PC-5. <b>Proceso/cliente:</b> corex_test.modelos.area + clientes — autoritativo, ~el 50% de los
+    modelos no tiene área asignada en el ERP y se reporta "sin proceso", no se infiere.
+    <b>Saldo pendiente y proyección de entrega:</b> vienen del Plan de Producción Mensual (hoja `resumen`
+    del Excel) — <b>NO es una fuente autoritativa</b>, solo referencia; no aparece si el plan del mes no
+    se ha cargado. <b>Cuello de botella:</b> heurística inicial (razón ≥ 1.3× el baseline), sin concepto de
+    turno todavía — no hay horarios de turno definidos en el sistema.
   </div>
 </section>
 </main>
@@ -3908,26 +3911,28 @@ function btDesdeLista(np){
 #p-alfa .af-msg{font-size:12px;color:var(--color-text-danger);min-height:16px;margin-top:4px}
 #p-alfa .af-card{background:var(--color-background-primary);border:0.5px solid var(--color-border-tertiary);
   border-radius:var(--border-radius-lg);padding:16px 18px;margin-top:10px}
-#p-alfa .af-head{display:flex;align-items:center;gap:10px;margin-bottom:12px}
-#p-alfa .af-colada{font-family:monospace;font-size:15px;font-weight:600;color:var(--color-text-primary)}
+#p-alfa .af-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:4px}
+#p-alfa .af-parte{font-family:monospace;font-size:15px;font-weight:600;color:var(--color-text-primary)}
 #p-alfa .af-badge{font-size:11px;font-weight:600;padding:3px 9px;border-radius:20px}
-#p-alfa .af-badge.alerta{background:var(--color-background-danger);color:var(--color-text-danger)}
-#p-alfa .af-badge.ok{background:var(--color-background-success);color:var(--color-text-success)}
-#p-alfa .af-meta{font-size:12px;color:var(--muted);margin-bottom:12px}
-#p-alfa .af-carriles{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
-#p-alfa .af-reco{font-size:13px;line-height:1.5;color:var(--color-text-primary);
+#p-alfa .af-badge.proc{background:var(--color-background-info);color:var(--color-text-info)}
+#p-alfa .af-badge.sin{background:var(--color-background-secondary);color:var(--color-text-tertiary)}
+#p-alfa .af-badge.noauth{background:var(--amber-bg);color:var(--amber)}
+#p-alfa .af-meta{font-size:12px;color:var(--muted);margin-bottom:14px}
+#p-alfa .af-section-title{font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;
+  letter-spacing:.03em;margin:14px 0 8px}
+#p-alfa .af-bars{display:flex;align-items:flex-end;gap:2px;height:60px;margin-bottom:6px}
+#p-alfa .af-bar{flex:1;background:#378ADD;border-radius:2px 2px 0 0;min-height:2px}
+#p-alfa .af-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:6px}
+#p-alfa .af-stat{border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-md);
+  padding:10px 12px;text-align:center}
+#p-alfa .af-stat-label{font-size:10px;color:var(--muted);margin-bottom:4px}
+#p-alfa .af-stat-val{font-size:16px;font-weight:700;color:var(--color-text-primary)}
+#p-alfa .af-saldo{font-size:13px;line-height:1.5;color:var(--color-text-primary);
   background:var(--color-background-tertiary);border-radius:var(--border-radius-md);padding:10px 12px}
-#p-alfa .af-row{display:grid;grid-template-columns:110px 70px 1fr 90px;gap:8px;align-items:center;
-  padding:8px 10px;font-size:12px;border-bottom:0.5px solid var(--color-border-tertiary);cursor:pointer}
-#p-alfa .af-row:hover{background:var(--color-background-secondary)}
-#p-alfa .af-row.head{font-weight:600;color:var(--color-text-secondary);cursor:default}
-#p-alfa .af-row.head:hover{background:none}
-#p-alfa .af-pcs{display:flex;gap:3px;flex-wrap:wrap}
-#p-alfa .af-pc-chip{font-size:9px;font-weight:700;padding:1px 5px;border-radius:4px}
-#p-alfa .af-pc-chip.VERDE{background:var(--green-bg);color:var(--green)}
-#p-alfa .af-pc-chip.AMBAR{background:var(--amber-bg);color:var(--amber)}
-#p-alfa .af-pc-chip.ROJO{background:var(--red-bg);color:var(--red-chip)}
-#p-alfa .af-pc-chip.GRIS{background:var(--gray-bg);color:var(--gray)}
+#p-alfa .af-row{display:grid;grid-template-columns:70px 1fr 100px 100px 70px;gap:8px;align-items:center;
+  padding:8px 10px;font-size:12px;border-bottom:0.5px solid var(--color-border-tertiary)}
+#p-alfa .af-row.head{font-weight:600;color:var(--color-text-secondary)}
+#p-alfa .af-row.warn{background:#FFFBEB}
 </style>
 <script>
 // AGENTE ALFA
@@ -3937,62 +3942,87 @@ window.initAlfaPanel = function(){
   AF_LOADED = true
   document.getElementById('af-btn').addEventListener('click', afEvaluar)
   document.getElementById('af-input').addEventListener('keydown', function(e){ if (e.key === 'Enter') afEvaluar() })
-  afCargarLista()
+  afCargarCuellos()
 }
 
 async function afEvaluar(){
-  const idRaw = document.getElementById('af-input').value.trim()
+  const np = document.getElementById('af-input').value.trim()
   const msg = document.getElementById('af-msg')
   const result = document.getElementById('af-result')
   msg.textContent = ''
-  if (!idRaw) { msg.textContent = 'Escribe un ID de colada.'; return }
+  if (!np) { msg.textContent = 'Escribe un número de parte.'; return }
   result.style.display = ''
   result.innerHTML = '<div class="loading-msg">Evaluando…</div>'
-  const d = await apiFetch('/api/alfa/evaluar?id_colada=' + encodeURIComponent(idRaw))
-  if (!d) { result.style.display = 'none'; result.innerHTML = ''; msg.textContent = 'Colada no encontrada o error consultando el agente.'; return }
+  const d = await apiFetch('/api/alfa/evaluar?no_parte=' + encodeURIComponent(np) + '&dias=14')
+  if (!d) { result.style.display = 'none'; result.innerHTML = ''; msg.textContent = 'Error consultando el agente.'; return }
+  if (!d.proceso && !d.cliente && d.ritmo.total_terminadas === 0) {
+    result.style.display = 'none'; result.innerHTML = ''
+    msg.textContent = 'Sin actividad de flujo registrada para esta parte.'
+    return
+  }
   result.innerHTML = afRenderResultado(d)
 }
 
 function afRenderResultado(d){
-  const badgeCls = d.tiene_alerta ? 'alerta' : 'ok'
-  const badgeTxt = d.tiene_alerta ? 'Alerta activa' : 'Sin alerta'
-  const carrilesHtml = d.carriles.map(renderCarril).join('')
+  const procBadge = d.proceso
+    ? '<span class="af-badge proc">' + d.proceso + '</span>'
+    : '<span class="af-badge sin">Sin proceso asignado</span>'
+  const clienteTxt = d.cliente || 'Cliente no resuelto'
+
+  const serie = d.ritmo.serie_terminadas
+  const max = Math.max(1, ...serie.map(function(s){ return s.piezas }))
+  const barsHtml = serie.length
+    ? '<div class="af-bars">' + serie.map(function(s){
+        return '<div class="af-bar" style="height:' + Math.max(2, s.piezas / max * 60) + 'px" title="' + s.dia + ': ' + s.piezas + ' piezas"></div>'
+      }).join('') + '</div>'
+    : '<div class="loading-msg">Sin piezas terminadas en la ventana.</div>'
+
+  const c = d.ritmo.ciclo_horas
+  const statsHtml = '<div class="af-stats">'
+    + '<div class="af-stat"><div class="af-stat-label">Molde → Vaciado</div><div class="af-stat-val">' + (c.molde_a_vaciado != null ? c.molde_a_vaciado + ' h' : '—') + '</div></div>'
+    + '<div class="af-stat"><div class="af-stat-label">Vaciado → Desmoldeo</div><div class="af-stat-val">' + (c.vaciado_a_desmoldeo != null ? c.vaciado_a_desmoldeo + ' h' : '—') + '</div></div>'
+    + '<div class="af-stat"><div class="af-stat-label">Desmoldeo → Limpieza</div><div class="af-stat-val">' + (c.desmoldeo_a_limpieza != null ? c.desmoldeo_a_limpieza + ' h' : '—') + '</div></div>'
+    + '</div>'
+
+  let saldoHtml
+  if (d.saldo_pendiente) {
+    const s = d.saldo_pendiente
+    const proy = d.proyeccion
+      ? ' → a este ritmo, <b>~' + d.proyeccion.dias_estimados + ' días</b> para cubrirlo.'
+      : ' (no se pudo proyectar: ritmo reciente es 0).'
+    saldoHtml = '<div class="af-saldo"><span class="af-badge noauth">NO AUTORITATIVO</span> '
+      + 'Saldo pendiente (Plan ' + s.anio_mes + '): <b>' + s.sdo_final + ' piezas</b>' + proy + '</div>'
+  } else {
+    saldoHtml = '<div class="af-saldo">Sin plan de producción cargado para esta parte.</div>'
+  }
 
   return '<div class="af-card">'
-    + '<div class="af-head"><span class="af-colada">Colada ' + d.id_colada + ' · U' + d.u_colada + ' · H' + d.horno + '</span>'
-      + '<span class="af-badge ' + badgeCls + '">' + badgeTxt + '</span></div>'
-    + '<div class="af-meta">Inicio de fusión: ' + fmtDt(d.inicio_fusion) + '</div>'
-    + '<div class="af-carriles">' + carrilesHtml + '</div>'
-    + '<div class="af-reco"><b>Recomendación (requiere confirmación humana):</b><br>' + d.recomendacion + '</div>'
+    + '<div class="af-head"><span class="af-parte">' + d.no_parte + '</span>' + procBadge + '</div>'
+    + '<div class="af-meta">' + clienteTxt + '</div>'
+    + '<div class="af-section-title">Ritmo real · ' + d.ritmo.ritmo_diario_prom + ' piezas/día en promedio (' + d.ritmo.total_terminadas + ' en ' + d.ritmo.dias + ' días)</div>'
+    + barsHtml
+    + '<div class="af-section-title">Tiempo de ciclo real por etapa</div>'
+    + statsHtml
+    + '<div class="af-section-title">Saldo pendiente y proyección de entrega</div>'
+    + saldoHtml
     + '</div>'
 }
 
-async function afCargarLista(){
-  const wrap = document.getElementById('af-lista')
-  const d = await apiFetch('/api/alfa/alertas-activas?horas=48')
-  if (!d || !d.coladas || !d.coladas.length) {
-    wrap.innerHTML = '<div class="loading-msg">Sin coladas en alerta en la ventana actual.</div>'
+async function afCargarCuellos(){
+  const wrap = document.getElementById('af-cuellos')
+  const d = await apiFetch('/api/alfa/cuello-botella?dias=14')
+  if (!d || !d.cuellos_de_botella || !d.cuellos_de_botella.length) {
+    wrap.innerHTML = '<div class="loading-msg">Sin cuellos de botella detectados (ningún proceso/etapa ≥ ' + (d ? d.umbral_ratio : 1.3) + '× su baseline).</div>'
     return
   }
-  const head = '<div class="af-row head"><span>Colada</span><span>Horno</span><span>PCs</span><span>% rechazo</span></div>'
-  const rows = d.coladas.map(function(c){
-    const chips = Object.entries(c.estados).map(function(kv){
-      return '<span class="af-pc-chip ' + kv[1] + '">' + kv[0].replace('PC-','') + '</span>'
-    }).join('')
-    return '<div class="af-row" data-id="' + c.id_colada + '">'
-      + '<span>' + c.id_colada + ' · U' + c.u_colada + '</span><span>H' + c.horno + '</span>'
-      + '<span class="af-pcs">' + chips + '</span>'
-      + '<span>' + (c.pct_rechazo != null ? c.pct_rechazo + '%' : '—') + '</span></div>'
+  const ETAPA_LBL = {molde_a_vaciado:'Molde → Vaciado', vaciado_a_desmoldeo:'Vaciado → Desmoldeo', desmoldeo_a_limpieza:'Desmoldeo → Limpieza'}
+  const head = '<div class="af-row head"><span>Proceso</span><span>Etapa</span><span>Reciente</span><span>Baseline</span><span>Razón</span></div>'
+  const rows = d.cuellos_de_botella.map(function(c){
+    return '<div class="af-row warn"><span>' + c.proceso + '</span><span>' + (ETAPA_LBL[c.etapa] || c.etapa) + '</span>'
+      + '<span>' + c.horas_reciente + ' h</span><span>' + c.horas_baseline + ' h</span>'
+      + '<span><b>' + c.ratio + '×</b></span></div>'
   }).join('')
   wrap.innerHTML = head + rows
-  wrap.querySelectorAll('.af-row[data-id]').forEach(function(row){
-    row.addEventListener('click', function(){ afDesdeLista(row.getAttribute('data-id')) })
-  })
-}
-
-function afDesdeLista(id){
-  document.getElementById('af-input').value = id
-  afEvaluar()
 }
 </script>
 </body>

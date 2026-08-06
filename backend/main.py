@@ -5,6 +5,7 @@ Corre localmente; el HTML apunta a http://localhost:8000
 
 import os
 import json
+import math
 from pathlib import Path
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Tuple, List
@@ -4454,12 +4455,18 @@ def beta_riesgo_alto(limit: int = Query(default=20, le=200)):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# AGENTE ALFA — flujo de proceso (Andon/Jidoka), 100% lectura
+# AGENTE ALFA — ritmo real, cuello de botella y proyección de entrega, 100% lectura
 # ══════════════════════════════════════════════════════════════════════════════
-# Reutiliza el motor ya existente (_evaluar_coladas_ventana / _buscar_protocolos /
-# v3_carriles_colada) del tab "Alertas y Protocolos" — no duplica reglas, no
-# escribe nada. Decisión 2026-08-05 (JC): sin persistencia/tendencia histórica
-# en v1, solo estado actual — igual que Agente Beta.
+# Rediseño 2026-08-05 (JC): la v1 (PC-gate por colada) se retiró de aquí — esa
+# señal ya vive en el tab "Alertas y Protocolos", era redundante con Agente Beta.
+# Alfa ahora responde "¿vamos a cumplir la entrega de esta parte/cliente?" cruzando:
+#   - ritmo real por etapa (cscmega_08ruta: FHrMOLD/FhrVACI/FHrDESM/FHrLIMP —
+#     confirmados confiables ~93-99% dentro de 0-72h entre etapas consecutivas)
+#   - proceso/cliente (corex_test.modelos.area + corex_test.clientes — AUTORITATIVO,
+#     no depende del Excel del Plan de Producción)
+#   - saldo pendiente (programa_produccion_detalle_referencial.sdo_final — NO
+#     AUTORITATIVO, ver /api/programa; la tabla puede no existir todavía si el
+#     DDL del Plan de Producción no se ha corrido — se degrada con gracia)
 
 def _referencia_actual_flujo() -> str:
     """Ancla la ventana al último día con volumen real de coladas (>=5), no al
@@ -4481,68 +4488,178 @@ def _referencia_actual_flujo() -> str:
     return mx.strftime("%Y-%m-%dT%H:%M") if mx else "2025-12-19T08:00"
 
 
-def _recomendacion_alfa(estados: dict, protocolos: list, es_rediseno: bool) -> str:
-    alerta_pcs = [pc for pc, est in estados.items() if est in ("ROJO", "AMBAR")]
-    if not alerta_pcs:
-        return "Sin acción — los 7 puntos de control en verde o sin dato estructural."
-    if es_rediseno:
-        return ("Rechazo dominante es track REDISEÑO (defecto de diseño de alimentador/"
-                 "mazarota) — no corregible por protocolo de proceso. Escalar a Ingeniería, no a piso.")
-    if protocolos:
-        puestos = sorted({p["puesto"] for p in protocolos if p["puesto"]})
-        return f"Acción sugerida en: {', '.join(puestos)} — ver protocolos por defecto."
-    return (f"{', '.join(alerta_pcs)} en alerta, sin protocolo de acción disponible "
-            "(defecto sin nomDefecto asociado o sin match en el puente de control).")
+def _resolver_proceso_cliente(no_partes: list) -> dict:
+    """No_Parte -> {proceso (AF1/AF2/AF3, de corex_test.modelos.area), cliente}.
+    ~1074/2107 modelos no tienen area asignada en el ERP -- se reporta None, no se infiere."""
+    if not no_partes:
+        return {}
+    placeholders = ",".join(f":p{i}" for i in range(len(no_partes)))
+    params = {f"p{i}": p for i, p in enumerate(no_partes)}
+    rows = run(f"""
+        SELECT m.NoParte AS no_parte, NULLIF(m.area, '') AS proceso, c.Cliente AS cliente
+        FROM corex_test.modelos m
+        LEFT JOIN corex_test.clientes c ON c.IdCliente = m.IdCliente
+        WHERE m.NoParte IN ({placeholders})
+    """, params)
+    return {r["no_parte"]: {"proceso": r["proceso"], "cliente": r["cliente"]} for r in rows}
 
 
-@app.get("/api/alfa/alertas-activas")
-def alfa_alertas_activas(horas: int = Query(default=48, le=168)):
-    referencia = _referencia_actual_flujo()
-    coladas = _evaluar_coladas_ventana(referencia, horas)
-    activas = [c for c in coladas if c["tiene_alerta"]]
+def _ritmo_parte(no_parte: str, dias: int, referencia: str) -> dict:
+    """Ritmo real de una parte: piezas terminadas (FHrLIMP, equivalente a bLIMP=1)
+    por día en la ventana, y tiempo de ciclo real por etapa (promedio en horas,
+    filtrado a transiciones de 0-72h -- mismo criterio que ya usa PC-5 para
+    descartar timestamps con huecos de meses, que existen y son ~1-7% de los casos)."""
+    ref_dt = datetime.fromisoformat(referencia)
+    desde_dt = ref_dt - timedelta(days=dias)
+
+    serie = run("""
+        SELECT DATE(FHrLIMP) AS dia, COUNT(*) AS piezas
+        FROM cscmega_08ruta
+        WHERE u_NoParte = :np AND FHrLIMP BETWEEN :d AND :h
+        GROUP BY DATE(FHrLIMP) ORDER BY dia
+    """, {"np": no_parte, "d": desde_dt, "h": ref_dt})
+    total = sum(int(r["piezas"]) for r in serie)
+
+    ciclo = run("""
+        SELECT
+          ROUND(AVG(CASE WHEN TIMESTAMPDIFF(HOUR, FHrMOLD, FhrVACI) BETWEEN 0 AND 72
+                     THEN TIMESTAMPDIFF(MINUTE, FHrMOLD, FhrVACI)/60.0 END), 1) AS h_molde_vaciado,
+          ROUND(AVG(CASE WHEN TIMESTAMPDIFF(HOUR, FhrVACI, FHrDESM) BETWEEN 0 AND 72
+                     THEN TIMESTAMPDIFF(MINUTE, FhrVACI, FHrDESM)/60.0 END), 1) AS h_vaciado_desmoldeo,
+          ROUND(AVG(CASE WHEN TIMESTAMPDIFF(HOUR, FHrDESM, FHrLIMP) BETWEEN 0 AND 72
+                     THEN TIMESTAMPDIFF(MINUTE, FHrDESM, FHrLIMP)/60.0 END), 1) AS h_desmoldeo_limpieza
+        FROM cscmega_08ruta
+        WHERE u_NoParte = :np AND FHrLIMP BETWEEN :d AND :h
+    """, {"np": no_parte, "d": desde_dt, "h": ref_dt})
+    c = ciclo[0] if ciclo else {}
+
     return {
         "referencia": referencia,
-        "horas": horas,
-        "n_coladas_alerta": len(activas),
-        "coladas": [
-            {
-                "id_colada":   c["id_colada"],
-                "u_colada":    c["u_colada"],
-                "horno":       c["horno"],
-                "etapa":       c["etapa"],
-                "estados":     c["estados"],
-                "pct_rechazo": c["pct_rechazo"],
-            }
-            for c in activas
-        ],
+        "dias": dias,
+        "serie_terminadas": [{"dia": str(r["dia"]), "piezas": int(r["piezas"])} for r in serie],
+        "total_terminadas": total,
+        "ritmo_diario_prom": round(total / dias, 2) if dias else None,
+        "ciclo_horas": {
+            "molde_a_vaciado":     float(c["h_molde_vaciado"])     if c.get("h_molde_vaciado")     is not None else None,
+            "vaciado_a_desmoldeo": float(c["h_vaciado_desmoldeo"]) if c.get("h_vaciado_desmoldeo") is not None else None,
+            "desmoldeo_a_limpieza": float(c["h_desmoldeo_limpieza"]) if c.get("h_desmoldeo_limpieza") is not None else None,
+        },
+    }
+
+
+def _saldo_pendiente_parte(no_parte: str) -> Optional[dict]:
+    """Saldo pendiente del Plan de Producción vigente para esta parte, del plan
+    más reciente cargado. Devuelve None si las tablas no existen todavía (DDL
+    sin ejecutar -- ver scripts/ddl_programa_produccion.sql) o si la parte no
+    está en ningún plan cargado. SIEMPRE no autoritativo -- ver /api/programa."""
+    try:
+        rows = run("""
+            SELECT d.sdo_final, d.kg_buenos, d.status, p.anio_mes
+            FROM programa_produccion_detalle_referencial d
+            JOIN programa_produccion_mensual p ON p.id = d.programa_id
+            WHERE d.parte = :np
+            ORDER BY p.anio_mes DESC, p.rev_no DESC
+            LIMIT 1
+        """, {"np": no_parte})
+    except Exception:
+        return None
+    if not rows:
+        return None
+    r = rows[0]
+    return {
+        "sdo_final":   r["sdo_final"],
+        "kg_buenos":   float(r["kg_buenos"]) if r.get("kg_buenos") is not None else None,
+        "status":      r["status"],
+        "anio_mes":    str(r["anio_mes"]),
+        "autoritativo": False,
     }
 
 
 @app.get("/api/alfa/evaluar")
-def alfa_evaluar(id_colada: int = Query(...)):
-    detalle = v3_carriles_colada(id_colada)  # 404 propio si no existe
+def alfa_evaluar(no_parte: str = Query(...), dias: int = Query(default=14, le=90)):
+    referencia = _referencia_actual_flujo()
+    pc = _resolver_proceso_cliente([no_parte]).get(no_parte, {})
+    ritmo = _ritmo_parte(no_parte, dias, referencia)
+    saldo = _saldo_pendiente_parte(no_parte)
 
-    estados = {c["id_pc"]: c["estado"] for c in detalle["carriles"]}
-    tiene_alerta = any(v in ("ROJO", "AMBAR") for v in estados.values())
-
-    pc6 = next(c for c in detalle["carriles"] if c["id_pc"] == "PC-6")
-    d6 = pc6.get("detalle", {})
-    protocolos = d6.get("protocolos", [])
-    es_rediseno = d6.get("es_rediseno", False)
+    proyeccion = None
+    if saldo and saldo.get("sdo_final") and ritmo["ritmo_diario_prom"]:
+        proyeccion = {
+            "dias_estimados": math.ceil(saldo["sdo_final"] / ritmo["ritmo_diario_prom"]),
+            "nota": "Estimado con el ritmo real reciente contra el saldo pendiente del "
+                    "Plan de Producción -- el saldo NO es una fuente autoritativa.",
+        }
 
     return {
-        "id_colada":     detalle["id_colada"],
-        "u_colada":      detalle["u_colada"],
-        "horno":         detalle["horno"],
-        "inicio_fusion": detalle["inicio_fusion"],
-        "carriles":      detalle["carriles"],  # detalle completo por PC, mismo shape que /v3/gestion/colada/{id}/carriles — reusable por renderCarril() en el frontend
-        "estados":       estados,
-        "tiene_alerta":  tiene_alerta,
-        "defecto_top":   d6.get("defecto_top"),
-        "no_parte_top":  d6.get("no_parte_top"),
-        "es_rediseno":   es_rediseno,
-        "protocolos":    protocolos,
-        "recomendacion": _recomendacion_alfa(estados, protocolos, es_rediseno),
+        "no_parte":       no_parte,
+        "proceso":        pc.get("proceso"),
+        "cliente":        pc.get("cliente"),
+        "ritmo":          ritmo,
+        "saldo_pendiente": saldo,
+        "proyeccion":     proyeccion,
+    }
+
+
+_CUELLO_UMBRAL_RATIO = 1.3  # heurística inicial (reciente >= 1.3x el baseline) -- ajustar con el piso
+
+@app.get("/api/alfa/cuello-botella")
+def alfa_cuello_botella(dias: int = Query(default=7, le=30)):
+    """Compara el tiempo de ciclo real reciente (últimos `dias`) contra un
+    baseline de las 4 ventanas anteriores, por proceso (AF1/AF2/AF3) y etapa.
+    Sin concepto de 'turno' todavía -- no hay horarios de turno definidos en
+    el código, queda pendiente si se quiere ese nivel de detalle."""
+    referencia = _referencia_actual_flujo()
+    ref_dt = datetime.fromisoformat(referencia)
+    reciente_desde = ref_dt - timedelta(days=dias)
+    baseline_desde = reciente_desde - timedelta(days=dias * 4)
+
+    def _ciclo_por_proceso(desde_dt, hasta_dt):
+        rows = run("""
+            SELECT m.area AS proceso,
+                   ROUND(AVG(CASE WHEN TIMESTAMPDIFF(HOUR, r.FHrMOLD, r.FhrVACI) BETWEEN 0 AND 72
+                              THEN TIMESTAMPDIFF(MINUTE, r.FHrMOLD, r.FhrVACI)/60.0 END), 2) AS h_molde_vaciado,
+                   ROUND(AVG(CASE WHEN TIMESTAMPDIFF(HOUR, r.FhrVACI, r.FHrDESM) BETWEEN 0 AND 72
+                              THEN TIMESTAMPDIFF(MINUTE, r.FhrVACI, r.FHrDESM)/60.0 END), 2) AS h_vaciado_desmoldeo,
+                   ROUND(AVG(CASE WHEN TIMESTAMPDIFF(HOUR, r.FHrDESM, r.FHrLIMP) BETWEEN 0 AND 72
+                              THEN TIMESTAMPDIFF(MINUTE, r.FHrDESM, r.FHrLIMP)/60.0 END), 2) AS h_desmoldeo_limpieza,
+                   COUNT(*) AS n
+            FROM cscmega_08ruta r
+            JOIN corex_test.modelos m ON m.NoParte = r.u_NoParte
+            WHERE r.FHrLIMP BETWEEN :d AND :h AND m.area IN ('AF1','AF2','AF3')
+            GROUP BY m.area
+        """, {"d": desde_dt, "h": hasta_dt})
+        return {r["proceso"]: r for r in rows}
+
+    reciente = _ciclo_por_proceso(reciente_desde, ref_dt)
+    baseline = _ciclo_por_proceso(baseline_desde, reciente_desde)
+
+    etapas = [("molde_a_vaciado", "h_molde_vaciado"),
+              ("vaciado_a_desmoldeo", "h_vaciado_desmoldeo"),
+              ("desmoldeo_a_limpieza", "h_desmoldeo_limpieza")]
+    cuellos = []
+    for proceso in ("AF1", "AF2", "AF3"):
+        r, b = reciente.get(proceso), baseline.get(proceso)
+        if not r or not b or not r.get("n"):
+            continue
+        for etapa_label, col in etapas:
+            hr, hb = r.get(col), b.get(col)
+            if hr is None or hb is None or hb <= 0:
+                continue
+            ratio = round(float(hr) / float(hb), 2)
+            if ratio >= _CUELLO_UMBRAL_RATIO:
+                cuellos.append({
+                    "proceso": proceso, "etapa": etapa_label,
+                    "horas_reciente": float(hr), "horas_baseline": float(hb),
+                    "ratio": ratio, "n_piezas_reciente": int(r["n"]),
+                })
+    cuellos.sort(key=lambda x: -x["ratio"])
+
+    return {
+        "referencia": referencia,
+        "dias": dias,
+        "ventana_baseline_dias": dias * 4,
+        "umbral_ratio": _CUELLO_UMBRAL_RATIO,
+        "cuellos_de_botella": cuellos,
     }
 
 
