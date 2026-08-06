@@ -158,6 +158,12 @@ main{padding:16px 20px;max-width:1100px;margin:0 auto}
 .navb:disabled{opacity:.35;cursor:default}
 .hide{display:none}
 .loading-msg,.empty-msg{text-align:center;color:var(--muted);padding:48px 0;font-size:14px}
+.rp-subnav{display:flex;gap:6px;margin-bottom:18px;border-bottom:1px solid var(--color-border-secondary);padding-bottom:0}
+.rp-subtab{font-size:13px;font-weight:600;padding:9px 16px;border:none;background:transparent;
+  color:var(--color-text-tertiary);cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px}
+.rp-subtab:hover{color:var(--color-text-secondary)}
+.rp-subtab.active{color:var(--color-text-info);border-bottom-color:var(--color-border-info)}
+.rp-subpanel{padding:0 0 24px}
 </style>
 </head>
 <body>
@@ -185,9 +191,7 @@ main{padding:16px 20px;max-width:1100px;margin:0 auto}
   <div class="tab active" data-tab="ejecutivo" onclick="switchTab('ejecutivo')">Ejecutivo</div>
   <div class="tab" data-tab="alertas" onclick="switchTab('alertas')">🔔 Alertas y Protocolos</div>
   <div class="tab" data-tab="flujo" onclick="switchTab('flujo')">Flujo del Proceso</div>
-  <div class="tab" data-tab="riesgo" onclick="switchTab('riesgo')">Probabilidad de Rechazo por Parte</div>
-  <div class="tab" data-tab="crit" onclick="switchTab('crit')">Criticidad</div>
-  <div class="tab" data-tab="sim" onclick="switchTab('sim')">Simulador · Parte</div>
+  <div class="tab" data-tab="riesgo" onclick="switchTab('riesgo')">Riesgo · Parte</div>
   <div class="tab" data-tab="pron" onclick="switchTab('pron')">Plan de Producción</div>
   <div class="tab" data-tab="pedidos" onclick="switchTab('pedidos')">Clientes · Pedidos · Partes</div>
   <div class="tab" data-tab="beta" onclick="switchTab('beta')">🤖 Agente Beta</div>
@@ -356,9 +360,59 @@ main{padding:16px 20px;max-width:1100px;margin:0 auto}
 </main>
 </div>
 
-<!-- ═══════════════════ RIESGO POR PARTE ═══════════════════ -->
+<!-- ═══════════════════ RIESGO · PARTE (unifica Probabilidad de Rechazo + Criticidad + Simulador) ═══════════════════ -->
 <div id="tab-riesgo" style="display:none">
 <main>
+
+  <div class="rp-subnav">
+    <button class="rp-subtab active" data-sub="semana" onclick="rpSwitchSub('semana')">Qué atender esta semana</button>
+    <button class="rp-subtab" data-sub="todas" onclick="rpSwitchSub('todas')">Todas las partes</button>
+    <button class="rp-subtab" data-sub="simular" onclick="rpSwitchSub('simular')">Simular una parte</button>
+  </div>
+
+  <!-- ── Sub-panel: Qué atender esta semana (antes tab "Criticidad") ── -->
+  <div id="rp-sub-semana" class="rp-subpanel">
+  <section id="p-crit" class="panel">
+  <div class="cr-eyebrow">Situación de calidad · <span id="crit-asof"></span></div>
+  <div class="cr-kpis" id="crit-kpis"></div>
+
+  <div class="cr-eyebrow">Qué atender esta semana · <span id="crit-actlbl"></span></div>
+  <div class="cr-ctrlbar">
+    <div class="cr-chips" id="crit-chips">
+      <span class="cr-chip on" data-cola="all">Todos</span>
+      <span class="cr-chip" data-cola="proceso"><span class="cr-dotc" style="background:var(--cr-proceso)"></span>Ajuste de proceso</span>
+      <span class="cr-chip" data-cola="rediseno"><span class="cr-dotc" style="background:var(--cr-rediseno)"></span>Rediseño de molde</span>
+    </div>
+    <span class="cr-note" id="crit-tcount"></span>
+  </div>
+  <div id="crit-cards" class="cr-cards"></div>
+
+  <div class="cr-drill" id="crit-drill">
+    <div class="cr-drill-h">
+      <span class="cr-pt" id="crit-d-part"></span>
+      <span class="cr-meta" id="crit-d-meta"></span>
+      <span class="cr-x" onclick="window.__crit.closeDrill()">✕</span>
+    </div>
+    <div class="cr-drill-body">
+      <div class="cr-drow head">
+        <span>Defecto</span><span class="num">Rechazos</span><span class="num">% Rech.</span>
+        <span class="num">z</span><span class="num">Riesgo</span>
+      </div>
+      <div id="crit-d-rows"></div>
+      <div id="crit-d-callout"></div>
+    </div>
+  </div>
+
+  <div class="cr-foot">
+    <b>Fuente:</b> TabulacionDeCriticidad · 1,381 combinaciones Defecto×Parte (sábana 2023+2025).
+    <b>Lógica:</b> Riesgo = z del rechazo del combo vs. su familia de defecto (±1.645); Tendencia = z del cambio 2023→2025.
+    <b>Cadencia:</b> recálculo por período cerrado — vista diagnóstica, no señal de piso en vivo.
+  </div>
+  </section>
+  </div>
+
+  <!-- ── Sub-panel: Todas las partes (antes tab "Probabilidad de Rechazo por Parte") ── -->
+  <div id="rp-sub-todas" class="rp-subpanel" style="display:none">
   <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px">
     <div>
       <div style="font-size:15px;font-weight:600;color:var(--color-text-primary)">Probabilidad de Rechazo por Número de Parte</div>
@@ -424,55 +478,11 @@ main{padding:16px 20px;max-width:1100px;margin:0 auto}
     <div id="sim-resumen" style="display:none;margin-bottom:12px"></div>
     <div id="sim-tabla" style="background:#fff;border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-lg);overflow:hidden;display:none"></div>
   </div>
-</main>
-</div>
-
-<div id="tab-crit" style="display:none">
-<main>
-<section id="p-crit" class="panel">
-  <div class="cr-eyebrow">Situación de calidad · <span id="crit-asof"></span></div>
-  <div class="cr-kpis" id="crit-kpis"></div>
-
-  <div class="cr-eyebrow">Qué atender esta semana · <span id="crit-actlbl"></span></div>
-  <div class="cr-ctrlbar">
-    <div class="cr-chips" id="crit-chips">
-      <span class="cr-chip on" data-cola="all">Todos</span>
-      <span class="cr-chip" data-cola="proceso"><span class="cr-dotc" style="background:var(--cr-proceso)"></span>Ajuste de proceso</span>
-      <span class="cr-chip" data-cola="rediseno"><span class="cr-dotc" style="background:var(--cr-rediseno)"></span>Rediseño de molde</span>
-    </div>
-    <span class="cr-note" id="crit-tcount"></span>
-  </div>
-  <div id="crit-cards" class="cr-cards"></div>
-
-  <div class="cr-drill" id="crit-drill">
-    <div class="cr-drill-h">
-      <span class="cr-pt" id="crit-d-part"></span>
-      <span class="cr-meta" id="crit-d-meta"></span>
-      <span class="cr-x" onclick="window.__crit.closeDrill()">✕</span>
-    </div>
-    <div class="cr-drill-body">
-      <div class="cr-drow head">
-        <span>Defecto</span><span class="num">Rechazos</span><span class="num">% Rech.</span>
-        <span class="num">z</span><span class="num">Riesgo</span>
-      </div>
-      <div id="crit-d-rows"></div>
-      <div id="crit-d-callout"></div>
-    </div>
   </div>
 
-  <div class="cr-foot">
-    <b>Fuente:</b> TabulacionDeCriticidad · 1,381 combinaciones Defecto×Parte (sábana 2023+2025).
-    <b>Lógica:</b> Riesgo = z del rechazo del combo vs. su familia de defecto (±1.645); Tendencia = z del cambio 2023→2025.
-    <b>Cadencia:</b> recálculo por período cerrado — vista diagnóstica, no señal de piso en vivo.
-  </div>
-</section>
-</main>
-</div>
-
-<!-- ═══════════════════ SIMULADOR · PARTE ═══════════════════ -->
-<div id="tab-sim" style="display:none">
-<main>
-<section id="p-sim">
+  <!-- ── Sub-panel: Simular una parte (antes tab "Simulador · Parte") ── -->
+  <div id="rp-sub-simular" class="rp-subpanel" style="display:none">
+  <section id="p-sim">
   <div class="si-eyebrow">Simulador de rechazo · Por número de parte</div>
 
   <div class="si-bar">
@@ -518,7 +528,9 @@ main{padding:16px 20px;max-width:1100px;margin:0 auto}
     <b>Lógica:</b> Rechazos esperados = Tasa 2025 × piezas planificadas.
     <b>Nota:</b> Vista prospectiva / planeación — no es señal de piso en vivo.
   </div>
-</section>
+  </section>
+  </div>
+
 </main>
 </div>
 
@@ -1111,7 +1123,7 @@ async function initPronostico() {
 // ════════════════════════════════════════════════════════════
 // TAB SYSTEM
 // ════════════════════════════════════════════════════════════
-const TABS = ['ejecutivo','alertas','flujo','riesgo','crit','sim','pron','pedidos','beta','alfa']
+const TABS = ['ejecutivo','alertas','flujo','riesgo','pron','pedidos','beta','alfa']
 const tabLoaded = {}
 
 function switchTab(name) {
@@ -1124,13 +1136,29 @@ function switchTab(name) {
     if (name === 'ejecutivo') initEjecutivo()
     if (name === 'alertas') initAlertasPanel()
     if (name === 'flujo') cargarFlujo()
-    if (name === 'riesgo') initRiesgo()
-    if (name === 'crit') window.initCritPanel()
-    if (name === 'sim')  initSimPanel()
+    if (name === 'riesgo') rpSwitchSub('semana')
     if (name === 'pron') initPronPanel()
     if (name === 'pedidos') initPedidosPanel()
     if (name === 'beta') window.initBetaPanel()
     if (name === 'alfa') window.initAlfaPanel()
+  }
+}
+
+// Sub-nav interno del tab "Riesgo · Parte" -- une Criticidad (landing),
+// Probabilidad de Rechazo (tabla + simulación de programa) y Simulador de Parte.
+const RP_SUBS = ['semana', 'todas', 'simular']
+const rpSubLoaded = {}
+
+function rpSwitchSub(sub) {
+  RP_SUBS.forEach(s => {
+    document.querySelector(`.rp-subtab[data-sub="${s}"]`).classList.toggle('active', s === sub)
+    document.getElementById(`rp-sub-${s}`).style.display = s === sub ? '' : 'none'
+  })
+  if (!rpSubLoaded[sub]) {
+    rpSubLoaded[sub] = true
+    if (sub === 'semana') window.initCritPanel()
+    if (sub === 'todas') initRiesgo()
+    if (sub === 'simular') initSimPanel()
   }
 }
 
