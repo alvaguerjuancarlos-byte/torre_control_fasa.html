@@ -188,7 +188,7 @@ main{padding:16px 20px;max-width:1100px;margin:0 auto}
   <div class="tab" data-tab="riesgo" onclick="switchTab('riesgo')">Probabilidad de Rechazo por Parte</div>
   <div class="tab" data-tab="crit" onclick="switchTab('crit')">Criticidad</div>
   <div class="tab" data-tab="sim" onclick="switchTab('sim')">Simulador · Parte</div>
-  <div class="tab" data-tab="pron" onclick="switchTab('pron')">Pronóstico · Programa</div>
+  <div class="tab" data-tab="pron" onclick="switchTab('pron')">Plan de Producción</div>
   <div class="tab" data-tab="pedidos" onclick="switchTab('pedidos')">Clientes · Pedidos · Partes</div>
   <div class="tab" data-tab="beta" onclick="switchTab('beta')">🤖 Agente Beta</div>
   <div class="tab" data-tab="alfa" onclick="switchTab('alfa')">🤖 Agente Alfa</div>
@@ -2838,57 +2838,96 @@ function simRenderTable(items) {
 <main>
 <section id="p-pron">
 
-  <div class="pn-eyebrow">Pronóstico de rechazo en el horizonte mensual</div>
+  <div class="pn-eyebrow">Plan de Producción · plan, seguimiento y cumplimiento</div>
 
-  <!-- Controls -->
+  <!-- Selector de mes -->
   <div class="pn-bar">
     <div class="pn-field">
-      <label class="pn-lbl">Año</label>
-      <select id="pn-anio" class="pn-sel">
-        <option value="2025" selected>2025</option>
-        <option value="2024">2024</option>
-        <option value="2023">2023</option>
-      </select>
+      <label class="pn-lbl">Mes</label>
+      <select id="pln-mes" class="pn-sel"></select>
     </div>
-    <button id="pn-btn" class="pn-btn">Cargar →</button>
-    <span id="pn-msg" class="pn-msg"></span>
+    <span id="pln-msg" class="pn-msg"></span>
   </div>
 
-  <!-- KPIs -->
-  <div id="pn-kpis" class="pn-kpis" style="display:none"></div>
+  <div id="pln-sin-plan" class="pln-msg-box" style="display:none"></div>
 
-  <!-- Stacked bar chart (time series) -->
-  <div id="pn-chart-wrap" style="display:none">
-    <div class="pn-section-title">Rechazos esperados por mes · por familia de defecto
-      <span id="pn-real-toggle" class="pn-toggle on" onclick="pronToggleReal()">● Real</span>
+  <div id="pln-content" style="display:none">
+
+    <div class="pn-section-title">Encabezado del plan <span class="fuente-badge" id="pln-fuente-badge"></span></div>
+    <div id="pln-kpis" class="pln-kpis-grid"></div>
+
+    <div class="pn-section-title">Ritmo objetivo por proceso</div>
+    <div id="pln-ritmos"></div>
+    <div id="pln-ritmo-real-cmp" class="pln-ritmo-real-cmp"></div>
+
+    <div class="pn-section-title">Seguimiento y cumplimiento · ritmo real vs. saldo pendiente</div>
+    <div id="pln-cumplimiento-resumen"></div>
+    <div class="pln-det-wrap">
+      <div id="pln-detalle-tabla"></div>
     </div>
-    <div id="pn-svg-wrap" style="position:relative;overflow:hidden;border-radius:10px">
-      <svg id="pn-svg" viewBox="0 0 720 260" style="width:100%;display:block"></svg>
-      <div id="pn-tt" class="pn-tt" style="display:none"></div>
-    </div>
-    <div id="pn-legend" class="pn-legend"></div>
-    <div class="pn-hint">Haz clic en una barra para ver el Pareto de partes de ese mes.</div>
+    <div class="pn-hint">Filas en amarillo: saldo pendiente sin ritmo real reciente (sin actividad en los últimos 14 días).</div>
+
   </div>
 
-  <!-- Drill-down pareto -->
-  <div id="pn-drill" style="display:none">
-    <div class="pn-section-title" id="pn-drill-title">Pareto de partes</div>
-    <div id="pn-pareto-wrap" style="position:relative;overflow:hidden;border-radius:10px">
-      <svg id="pn-pareto-svg" viewBox="0 0 720 400" style="width:100%;display:block"></svg>
-    </div>
-  </div>
+  <!-- Sección secundaria: pronóstico histórico de rechazo (se conserva, colapsada) -->
+  <div class="pn-toggle-seccion" id="pn-toggle-historico" onclick="pronToggleSeccionHistorica()">▸ Pronóstico histórico de rechazo (por año)</div>
+  <div id="pn-seccion-historica" style="display:none">
 
-  <!-- Top combos table -->
-  <div id="pn-combos-wrap" style="display:none">
-    <div class="pn-section-title" id="pn-combos-title">Top combinaciones parte × defecto</div>
-    <div id="pn-combos-tbl"></div>
+    <div class="pn-bar">
+      <div class="pn-field">
+        <label class="pn-lbl">Año</label>
+        <select id="pn-anio" class="pn-sel">
+          <option value="2025" selected>2025</option>
+          <option value="2024">2024</option>
+          <option value="2023">2023</option>
+        </select>
+      </div>
+      <button id="pn-btn" class="pn-btn">Cargar →</button>
+      <span id="pn-msg" class="pn-msg"></span>
+    </div>
+
+    <div id="pn-kpis" class="pn-kpis" style="display:none"></div>
+
+    <div id="pn-chart-wrap" style="display:none">
+      <div class="pn-section-title">Rechazos esperados por mes · por familia de defecto
+        <span id="pn-real-toggle" class="pn-toggle on" onclick="pronToggleReal()">● Real</span>
+      </div>
+      <div id="pn-svg-wrap" style="position:relative;overflow:hidden;border-radius:10px">
+        <svg id="pn-svg" viewBox="0 0 720 260" style="width:100%;display:block"></svg>
+        <div id="pn-tt" class="pn-tt" style="display:none"></div>
+      </div>
+      <div id="pn-legend" class="pn-legend"></div>
+      <div class="pn-hint">Haz clic en una barra para ver el Pareto de partes de ese mes.</div>
+    </div>
+
+    <div id="pn-drill" style="display:none">
+      <div class="pn-section-title" id="pn-drill-title">Pareto de partes</div>
+      <div id="pn-pareto-wrap" style="position:relative;overflow:hidden;border-radius:10px">
+        <svg id="pn-pareto-svg" viewBox="0 0 720 400" style="width:100%;display:block"></svg>
+      </div>
+    </div>
+
+    <div id="pn-combos-wrap" style="display:none">
+      <div class="pn-section-title" id="pn-combos-title">Top combinaciones parte × defecto</div>
+      <div id="pn-combos-tbl"></div>
+    </div>
+
+    <div class="cr-foot">
+      <b>Fuente:</b> Producción real mes × parte (cscmega/alfamega) cruzada con tasas gamamega 2025.
+      <b>Rechazos esperados:</b> n_piezas × tasa_2025_defecto.
+      <b>Real:</b> rechazos totales ocurridos en el mes para comparación.
+    </div>
   </div>
 
   <div class="cr-foot" style="margin-top:24px">
-    <b>Fuente:</b> Producción real mes × parte (cscmega/alfamega) cruzada con tasas gamamega 2025.
-    <b>Rechazos esperados:</b> n_piezas × tasa_2025_defecto.
-    <b>Real:</b> rechazos totales ocurridos en el mes para comparación.
-    <b>Nota:</b> Para meses futuros se requiere un programa de producción digital.
+    <b>Plan:</b> hoja <code>Plan</code>/<code>resumen</code> del Excel mensual de JC, leído en vivo (todavía sin
+    permiso de escritura en la BD — <code>sapiens</code> es solo-lectura) — el detalle por parte
+    (<code>resumen</code>) <b>no es fuente de verdad</b>, es zona de trabajo del responsable, solo referencia.
+    <b>Producción neta esperada:</b> Kg Buenos del plan × (1 − tasa de rechazo histórica 2025 de esa parte,
+    <code>gamamega_01_riesgodefectoparte</code>) — mismo campo que usa el pronóstico histórico de abajo, aplicado
+    ahora al plan en vez de a producción real pasada.
+    <b>Ritmo real:</b> piezas terminadas recientes (<code>cscmega_08ruta</code>), mismo motor que Agente Alfa.
+    <b>Días estimados:</b> saldo pendiente ÷ ritmo real reciente — mismo cálculo que la proyección de Agente Alfa.
   </div>
 
 </section>
@@ -3438,6 +3477,26 @@ async function pedToggle(id){
 #p-pron .pn-rk.gris{background:var(--gray-bg);color:var(--gray)}
 #p-pron .cr-foot{font-size:11px;color:var(--muted);line-height:1.7;border-top:1px solid var(--border);padding-top:14px;margin-top:24px}
 #p-pron .cr-foot b{color:var(--txt)}
+#p-pron .pln-msg-box{font-size:13px;color:var(--muted);padding:24px;text-align:center;background:#fff;
+  border:0.5px solid var(--color-border-tertiary);border-radius:10px}
+#p-pron .fuente-badge{font-size:10px;font-weight:400;color:var(--muted);text-transform:none;letter-spacing:0}
+#p-pron .pln-kpis-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:8px}
+#p-pron .pln-ritmo-row{display:grid;grid-template-columns:70px 60px 1fr 1fr 1fr;gap:8px;padding:7px 12px;
+  font-size:12px;border-bottom:1px solid var(--border);align-items:center;background:#fff}
+#p-pron .pln-ritmo-row.head{font-weight:700;color:var(--muted);font-size:10px;text-transform:uppercase;
+  background:var(--color-background-secondary);letter-spacing:.03em}
+#p-pron .pln-ritmo-real-cmp{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin:10px 0 6px}
+#p-pron .pln-det-wrap{max-height:480px;overflow-y:auto;border:0.5px solid var(--color-border-tertiary);
+  border-radius:8px;background:#fff}
+#p-pron .pln-det-row{display:grid;grid-template-columns:110px 55px 55px 85px 70px 90px 80px 70px;gap:6px;
+  padding:6px 10px;font-size:11.5px;border-bottom:1px solid var(--border);align-items:center}
+#p-pron .pln-det-row.head{font-weight:700;color:var(--muted);font-size:10px;text-transform:uppercase;
+  background:var(--color-background-secondary);position:sticky;top:0}
+#p-pron .pln-det-row.warn{background:#FFFBEB}
+#p-pron .mono{font-family:var(--font-mono)}
+#p-pron .pn-toggle-seccion{font-size:12px;font-weight:700;color:var(--muted);cursor:pointer;
+  margin:24px 0 10px;padding:10px 0 0;border-top:1px solid var(--border)}
+#p-pron .pn-toggle-seccion:hover{color:var(--txt)}
 </style>
 
 <script>
@@ -3450,7 +3509,137 @@ var _pronShowReal = true
 
 // Nombres/colores de familia: ver FAM_META/FAM_ORDER (definidos en el bloque Ejecutivo, arriba)
 
-function initPronPanel() {}
+// ── Plan de Producción (primer plano) ───────────────────────────────────────
+let PLN_LOADED = false
+
+function initPronPanel() {
+  if (PLN_LOADED) return
+  PLN_LOADED = true
+  plnPoblarSelectorMes()
+}
+
+function plnPoblarSelectorMes(){
+  const sel = document.getElementById('pln-mes')
+  const hoy = new Date()
+  const opciones = []
+  for (let i = -3; i <= 1; i++) {
+    const d = new Date(hoy.getFullYear(), hoy.getMonth() + i, 1)
+    const val = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0')
+    let lbl = d.toLocaleDateString('es-MX', { month: 'long', year: 'numeric' })
+    lbl = lbl.charAt(0).toUpperCase() + lbl.slice(1)
+    opciones.push('<option value="' + val + '">' + lbl + '</option>')
+  }
+  sel.innerHTML = opciones.join('')
+  sel.addEventListener('change', function(){ plnCargar(this.value) })
+  const mesActual = hoy.getFullYear() + '-' + String(hoy.getMonth() + 1).padStart(2, '0')
+  sel.value = mesActual
+  plnCargar(sel.value)
+}
+
+function plnFmt(v, dec){
+  if (v == null) return '—'
+  return Number(v).toLocaleString('es-MX', { maximumFractionDigits: dec == null ? 1 : dec })
+}
+
+async function plnCargar(mes){
+  const msg = document.getElementById('pln-msg')
+  const content = document.getElementById('pln-content')
+  const sinPlan = document.getElementById('pln-sin-plan')
+  msg.textContent = 'Cargando…'
+  content.style.display = 'none'
+  sinPlan.style.display = 'none'
+
+  const d = await apiFetch('/api/programa/seguimiento?mes=' + encodeURIComponent(mes) + '&dias=14')
+  msg.textContent = ''
+
+  if (!d) {
+    sinPlan.style.display = ''
+    sinPlan.textContent = 'Sin plan para este mes — ni cargado en base de datos, ni un archivo Excel encontrado en la carpeta del Plan de Producción con ese mes/año en el título.'
+    return
+  }
+
+  content.style.display = ''
+  plnRenderKpis(d)
+  plnRenderRitmos(d)
+  plnRenderCumplimiento(d)
+}
+
+function plnRenderKpis(d){
+  const e = d.encabezado
+  const fuenteTxt = d.fuente === 'bd' ? 'base de datos' : ('Excel — ' + (e.archivo_origen || '?'))
+  document.getElementById('pln-fuente-badge').textContent = '· fuente: ' + fuenteTxt
+  const kpis = [
+    { l: 'Ventas',        v: plnFmt(e.ventas_ton), s: 'ton' },
+    { l: 'Presupuesto',   v: plnFmt(e.presup_ton), s: 'ton' },
+    { l: 'Buenas',        v: plnFmt(e.buenas_ton), s: 'ton, meta del plan' },
+    { l: 'Vaciadas',      v: plnFmt(e.vaciadas_ton), s: 'ton' },
+    { l: 'Línea',         v: plnFmt(e.linea_ton), s: e.linea_pct != null ? (e.linea_pct * 100).toFixed(1) + '% del total' : 'ton' },
+    { l: 'Desarrollo',    v: plnFmt(e.desarrollo_ton), s: e.desarrollo_pct != null ? (e.desarrollo_pct * 100).toFixed(1) + '% del total' : 'ton' },
+    { l: 'Inv. no fact.', v: plnFmt(e.inv_total), s: 'ton' },
+    { l: 'Producción neta esperada', v: plnFmt(d.resumen.kg_neto_esperado_total / 1000), s: 'ton, aplicando rechazo histórico' },
+  ]
+  document.getElementById('pln-kpis').innerHTML = kpis.map(function(kp){
+    return '<div class="pn-kpi"><div class="kl">' + kp.l + '</div><div class="kv">' + kp.v + '</div><div class="ks">' + kp.s + '</div></div>'
+  }).join('')
+}
+
+function plnRenderRitmos(d){
+  const rows = d.ritmos_objetivo || []
+  const head = '<div class="pln-ritmo-row head"><span>Proceso</span><span>Turno</span><span>Moldes/día</span><span>Peso prom (kg)</span><span>Kg diarios objetivo</span></div>'
+  const body = rows.map(function(r){
+    return '<div class="pln-ritmo-row"><span>' + r.proceso + '</span><span>' + (r.tipo_dia === 'LV' ? 'L-V' : 'Sáb') + '</span>'
+      + '<span>' + plnFmt(r.moldes_dia, 0) + '</span><span>' + plnFmt(r.peso_prom_kg, 0) + '</span><span>' + plnFmt(r.kg_diarios, 0) + '</span></div>'
+  }).join('')
+  document.getElementById('pln-ritmos').innerHTML = head + body
+
+  const real = d.ritmo_real_por_proceso || {}
+  const procesos = ['AF1', 'AF2', 'AF3']
+  document.getElementById('pln-ritmo-real-cmp').innerHTML = procesos.map(function(p){
+    const objLV = rows.find(function(r){ return r.proceso === p && r.tipo_dia === 'LV' })
+    const realVal = real[p]
+    return '<div class="pn-kpi"><div class="kl">Ritmo real ' + p + '</div><div class="kv">' + (realVal != null ? realVal : '—')
+      + '<span style="font-size:11px;font-weight:400"> pzas/día</span></div>'
+      + '<div class="ks">objetivo: ' + (objLV ? plnFmt(objLV.moldes_dia, 0) : '—') + ' moldes/día (L-V)</div></div>'
+  }).join('')
+}
+
+function plnRenderCumplimiento(d){
+  const r = d.resumen
+  document.getElementById('pln-cumplimiento-resumen').innerHTML =
+    '<div class="pln-kpis-grid" style="margin-bottom:12px">'
+    + '<div class="pn-kpi"><div class="kl">Kg buenos (plan)</div><div class="kv">' + plnFmt(r.kg_buenos_plan_total, 0) + '</div><div class="ks">no autoritativo</div></div>'
+    + '<div class="pn-kpi"><div class="kl">Kg neto esperado</div><div class="kv">' + plnFmt(r.kg_neto_esperado_total, 0) + '</div><div class="ks">aplicando rechazo histórico</div></div>'
+    + '<div class="pn-kpi"><div class="kl">Partes con ritmo real</div><div class="kv">' + r.partes_con_ritmo_real + ' / ' + r.partes_totales + '</div><div class="ks">últimos 14 días</div></div>'
+    + '</div>'
+
+  const detalle = (d.detalle || []).slice().sort(function(a, b){
+    const aRiesgo = (a.sdo_final > 0 && !a.ritmo_real_pzas_dia) ? 0 : 1
+    const bRiesgo = (b.sdo_final > 0 && !b.ritmo_real_pzas_dia) ? 0 : 1
+    if (aRiesgo !== bRiesgo) return aRiesgo - bRiesgo
+    return (b.dias_estimados_saldo || 0) - (a.dias_estimados_saldo || 0)
+  })
+
+  const head = '<div class="pln-det-row head"><span>Parte</span><span>Proc.</span><span>Saldo</span><span>Kg buenos</span><span>Rechazo</span><span>Kg neto esp.</span><span>Ritmo real</span><span>Días est.</span></div>'
+  const rows = detalle.map(function(f){
+    const sinRitmo = f.sdo_final > 0 && !f.ritmo_real_pzas_dia
+    return '<div class="pln-det-row' + (sinRitmo ? ' warn' : '') + '">'
+      + '<span class="mono">' + f.parte + '</span><span>' + (f.proceso || '—') + '</span>'
+      + '<span>' + (f.sdo_final != null ? f.sdo_final : '—') + '</span><span>' + plnFmt(f.kg_buenos_plan, 0) + '</span>'
+      + '<span>' + (f.tasa_rechazo_esperada_pct != null ? f.tasa_rechazo_esperada_pct + '%' : '—') + '</span>'
+      + '<span>' + plnFmt(f.kg_neto_esperado, 0) + '</span>'
+      + '<span>' + (f.ritmo_real_pzas_dia != null ? f.ritmo_real_pzas_dia : '—') + '</span>'
+      + '<span>' + (f.dias_estimados_saldo != null ? f.dias_estimados_saldo + ' d' : (sinRitmo ? 'sin ritmo' : '—')) + '</span></div>'
+  }).join('')
+  document.getElementById('pln-detalle-tabla').innerHTML = head + rows
+}
+
+function pronToggleSeccionHistorica(){
+  const el = document.getElementById('pn-seccion-historica')
+  const btn = document.getElementById('pn-toggle-historico')
+  const abierto = el.style.display !== 'none'
+  el.style.display = abierto ? 'none' : ''
+  btn.textContent = (abierto ? '▸' : '▾') + ' Pronóstico histórico de rechazo (por año)'
+}
 
 async function pronCargar() {
   var anio = parseInt(document.getElementById('pn-anio').value) || 2025

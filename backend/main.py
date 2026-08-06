@@ -4723,57 +4723,168 @@ def alfa_cuello_botella(dias: int = Query(default=7, le=30)):
 # no reconcilian entre sí). Se expone con "autoritativo": false explícito en
 # cada fila para que ningún consumidor (dashboard, Agente Alfa/Beta) la use
 # por accidente para tomar o justificar una decisión.
-@app.get("/api/programa")
-def programa_mensual(mes: str = Query(..., description="YYYY-MM, ej. 2026-08")):
+from backend import plan_lector
+
+
+def _obtener_plan(mes: str) -> Optional[dict]:
+    """BD primero (programa_produccion_*, hoy vacías -- sapiens es solo-lectura,
+    el DDL nunca se corrió); si no hay nada, cae a leer el Excel en vivo vía
+    plan_lector. Devuelve None si no hay plan en ningún lado para ese mes."""
     try:
         anio_mes = datetime.strptime(mes, "%Y-%m").date().replace(day=1)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="mes debe tener formato YYYY-MM")
+        encabezado_rows = run("""
+            SELECT id, anio_mes, rev_no, fecha_rev, dias_habiles, ventas_ton, presup_ton,
+                   buenas_ton, vaciadas_ton, rech_int_pct, linea_ton, desarrollo_ton,
+                   linea_pct, desarrollo_pct, inv_total, archivo_origen, fecha_carga
+            FROM programa_produccion_mensual
+            WHERE anio_mes = :anio_mes
+            ORDER BY rev_no DESC LIMIT 1
+        """, {"anio_mes": anio_mes})
+    except Exception:
+        encabezado_rows = []  # tablas no existen todavía
 
-    encabezado_rows = run("""
-        SELECT id, anio_mes, rev_no, fecha_rev, dias_habiles, ventas_ton, presup_ton,
-               buenas_ton, vaciadas_ton, rech_int_pct, linea_ton, desarrollo_ton,
-               linea_pct, desarrollo_pct, inv_total, archivo_origen, fecha_carga
-        FROM programa_produccion_mensual
-        WHERE anio_mes = :anio_mes
-        ORDER BY rev_no DESC LIMIT 1
-    """, {"anio_mes": anio_mes})
+    if encabezado_rows:
+        encabezado = encabezado_rows[0]
+        programa_id = encabezado["id"]
+        ritmos_por_proceso = run("""
+            SELECT tipo_dia, proceso, moldes_dia, peso_prom_kg, kg_diarios
+            FROM programa_ritmos_vaciado WHERE programa_id = :pid
+            ORDER BY FIELD(tipo_dia, 'LV', 'SAB'), proceso
+        """, {"pid": programa_id})
+        ritmos_agregados = run("""
+            SELECT tipo_dia, kg_vaciado_dia_con_ri, kg_diarios_buenos, coladas_diarias
+            FROM programa_ritmos_agregados WHERE programa_id = :pid
+            ORDER BY FIELD(tipo_dia, 'LV', 'SAB')
+        """, {"pid": programa_id})
+        detalle_referencial = run("""
+            SELECT parte, sdo_final, peso_kg, kg_buenos, proceso, status, es_autoritativo
+            FROM programa_produccion_detalle_referencial WHERE programa_id = :pid
+            ORDER BY parte
+        """, {"pid": programa_id})
+        return {
+            "fuente": "bd",
+            "encabezado": encabezado,
+            "ritmos_por_proceso": ritmos_por_proceso,
+            "ritmos_agregados": ritmos_agregados,
+            "detalle_referencial": [{**f, "autoritativo": False} for f in detalle_referencial],
+        }
 
-    if not encabezado_rows:
-        raise HTTPException(status_code=404, detail=f"No hay plan cargado para {mes}")
+    return plan_lector.leer_plan(mes)
 
-    encabezado = encabezado_rows[0]
-    programa_id = encabezado["id"]
 
-    ritmos_por_proceso = run("""
-        SELECT tipo_dia, proceso, moldes_dia, peso_prom_kg, kg_diarios
-        FROM programa_ritmos_vaciado
-        WHERE programa_id = :pid
-        ORDER BY FIELD(tipo_dia, 'LV', 'SAB'), proceso
-    """, {"pid": programa_id})
+@app.get("/api/programa")
+def programa_mensual(mes: str = Query(..., description="YYYY-MM, ej. 2026-08")):
+    plan = _obtener_plan(mes)
+    if not plan:
+        raise HTTPException(status_code=404, detail=f"No hay plan cargado ni archivo Excel para {mes}")
+    return plan
 
-    ritmos_agregados = run("""
-        SELECT tipo_dia, kg_vaciado_dia_con_ri, kg_diarios_buenos, coladas_diarias
-        FROM programa_ritmos_agregados
-        WHERE programa_id = :pid
-        ORDER BY FIELD(tipo_dia, 'LV', 'SAB')
-    """, {"pid": programa_id})
 
-    detalle_referencial = run("""
-        SELECT parte, sdo_final, peso_kg, kg_buenos, proceso, status, es_autoritativo
-        FROM programa_produccion_detalle_referencial
-        WHERE programa_id = :pid
-        ORDER BY parte
-    """, {"pid": programa_id})
+def _tasa_rechazo_2025_batch(no_partes: list) -> dict:
+    """Tasa de rechazo esperada por parte -- suma de PrcRchz2025 por cada fila de
+    defecto en gamamega_01_riesgodefectoparte. Mismo campo/concepto que ya usa
+    /v2/gestion/pronostico-programa (pronóstico histórico), reusado aquí para
+    proyectar la producción neta esperada del plan en vez de producción real."""
+    if not no_partes:
+        return {}
+    placeholders = ",".join(f":p{i}" for i in range(len(no_partes)))
+    params = {f"p{i}": p for i, p in enumerate(no_partes)}
+    rows = run(f"""
+        SELECT No_Parte AS no_parte, SUM(COALESCE(PrcRchz2025, 0)) AS tasa
+        FROM gamamega_01_riesgodefectoparte
+        WHERE No_Parte IN ({placeholders})
+        GROUP BY No_Parte
+    """, params)
+    return {r["no_parte"]: float(r["tasa"] or 0) for r in rows}
+
+
+def _ritmo_real_partes_batch(no_partes: list, dias: int, referencia: str) -> dict:
+    """Piezas terminadas/día reciente por parte, en batch -- mismo criterio que
+    _ritmo_parte() de Alfa (FHrLIMP, ver sección Agente Alfa), sin hacer N
+    queries individuales para las ~138 partes del plan."""
+    if not no_partes:
+        return {}
+    ref_dt = datetime.fromisoformat(referencia)
+    desde_dt = ref_dt - timedelta(days=dias)
+    placeholders = ",".join(f":p{i}" for i in range(len(no_partes)))
+    params = {f"p{i}": p for i, p in enumerate(no_partes)}
+    params.update({"d": desde_dt, "h": ref_dt})
+    rows = run(f"""
+        SELECT u_NoParte AS no_parte, COUNT(*) AS piezas
+        FROM cscmega_08ruta
+        WHERE u_NoParte IN ({placeholders}) AND FHrLIMP BETWEEN :d AND :h
+        GROUP BY u_NoParte
+    """, params)
+    return {r["no_parte"]: round(int(r["piezas"]) / dias, 2) for r in rows}
+
+
+@app.get("/api/programa/seguimiento")
+def programa_seguimiento(mes: str = Query(..., description="YYYY-MM, ej. 2026-08"),
+                          dias: int = Query(default=14, le=90)):
+    """Plan + pronóstico de rechazo aplicado (producción neta esperada) + ritmo
+    real reciente por parte (seguimiento/cumplimiento) -- une las 3 piezas que
+    JC pidió: tener un plan, dar seguimiento, evaluar cumplimiento."""
+    plan = _obtener_plan(mes)
+    if not plan:
+        raise HTTPException(status_code=404, detail=f"No hay plan cargado ni archivo Excel para {mes}")
+
+    partes = [f["parte"] for f in plan["detalle_referencial"]]
+    referencia = _referencia_actual_flujo()
+    tasas = _tasa_rechazo_2025_batch(partes)
+    ritmos_reales = _ritmo_real_partes_batch(partes, dias, referencia)
+
+    detalle = []
+    kg_buenos_total = 0.0
+    kg_neto_total = 0.0
+    for fila in plan["detalle_referencial"]:
+        parte = fila["parte"]
+        kg_buenos = fila.get("kg_buenos")
+        tasa = tasas.get(parte)
+        kg_neto = round(float(kg_buenos) * (1 - tasa), 1) if (kg_buenos is not None and tasa is not None) else None
+
+        if kg_buenos is not None:
+            kg_buenos_total += float(kg_buenos)
+        if kg_neto is not None:
+            kg_neto_total += kg_neto
+
+        ritmo = ritmos_reales.get(parte)
+        sdo_final = fila.get("sdo_final")
+        dias_estimados = math.ceil(sdo_final / ritmo) if (ritmo and ritmo > 0 and sdo_final) else None
+
+        detalle.append({
+            "parte":                       parte,
+            "proceso":                     fila.get("proceso"),
+            "status":                      fila.get("status"),
+            "sdo_final":                   sdo_final,
+            "peso_kg":                     fila.get("peso_kg"),
+            "kg_buenos_plan":              kg_buenos,
+            "tasa_rechazo_esperada_pct":   round(tasa * 100, 2) if tasa is not None else None,
+            "kg_neto_esperado":            kg_neto,
+            "ritmo_real_pzas_dia":         ritmo,
+            "dias_estimados_saldo":        dias_estimados,
+        })
+
+    ritmo_real_por_proceso: dict = {}
+    for fila in detalle:
+        if fila["proceso"] and fila["ritmo_real_pzas_dia"]:
+            ritmo_real_por_proceso[fila["proceso"]] = round(
+                ritmo_real_por_proceso.get(fila["proceso"], 0) + fila["ritmo_real_pzas_dia"], 2)
 
     return {
-        "encabezado": encabezado,
-        "ritmos_por_proceso": ritmos_por_proceso,
-        "ritmos_agregados": ritmos_agregados,
-        "detalle_referencial": [
-            {**fila, "autoritativo": False}
-            for fila in detalle_referencial
-        ],
+        "mes":                mes,
+        "fuente":             plan["fuente"],
+        "dias_ventana_ritmo": dias,
+        "encabezado":         plan["encabezado"],
+        "ritmos_objetivo":    plan["ritmos_por_proceso"],
+        "ritmos_agregados":   plan["ritmos_agregados"],
+        "resumen": {
+            "kg_buenos_plan_total":   round(kg_buenos_total, 1),
+            "kg_neto_esperado_total": round(kg_neto_total, 1),
+            "partes_con_ritmo_real":  sum(1 for f in detalle if f["ritmo_real_pzas_dia"]),
+            "partes_totales":         len(detalle),
+        },
+        "ritmo_real_por_proceso": ritmo_real_por_proceso,
+        "detalle": detalle,
     }
 
 
