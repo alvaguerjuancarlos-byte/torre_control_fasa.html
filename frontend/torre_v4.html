@@ -3874,6 +3874,15 @@ function btDesdeLista(np){
 <section id="p-alfa" class="panel">
   <div class="cr-eyebrow">Agente Alfa · ritmo real, cuello de botella y proyección de entrega</div>
 
+  <div class="af-chat-box">
+    <div id="af-chat-log"><div class="af-chat-hint">Pregúntale a Alfa — ej. "¿cómo va la parte X?", "¿qué partes de [cliente] van más lento?", "¿hay algún cuello de botella?"</div></div>
+    <div class="af-chat-input-row">
+      <input id="af-chat-input" type="text" placeholder="Escribe tu pregunta…" />
+      <button id="af-chat-btn">Preguntar →</button>
+    </div>
+  </div>
+
+  <div class="cr-eyebrow" style="margin-top:20px">O explora manualmente</div>
   <div class="af-cliente-row">
     <select id="af-cliente"><option value="">Cargando clientes…</option></select>
   </div>
@@ -3907,6 +3916,24 @@ function btDesdeLista(np){
 </div>
 
 <style>
+#p-alfa .af-chat-box{border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-lg);
+  padding:12px 14px;margin:10px 0 4px;background:var(--color-background-primary)}
+#p-alfa .af-chat-hint{font-size:12px;color:var(--muted);font-style:italic}
+#p-alfa #af-chat-log{max-height:420px;overflow-y:auto;margin-bottom:10px;display:flex;flex-direction:column;gap:10px}
+#p-alfa .af-chat-msg{font-size:13px;line-height:1.5;padding:8px 12px;border-radius:var(--border-radius-md);max-width:90%}
+#p-alfa .af-chat-msg.user{align-self:flex-end;background:var(--color-background-info);color:var(--color-text-info)}
+#p-alfa .af-chat-msg.assistant{align-self:flex-start;background:var(--color-background-tertiary);color:var(--color-text-primary);white-space:pre-wrap}
+#p-alfa .af-chat-msg.assistant table{border-collapse:collapse;margin:6px 0;font-size:12px}
+#p-alfa .af-chat-msg.assistant th,#p-alfa .af-chat-msg.assistant td{border:0.5px solid var(--color-border-tertiary);padding:3px 8px;text-align:left}
+#p-alfa .af-chat-tools{font-size:10px;color:var(--muted);margin-top:4px}
+#p-alfa .af-chat-input-row{display:flex;gap:8px}
+#p-alfa .af-chat-input-row input{flex:1;padding:8px 12px;font-size:13px;
+  border:0.5px solid var(--color-border-secondary);border-radius:var(--border-radius-md);
+  background:var(--color-background-primary);color:var(--color-text-primary)}
+#p-alfa .af-chat-input-row button{padding:8px 16px;font-size:13px;font-weight:600;
+  border:0.5px solid var(--color-border-info);border-radius:var(--border-radius-md);
+  background:var(--color-background-info);color:var(--color-text-info);cursor:pointer}
+#p-alfa .af-chat-input-row button:disabled{opacity:.5;cursor:default}
 #p-alfa .af-cliente-row{margin:10px 0 4px}
 #p-alfa .af-cliente-row select{width:100%;max-width:360px;padding:8px 12px;font-size:13px;
   border:0.5px solid var(--color-border-secondary);border-radius:var(--border-radius-md);
@@ -3959,6 +3986,111 @@ window.initAlfaPanel = function(){
   document.getElementById('af-cliente').addEventListener('change', afCargarPartesCliente)
   afCargarClientes()
   afCargarCuellos()
+  afChatInit()
+}
+
+// ── Chat conversacional (tool-use, /api/alfa/chat) ──────────────────────────
+let AF_CHAT_HISTORIAL = []
+
+function afChatInit(){
+  document.getElementById('af-chat-btn').addEventListener('click', afChatEnviar)
+  document.getElementById('af-chat-input').addEventListener('keydown', function(e){ if (e.key === 'Enter') afChatEnviar() })
+}
+
+function afChatEscaparHtml(s){
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+}
+
+function afChatInline(s){
+  return afChatEscaparHtml(s).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>')
+}
+
+function afChatFormatear(texto){
+  const lineas = texto.split('\n')
+  let html = ''
+  let i = 0
+  while (i < lineas.length) {
+    if (lineas[i].trim().startsWith('|')) {
+      const filas = []
+      while (i < lineas.length && lineas[i].trim().startsWith('|')) { filas.push(lineas[i].trim()); i++ }
+      const filasReales = filas.filter(function(f){ return !/^\|[\s\-:|]+\|$/.test(f) })
+      const celdas = filasReales.map(function(f){ return f.split('|').slice(1, -1).map(function(c){ return c.trim() }) })
+      if (celdas.length) {
+        html += '<table><thead><tr>' + celdas[0].map(function(c){ return '<th>' + afChatInline(c) + '</th>' }).join('') + '</tr></thead><tbody>'
+        for (let r = 1; r < celdas.length; r++) {
+          html += '<tr>' + celdas[r].map(function(c){ return '<td>' + afChatInline(c) + '</td>' }).join('') + '</tr>'
+        }
+        html += '</tbody></table>'
+      }
+    } else {
+      html += afChatInline(lineas[i]) + '\n'
+      i++
+    }
+  }
+  return html
+}
+
+async function afChatEnviar(){
+  const input = document.getElementById('af-chat-input')
+  const btn = document.getElementById('af-chat-btn')
+  const log = document.getElementById('af-chat-log')
+  const pregunta = input.value.trim()
+  if (!pregunta) return
+
+  const hint = log.querySelector('.af-chat-hint')
+  if (hint) hint.remove()
+
+  const userDiv = document.createElement('div')
+  userDiv.className = 'af-chat-msg user'
+  userDiv.textContent = pregunta
+  log.appendChild(userDiv)
+
+  input.value = ''
+  input.disabled = true
+  btn.disabled = true
+
+  const loadingDiv = document.createElement('div')
+  loadingDiv.className = 'af-chat-msg assistant'
+  loadingDiv.textContent = 'Pensando…'
+  log.appendChild(loadingDiv)
+  log.scrollTop = log.scrollHeight
+
+  let resp = null
+  try {
+    const r = await fetch('/api/alfa/chat', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({pregunta: pregunta, historial: AF_CHAT_HISTORIAL}),
+    })
+    if (r.ok) resp = await r.json()
+  } catch (e) { resp = null }
+
+  loadingDiv.remove()
+
+  if (!resp) {
+    const errDiv = document.createElement('div')
+    errDiv.className = 'af-chat-msg assistant'
+    errDiv.textContent = 'Error consultando al agente. Intenta de nuevo.'
+    log.appendChild(errDiv)
+  } else {
+    const aDiv = document.createElement('div')
+    aDiv.className = 'af-chat-msg assistant'
+    aDiv.innerHTML = afChatFormatear(resp.respuesta || '(sin respuesta)')
+    if (resp.herramientas_usadas && resp.herramientas_usadas.length) {
+      const toolsDiv = document.createElement('div')
+      toolsDiv.className = 'af-chat-tools'
+      toolsDiv.textContent = 'Consultó: ' + resp.herramientas_usadas.map(function(t){ return t.tool }).join(', ')
+      aDiv.appendChild(toolsDiv)
+    }
+    log.appendChild(aDiv)
+    AF_CHAT_HISTORIAL.push({rol: 'user', texto: pregunta})
+    AF_CHAT_HISTORIAL.push({rol: 'assistant', texto: resp.respuesta || ''})
+  }
+
+  log.scrollTop = log.scrollHeight
+  input.disabled = false
+  btn.disabled = false
+  input.focus()
 }
 
 async function afCargarClientes(){
