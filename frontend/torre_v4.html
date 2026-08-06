@@ -191,6 +191,7 @@ main{padding:16px 20px;max-width:1100px;margin:0 auto}
   <div class="tab" data-tab="pron" onclick="switchTab('pron')">Pronóstico · Programa</div>
   <div class="tab" data-tab="pedidos" onclick="switchTab('pedidos')">Clientes · Pedidos · Partes</div>
   <div class="tab" data-tab="beta" onclick="switchTab('beta')">🤖 Agente Beta</div>
+  <div class="tab" data-tab="alfa" onclick="switchTab('alfa')">🤖 Agente Alfa</div>
 </div>
 
 <!-- ═══════════════════ EJECUTIVO ═══════════════════ -->
@@ -1110,7 +1111,7 @@ async function initPronostico() {
 // ════════════════════════════════════════════════════════════
 // TAB SYSTEM
 // ════════════════════════════════════════════════════════════
-const TABS = ['ejecutivo','alertas','flujo','riesgo','crit','sim','pron','pedidos','beta']
+const TABS = ['ejecutivo','alertas','flujo','riesgo','crit','sim','pron','pedidos','beta','alfa']
 const tabLoaded = {}
 
 function switchTab(name) {
@@ -1129,6 +1130,7 @@ function switchTab(name) {
     if (name === 'pron') initPronPanel()
     if (name === 'pedidos') initPedidosPanel()
     if (name === 'beta') window.initBetaPanel()
+    if (name === 'alfa') window.initAlfaPanel()
   }
 }
 
@@ -3863,6 +3865,134 @@ async function btCargarLista(){
 function btDesdeLista(np){
   document.getElementById('bt-input').value = np
   btEvaluar()
+}
+</script>
+
+<!-- ═══════════════════ AGENTE ALFA ═══════════════════ -->
+<div id="tab-alfa" style="display:none">
+<main>
+<section id="p-alfa" class="panel">
+  <div class="cr-eyebrow">Agente Alfa · flujo de proceso — 7 puntos de control + protocolo de acción</div>
+
+  <div class="af-search">
+    <input id="af-input" type="number" placeholder="ID de colada, ej. 78796" />
+    <button id="af-btn">Evaluar →</button>
+  </div>
+  <div id="af-msg" class="af-msg"></div>
+
+  <div id="af-result" style="display:none"></div>
+
+  <div class="cr-eyebrow" style="margin-top:24px">Coladas con alerta activa · clic para evaluar</div>
+  <div id="af-lista"><div class="loading-msg">Cargando…</div></div>
+
+  <div class="cr-foot" style="margin-top:24px">
+    <b>Fuente:</b> mismo motor del tab "Alertas y Protocolos" (7 puntos de control, evaluados en vivo,
+    sin duplicar reglas). PC-1 y PC-3 son GRIS estructural (sin fuente integrada en ia_fasa). El protocolo
+    de acción solo se resuelve para alertas de PC-6 (único carril con un defecto asociado); los demás PCs
+    son mediciones de proceso sin un defecto puntual que buscar en el puente Defecto→ElementoControl.
+    <b>Nota:</b> Alfa v1 solo genera una recomendación de texto para confirmación humana — no ejecuta
+    ninguna acción, y no guarda tendencia histórica (solo estado actual, sin escritura a base de datos).
+  </div>
+</section>
+</main>
+</div>
+
+<style>
+#p-alfa .af-search{display:flex;gap:8px;margin:10px 0 4px}
+#p-alfa .af-search input{flex:1;max-width:320px;padding:8px 12px;font-size:13px;
+  border:0.5px solid var(--color-border-secondary);border-radius:var(--border-radius-md);
+  background:var(--color-background-primary);color:var(--color-text-primary)}
+#p-alfa .af-search button{padding:8px 16px;font-size:13px;font-weight:600;
+  border:0.5px solid var(--color-border-info);border-radius:var(--border-radius-md);
+  background:var(--color-background-info);color:var(--color-text-info);cursor:pointer}
+#p-alfa .af-msg{font-size:12px;color:var(--color-text-danger);min-height:16px;margin-top:4px}
+#p-alfa .af-card{background:var(--color-background-primary);border:0.5px solid var(--color-border-tertiary);
+  border-radius:var(--border-radius-lg);padding:16px 18px;margin-top:10px}
+#p-alfa .af-head{display:flex;align-items:center;gap:10px;margin-bottom:12px}
+#p-alfa .af-colada{font-family:monospace;font-size:15px;font-weight:600;color:var(--color-text-primary)}
+#p-alfa .af-badge{font-size:11px;font-weight:600;padding:3px 9px;border-radius:20px}
+#p-alfa .af-badge.alerta{background:var(--color-background-danger);color:var(--color-text-danger)}
+#p-alfa .af-badge.ok{background:var(--color-background-success);color:var(--color-text-success)}
+#p-alfa .af-meta{font-size:12px;color:var(--muted);margin-bottom:12px}
+#p-alfa .af-carriles{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
+#p-alfa .af-reco{font-size:13px;line-height:1.5;color:var(--color-text-primary);
+  background:var(--color-background-tertiary);border-radius:var(--border-radius-md);padding:10px 12px}
+#p-alfa .af-row{display:grid;grid-template-columns:110px 70px 1fr 90px;gap:8px;align-items:center;
+  padding:8px 10px;font-size:12px;border-bottom:0.5px solid var(--color-border-tertiary);cursor:pointer}
+#p-alfa .af-row:hover{background:var(--color-background-secondary)}
+#p-alfa .af-row.head{font-weight:600;color:var(--color-text-secondary);cursor:default}
+#p-alfa .af-row.head:hover{background:none}
+#p-alfa .af-pcs{display:flex;gap:3px;flex-wrap:wrap}
+#p-alfa .af-pc-chip{font-size:9px;font-weight:700;padding:1px 5px;border-radius:4px}
+#p-alfa .af-pc-chip.VERDE{background:var(--green-bg);color:var(--green)}
+#p-alfa .af-pc-chip.AMBAR{background:var(--amber-bg);color:var(--amber)}
+#p-alfa .af-pc-chip.ROJO{background:var(--red-bg);color:var(--red-chip)}
+#p-alfa .af-pc-chip.GRIS{background:var(--gray-bg);color:var(--gray)}
+</style>
+<script>
+// AGENTE ALFA
+let AF_LOADED = false
+window.initAlfaPanel = function(){
+  if (AF_LOADED) return
+  AF_LOADED = true
+  document.getElementById('af-btn').addEventListener('click', afEvaluar)
+  document.getElementById('af-input').addEventListener('keydown', function(e){ if (e.key === 'Enter') afEvaluar() })
+  afCargarLista()
+}
+
+async function afEvaluar(){
+  const idRaw = document.getElementById('af-input').value.trim()
+  const msg = document.getElementById('af-msg')
+  const result = document.getElementById('af-result')
+  msg.textContent = ''
+  if (!idRaw) { msg.textContent = 'Escribe un ID de colada.'; return }
+  result.style.display = ''
+  result.innerHTML = '<div class="loading-msg">Evaluando…</div>'
+  const d = await apiFetch('/api/alfa/evaluar?id_colada=' + encodeURIComponent(idRaw))
+  if (!d) { result.style.display = 'none'; result.innerHTML = ''; msg.textContent = 'Colada no encontrada o error consultando el agente.'; return }
+  result.innerHTML = afRenderResultado(d)
+}
+
+function afRenderResultado(d){
+  const badgeCls = d.tiene_alerta ? 'alerta' : 'ok'
+  const badgeTxt = d.tiene_alerta ? 'Alerta activa' : 'Sin alerta'
+  const carrilesHtml = d.carriles.map(renderCarril).join('')
+
+  return '<div class="af-card">'
+    + '<div class="af-head"><span class="af-colada">Colada ' + d.id_colada + ' · U' + d.u_colada + ' · H' + d.horno + '</span>'
+      + '<span class="af-badge ' + badgeCls + '">' + badgeTxt + '</span></div>'
+    + '<div class="af-meta">Inicio de fusión: ' + fmtDt(d.inicio_fusion) + '</div>'
+    + '<div class="af-carriles">' + carrilesHtml + '</div>'
+    + '<div class="af-reco"><b>Recomendación (requiere confirmación humana):</b><br>' + d.recomendacion + '</div>'
+    + '</div>'
+}
+
+async function afCargarLista(){
+  const wrap = document.getElementById('af-lista')
+  const d = await apiFetch('/api/alfa/alertas-activas?horas=48')
+  if (!d || !d.coladas || !d.coladas.length) {
+    wrap.innerHTML = '<div class="loading-msg">Sin coladas en alerta en la ventana actual.</div>'
+    return
+  }
+  const head = '<div class="af-row head"><span>Colada</span><span>Horno</span><span>PCs</span><span>% rechazo</span></div>'
+  const rows = d.coladas.map(function(c){
+    const chips = Object.entries(c.estados).map(function(kv){
+      return '<span class="af-pc-chip ' + kv[1] + '">' + kv[0].replace('PC-','') + '</span>'
+    }).join('')
+    return '<div class="af-row" data-id="' + c.id_colada + '">'
+      + '<span>' + c.id_colada + ' · U' + c.u_colada + '</span><span>H' + c.horno + '</span>'
+      + '<span class="af-pcs">' + chips + '</span>'
+      + '<span>' + (c.pct_rechazo != null ? c.pct_rechazo + '%' : '—') + '</span></div>'
+  }).join('')
+  wrap.innerHTML = head + rows
+  wrap.querySelectorAll('.af-row[data-id]').forEach(function(row){
+    row.addEventListener('click', function(){ afDesdeLista(row.getAttribute('data-id')) })
+  })
+}
+
+function afDesdeLista(id){
+  document.getElementById('af-input').value = id
+  afEvaluar()
 }
 </script>
 </body>

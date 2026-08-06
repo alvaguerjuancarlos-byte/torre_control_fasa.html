@@ -4453,6 +4453,99 @@ def beta_riesgo_alto(limit: int = Query(default=20, le=200)):
     }
 
 
+# ══════════════════════════════════════════════════════════════════════════════
+# AGENTE ALFA — flujo de proceso (Andon/Jidoka), 100% lectura
+# ══════════════════════════════════════════════════════════════════════════════
+# Reutiliza el motor ya existente (_evaluar_coladas_ventana / _buscar_protocolos /
+# v3_carriles_colada) del tab "Alertas y Protocolos" — no duplica reglas, no
+# escribe nada. Decisión 2026-08-05 (JC): sin persistencia/tendencia histórica
+# en v1, solo estado actual — igual que Agente Beta.
+
+def _referencia_actual_flujo() -> str:
+    """Ancla la ventana al último día con volumen real de coladas (>=5), no al
+    MAX(c_FechaInicial) crudo — hay registros aislados posteriores al cierre
+    real de datos (ej. colada 78830 el 2025-12-29, 9 días después de la última
+    racha densa el 2025-12-20) que dejan la ventana vacía si se usan como ancla."""
+    row = run("""
+        SELECT MAX(c.c_FechaInicial) AS mx FROM cscmega_03coladacargametalica c
+        JOIN (
+            SELECT DATE(c_FechaInicial) AS dia
+            FROM cscmega_03coladacargametalica
+            WHERE c_IdColada > 0
+            GROUP BY DATE(c_FechaInicial)
+            HAVING COUNT(*) >= 5
+        ) denso ON DATE(c.c_FechaInicial) = denso.dia
+        WHERE c.c_IdColada > 0
+    """, {})
+    mx = row[0]["mx"] if row and row[0].get("mx") else None
+    return mx.strftime("%Y-%m-%dT%H:%M") if mx else "2025-12-19T08:00"
+
+
+def _recomendacion_alfa(estados: dict, protocolos: list, es_rediseno: bool) -> str:
+    alerta_pcs = [pc for pc, est in estados.items() if est in ("ROJO", "AMBAR")]
+    if not alerta_pcs:
+        return "Sin acción — los 7 puntos de control en verde o sin dato estructural."
+    if es_rediseno:
+        return ("Rechazo dominante es track REDISEÑO (defecto de diseño de alimentador/"
+                 "mazarota) — no corregible por protocolo de proceso. Escalar a Ingeniería, no a piso.")
+    if protocolos:
+        puestos = sorted({p["puesto"] for p in protocolos if p["puesto"]})
+        return f"Acción sugerida en: {', '.join(puestos)} — ver protocolos por defecto."
+    return (f"{', '.join(alerta_pcs)} en alerta, sin protocolo de acción disponible "
+            "(defecto sin nomDefecto asociado o sin match en el puente de control).")
+
+
+@app.get("/api/alfa/alertas-activas")
+def alfa_alertas_activas(horas: int = Query(default=48, le=168)):
+    referencia = _referencia_actual_flujo()
+    coladas = _evaluar_coladas_ventana(referencia, horas)
+    activas = [c for c in coladas if c["tiene_alerta"]]
+    return {
+        "referencia": referencia,
+        "horas": horas,
+        "n_coladas_alerta": len(activas),
+        "coladas": [
+            {
+                "id_colada":   c["id_colada"],
+                "u_colada":    c["u_colada"],
+                "horno":       c["horno"],
+                "etapa":       c["etapa"],
+                "estados":     c["estados"],
+                "pct_rechazo": c["pct_rechazo"],
+            }
+            for c in activas
+        ],
+    }
+
+
+@app.get("/api/alfa/evaluar")
+def alfa_evaluar(id_colada: int = Query(...)):
+    detalle = v3_carriles_colada(id_colada)  # 404 propio si no existe
+
+    estados = {c["id_pc"]: c["estado"] for c in detalle["carriles"]}
+    tiene_alerta = any(v in ("ROJO", "AMBAR") for v in estados.values())
+
+    pc6 = next(c for c in detalle["carriles"] if c["id_pc"] == "PC-6")
+    d6 = pc6.get("detalle", {})
+    protocolos = d6.get("protocolos", [])
+    es_rediseno = d6.get("es_rediseno", False)
+
+    return {
+        "id_colada":     detalle["id_colada"],
+        "u_colada":      detalle["u_colada"],
+        "horno":         detalle["horno"],
+        "inicio_fusion": detalle["inicio_fusion"],
+        "carriles":      detalle["carriles"],  # detalle completo por PC, mismo shape que /v3/gestion/colada/{id}/carriles — reusable por renderCarril() en el frontend
+        "estados":       estados,
+        "tiene_alerta":  tiene_alerta,
+        "defecto_top":   d6.get("defecto_top"),
+        "no_parte_top":  d6.get("no_parte_top"),
+        "es_rediseno":   es_rediseno,
+        "protocolos":    protocolos,
+        "recomendacion": _recomendacion_alfa(estados, protocolos, es_rediseno),
+    }
+
+
 # ── Plan de Producción Mensual ────────────────────────────────────────────
 # detalle_referencial viene de la hoja `resumen` del Excel, que el responsable
 # confirmó que NO es fuente de verdad (zona de trabajo, sus totales internos
