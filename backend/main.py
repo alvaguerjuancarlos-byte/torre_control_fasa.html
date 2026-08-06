@@ -4865,15 +4865,14 @@ def plan_produccion_mes(mes: str) -> str:
         return json.dumps({"error": e.detail})
 
 
-_ALFA_CHAT_TOOLS = [
+# Tools compartidas por Alfa y Beta -- ambos agentes conversacionales pueden cruzar
+# flujo/ritmo y calidad/criticidad cuando la pregunta lo amerita, sin duplicar definiciones.
+_TORRE_CHAT_TOOLS = [
     evaluar_parte, cuello_de_botella, listar_clientes_con_actividad,
     partes_de_cliente, riesgo_calidad_parte, partes_riesgo_alto, plan_produccion_mes,
 ]
 
-_ALFA_CHAT_SYSTEM = """Eres el asistente del Agente Alfa de la Torre de Control FASA (fundición).
-Respondes preguntas sobre ritmo de producción, cuellos de botella y proyección de entrega,
-usando SOLO datos reales obtenidos con las herramientas disponibles.
-
+_REGLAS_GROUNDING = """
 Reglas estrictas:
 - Nunca inventes un número, fecha o nombre que no venga literalmente de un resultado de
   herramienta. Si no tienes el dato, dilo explícitamente -- no rellenes con una suposición.
@@ -4884,14 +4883,26 @@ Reglas estrictas:
 - Responde en español, breve y directo, como si hablaras con un supervisor de piso -- sin
   relleno, sin repetir los datos crudos, solo la conclusión y el número que la respalda."""
 
+_ALFA_CHAT_SYSTEM = """Eres el asistente del Agente Alfa de la Torre de Control FASA (fundición).
+Respondes preguntas sobre ritmo de producción, cuellos de botella y proyección de entrega,
+usando SOLO datos reales obtenidos con las herramientas disponibles. También tienes acceso a
+las herramientas de calidad (Agente Beta) -- úsalas si la pregunta cruza a riesgo de rechazo.
+""" + _REGLAS_GROUNDING
+
+_BETA_CHAT_SYSTEM = """Eres el asistente del Agente Beta de la Torre de Control FASA (fundición).
+Respondes preguntas sobre criticidad histórica de rechazo y disponibilidad de la compuerta
+química de una parte, usando SOLO datos reales obtenidos con las herramientas disponibles.
+También tienes acceso a las herramientas de flujo (Agente Alfa) -- úsalas si la pregunta cruza
+a ritmo de producción, cuello de botella o entrega.
+""" + _REGLAS_GROUNDING
+
 
 class ChatRequest(BaseModel):
     pregunta: str
     historial: list = []  # [{"rol": "user"|"assistant", "texto": "..."}], opcional
 
 
-@app.post("/api/alfa/chat")
-def alfa_chat(req: ChatRequest):
+def _correr_chat(system: str, req: ChatRequest) -> dict:
     client = anthropic.Anthropic()
 
     messages = [{"role": t["rol"], "content": t["texto"]} for t in req.historial]
@@ -4900,10 +4911,10 @@ def alfa_chat(req: ChatRequest):
     runner = client.beta.messages.tool_runner(
         model="claude-opus-5",
         max_tokens=2048,
-        system=_ALFA_CHAT_SYSTEM,
+        system=system,
         thinking={"type": "adaptive"},
         output_config={"effort": "medium"},
-        tools=_ALFA_CHAT_TOOLS,
+        tools=_TORRE_CHAT_TOOLS,
         messages=messages,
     )
 
@@ -4920,3 +4931,13 @@ def alfa_chat(req: ChatRequest):
         respuesta = next((b.text for b in last_message.content if b.type == "text"), "")
 
     return {"respuesta": respuesta, "herramientas_usadas": herramientas_usadas}
+
+
+@app.post("/api/alfa/chat")
+def alfa_chat(req: ChatRequest):
+    return _correr_chat(_ALFA_CHAT_SYSTEM, req)
+
+
+@app.post("/api/beta/chat")
+def beta_chat(req: ChatRequest):
+    return _correr_chat(_BETA_CHAT_SYSTEM, req)
