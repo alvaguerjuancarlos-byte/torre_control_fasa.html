@@ -4457,6 +4457,44 @@ def beta_riesgo_alto(limit: int = Query(default=20, le=200)):
     }
 
 
+def _riesgo_lote_partes(no_partes: list) -> dict:
+    """Compuerta ① de Beta para un lote de partes en una sola query — mismo
+    patrón que _tasa_rechazo_partes/_ubicacion_partes. Para cada parte se toma
+    el defecto de mayor z_defecto_parte, igual criterio que beta_evaluar."""
+    if not no_partes:
+        return {}
+    placeholders = ",".join(f":p{i}" for i in range(len(no_partes)))
+    params = {f"p{i}": p for i, p in enumerate(no_partes)}
+    rows = run(f"""
+        SELECT No_Parte AS no_parte, nomDefecto, PrcRchzTotal, zDefectoParte, FlagCriticidadDefectoParte
+        FROM gamamega_01_riesgodefectoparte
+        WHERE No_Parte IN ({placeholders})
+        ORDER BY No_Parte, zDefectoParte DESC
+    """, params)
+    out = {}
+    for r in rows:
+        np_ = r["no_parte"]
+        if np_ in out:
+            continue  # ya se tomó la fila de mayor z para esta parte
+        out[np_] = {
+            "defecto_dominante": str(r["nomDefecto"] or ""),
+            "pct_rchz_total": round(float(r["PrcRchzTotal"] or 0), 4),
+            "z_defecto_parte": round(float(r["zDefectoParte"] or 0), 2),
+            "riesgo": r["FlagCriticidadDefectoParte"],
+            "riesgo_label": _riesgo_label(r["FlagCriticidadDefectoParte"]),
+        }
+    return out
+
+
+@app.get("/api/beta/riesgo-lote")
+def beta_riesgo_lote(no_partes: str = Query(...)):
+    """Mismo dato que /api/beta/evaluar pero para varias partes en una sola
+    llamada — usado por el badge contextual de Control del Proceso (no dispara
+    N requests por colada)."""
+    partes = [p.strip() for p in no_partes.split(",") if p.strip()]
+    return _riesgo_lote_partes(partes)
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # AGENTE ALFA — ritmo real, cuello de botella y proyección de entrega, 100% lectura
 # ══════════════════════════════════════════════════════════════════════════════

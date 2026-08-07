@@ -1836,6 +1836,7 @@ async function abrirDetalleFlujo(idColada){
     fetch(`/piso/colada/${col.u_colada}/${col.horno}/diagnostico`).then(r=>r.json()).catch(()=>null),
   ])
   panel.innerHTML=renderFlujoDetalle(col, carriles, piezas, diag)
+  flPintarRiesgoBeta(piezas)
 }
 
 function renderFlujoDetalle(col, carriles, piezas, diag){
@@ -1888,7 +1889,7 @@ function renderFlujoDetalle(col, carriles, piezas, diag){
       const sp=sk.total?Math.round(sk.rechazos/sk.total*1000)/10:0
       const sc=sp>=15?'#A32D2D':sp>=7?'#854F0B':'#0F6E56'
       html+='<tr style="background:'+(i%2===0?'transparent':'rgba(0,0,0,.015)')+'">'
-        +'<td style="padding:5px 10px;font-weight:500;font-family:monospace;font-size:11px">'+sk.sku.trim()+'</td>'
+        +'<td style="padding:5px 10px;font-weight:500;font-family:monospace;font-size:11px">'+sk.sku.trim()+' <span class="fl-bt-badge" data-parte="'+sk.sku.trim()+'"></span></td>'
         +'<td style="padding:5px 10px">'+sk.total+'</td>'
         +'<td style="padding:5px 10px;color:#0F6E56">'+sk.ok+'</td>'
         +'<td style="padding:5px 10px;color:'+(sk.rechazos>0?'#A32D2D':'inherit')+'">'+sk.rechazos+'</td>'
@@ -4095,6 +4096,38 @@ async function btCargarLista(){
 function btDesdeLista(np){
   document.getElementById('bt-input').value = np
   btEvaluar()
+}
+</script>
+
+<!-- Badge contextual de Beta dentro de Control del Proceso (tabla "Resumen por
+     No. Parte" del detalle de colada) — ver renderFlujoDetalle/abrirDetalleFlujo -->
+<style>
+.fl-bt-chip{display:inline-block;font-size:9px;font-weight:600;padding:1px 6px;
+  border-radius:10px;cursor:pointer;margin-left:2px;vertical-align:middle;white-space:nowrap}
+.fl-bt-chip.alto{background:var(--color-background-danger);color:var(--color-text-danger)}
+.fl-bt-chip.normal{background:var(--color-background-success);color:var(--color-text-success)}
+.fl-bt-chip.sin{background:var(--color-background-secondary);color:var(--color-text-tertiary)}
+</style>
+<script>
+async function flPintarRiesgoBeta(piezas){
+  if (!piezas || !piezas.skus || !piezas.skus.length) return
+  const partes = [...new Set(piezas.skus.map(function(sk){ return sk.sku.trim() }))]
+  const d = await apiFetch('/api/beta/riesgo-lote?no_partes=' + encodeURIComponent(partes.join(',')))
+  if (!d) return
+  document.querySelectorAll('.fl-bt-badge[data-parte]').forEach(function(el){
+    const np = el.getAttribute('data-parte')
+    const r = d[np]
+    if (!r) return  // sin historial en la tabulación — no se marca nada
+    const cls = btBadgeClase(r.riesgo_label)
+    const txt = r.riesgo_label === 'alto' ? 'riesgo alto' : r.riesgo_label === 'normal' ? 'riesgo normal' : 'sin info'
+    el.innerHTML = '<span class="fl-bt-chip ' + cls + '" title="' + r.defecto_dominante + ' · z=' + r.z_defecto_parte + '">' + txt + '</span>'
+    el.querySelector('.fl-bt-chip').addEventListener('click', function(e){
+      e.stopPropagation()
+      switchTab('beta')
+      document.getElementById('bt-input').value = np
+      btEvaluar()
+    })
+  })
 }
 </script>
 
