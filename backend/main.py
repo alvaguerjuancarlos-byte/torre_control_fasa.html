@@ -4495,6 +4495,83 @@ def beta_riesgo_lote(no_partes: str = Query(...)):
     return _riesgo_lote_partes(partes)
 
 
+@app.get("/api/beta/criticas")
+def beta_criticas(
+    referencia: str = Query(default="2025-12-19T08:00"),
+    horas: int = Query(default=48),
+):
+    """
+    Panel curado de Agente Beta: coladas en ROJO por PC-6 cuya parte dominante
+    TAMBIÉN tiene antecedente de riesgo alto (compuerta 1) — la intersección de
+    "está fallando ahora" + "ya fallaba antes" es la señal fuerte, no todo rojo
+    por igual. Excluye combos REDISEÑO (no accionables por proceso, igual
+    criterio que /v3/gestion/alertas). Ordenado por tiempo transcurrido desde
+    la detección, más urgente (más tiempo sin atender) primero.
+
+    No existe ningún SLA/deadline real en las fuentes de datos — se reporta
+    tiempo transcurrido como proxy de urgencia, nunca un plazo inventado.
+    """
+    ref_dt = datetime.fromisoformat(referencia)
+    coladas = _evaluar_coladas_ventana(referencia, horas)
+
+    rojas_pc6 = [c for c in coladas if c["estados"].get("PC-6") == "ROJO"]
+    if not rojas_pc6:
+        return {"referencia": referencia, "horas": horas, "n_criticas": 0, "criticas": []}
+
+    u_list = sorted({c["u_colada"] for c in rojas_pc6})
+    u_str = ",".join(str(int(u)) for u in u_list)
+    rows = run(f"""
+        SELECT rb.u_Colada, t.nomDefecto, t.No_Parte, COUNT(*) AS n
+        FROM cscmega_01rechazosbyidticket rb
+        JOIN cscmega_01resultadoidticket t ON t.idTicket = rb.idTicket
+        WHERE rb.u_Colada IN ({u_str}) AND rb.bRechazo = 1 AND t.nomDefecto IS NOT NULL
+        GROUP BY rb.u_Colada, t.nomDefecto, t.No_Parte
+        ORDER BY rb.u_Colada, n DESC
+    """, {})
+    top_idx = {}
+    for r in rows:
+        top_idx.setdefault(r["u_Colada"], {"defecto": r["nomDefecto"], "no_parte": r["No_Parte"]})
+
+    partes = list({v["no_parte"] for v in top_idx.values() if v["no_parte"]})
+    riesgo_map = _riesgo_lote_partes(partes)
+
+    defectos_unicos = sorted({v["defecto"] for v in top_idx.values() if v["defecto"]})
+    protocolos_por_defecto = {}
+    for p in _buscar_protocolos(defectos_unicos):
+        protocolos_por_defecto.setdefault(p["defecto"], []).append(p)
+
+    criticas = []
+    for c in rojas_pc6:
+        top = top_idx.get(c["u_colada"])
+        if not top or not top["no_parte"]:
+            continue
+        defecto, no_parte = top["defecto"], top["no_parte"].strip()
+        if (defecto, no_parte) in _REDISENO_COMBOS:
+            continue
+        riesgo = riesgo_map.get(no_parte)
+        if not riesgo or riesgo["riesgo_label"] != "alto":
+            continue
+        inicio = c.get("inicio_fusion")  # ya viene como str desde _evaluar_coladas_ventana
+        inicio_dt = datetime.fromisoformat(inicio) if inicio else None
+        horas_transcurridas = round((ref_dt - inicio_dt).total_seconds() / 3600, 1) if inicio_dt else None
+        criticas.append({
+            "id_colada": c["id_colada"],
+            "u_colada": c["u_colada"],
+            "horno": c["horno"],
+            "inicio_fusion": inicio,
+            "horas_transcurridas": horas_transcurridas,
+            "pct_rechazo": c.get("pct_rechazo"),
+            "defecto": defecto,
+            "no_parte": no_parte,
+            "z_defecto_parte": riesgo["z_defecto_parte"],
+            "pct_rchz_historico": riesgo["pct_rchz_total"],
+            "protocolos": protocolos_por_defecto.get(defecto, []),
+        })
+
+    criticas.sort(key=lambda x: x["horas_transcurridas"] or 0, reverse=True)
+    return {"referencia": referencia, "horas": horas, "n_criticas": len(criticas), "criticas": criticas}
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # AGENTE ALFA — ritmo real, cuello de botella y proyección de entrega, 100% lectura
 # ══════════════════════════════════════════════════════════════════════════════
