@@ -2006,6 +2006,8 @@ async function cargarAlertas(){
     status.textContent = ''
     renderAlertas(data)
     renderProtocolos(data)
+    const partesAlerta = [...new Set((data.alertas||[]).map(a=>a.no_parte_top).filter(Boolean))]
+    if (partesAlerta.length) flPintarRiesgoBeta({skus: partesAlerta.map(p => ({sku: p}))})
   }catch(e){
     status.textContent = ''
     document.getElementById('al-lista-alertas').innerHTML =
@@ -2029,7 +2031,7 @@ function renderAlertas(data){
   cont.innerHTML = data.alertas.map(a=>{
     const key = a.u_colada+'|'+(a.defecto_top||'')
     const tag = rediseno.has(key) ? '<span class="al-rediseno-tag">REDISEÑO — no accionable por proceso</span>' : ''
-    const def = a.defecto_top ? ` · defecto dominante <strong>${a.defecto_top}</strong>${a.no_parte_top?' ('+a.no_parte_top+')':''}` : ''
+    const def = a.defecto_top ? ` · defecto dominante <strong>${a.defecto_top}</strong>${a.no_parte_top?' ('+a.no_parte_top+' <span class="fl-bt-badge" data-parte="'+a.no_parte_top+'"></span>)':''}` : ''
     return `<div class="al-row ${a.estado}">
       <span class="pc-chip pc-${a.estado}">${a.id_pc}</span>
       <div class="al-row-body">
