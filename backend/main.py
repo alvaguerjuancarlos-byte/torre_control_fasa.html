@@ -3762,16 +3762,23 @@ _REDISENO_COMBOS = {("DEPRESION", "42091101"), ("RECHUPE", "42091101")}
 def _buscar_protocolos(defectos_unicos: list) -> list:
     """
     Cruza defectos contra el puente Defecto→ElementoControl→Puesto/Proceso
-    (gamamega_02_recomendacionescontrol, tabla chica — 254 filas, se trae
-    completa y se filtra en Python; DefectoCritico es CSV sin espacio garantizado).
-    Compartido por /v3/gestion/alertas y /v3/gestion/colada/{id}/carriles (PC-6)
-    para que ambos usen exactamente la misma lógica de cruce.
+    (gamamega_02_recomendacionescontrol, tabla chica — ~254 filas por período,
+    se trae completa y se filtra en Python; DefectoCritico es CSV sin espacio
+    garantizado). Compartido por /v3/gestion/alertas, /v3/gestion/colada/{id}/carriles
+    (PC-6) y /api/beta/criticas para que los tres usen exactamente la misma lógica.
+
+    Solo se usa el período más reciente (MAX(Periodo)) — la tabla acumula
+    períodos mensuales (ej. 2607, 2608) sin sobrescribir el anterior, y ~39/254
+    puntos de control cambian mes a mes (partes críticas distintas, puntos que
+    entran/salen). Sin este filtro se mezclaban recomendaciones vigentes con
+    obsoletas del mes previo. Hallazgo 2026-08-07, JC confirmó aplicar el fix.
     """
     if not defectos_unicos:
         return []
     puente = run("""
         SELECT Puesto, Proceso, ElementoControl, DefectoCritico, NoParteCritica
         FROM gamamega_02_recomendacionescontrol
+        WHERE Periodo = (SELECT MAX(Periodo) FROM gamamega_02_recomendacionescontrol)
     """, {})
     protocolos = []
     for row in puente:
