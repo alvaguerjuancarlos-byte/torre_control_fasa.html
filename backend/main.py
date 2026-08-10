@@ -3355,8 +3355,10 @@ def _resolver_clientes(no_partes: list) -> dict:
 
 def _tasa_rechazo_partes(no_partes: list) -> dict:
     """Tasa de rechazo histórica por No_Parte (todo el histórico disponible en
-    alfamega_01_rechazosbyidticket, congelado desde 2025-12-29). No es el rechazo
-    real de un pedido/embarque específico — fdbase no tiene llave hacia colada/ticket."""
+    alfamega_01_rechazosbyidticket — a diferencia de cscmega_01rechazosbyidticket,
+    congelado desde 2025-12-29, este ETL siguió corriendo hasta 2026-03-09, ver
+    scripts/check_2026_status.py). No es el rechazo real de un pedido/embarque
+    específico — fdbase no tiene llave hacia colada/ticket."""
     if not no_partes:
         return {}
     placeholders = ",".join(f":p{i}" for i in range(len(no_partes)))
@@ -3527,9 +3529,9 @@ def v2_pedidos_lista(
         "pedidos":       salida[:limit],
         "calidad_clientes": calidad_clientes,
         "calidad_partes":   {np_: t["rate"] for np_, t in tasa_idx.items()},
-        "calidad_nota":  "Tasa histórica de rechazo del No. Parte (todo el histórico disponible, "
-                          "congelado desde 2025-12-29) — no es el rechazo real de las piezas de este "
-                          "pedido, ya que no existe llave entre fdbase y las coladas/tickets de producción.",
+        "calidad_nota":  "Tasa histórica de rechazo del No. Parte (todo el histórico disponible) "
+                          "— no es el rechazo real de las piezas de este pedido, ya que no existe "
+                          "llave entre fdbase y las coladas/tickets de producción.",
     }
 
 
