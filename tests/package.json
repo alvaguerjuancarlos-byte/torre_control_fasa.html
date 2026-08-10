@@ -1,0 +1,11 @@
+{
+  "name": "torre-fasa-tests",
+  "private": true,
+  "description": "Smoke tests de Playwright para Torre de Control FASA. No es parte del backend Python.",
+  "scripts": {
+    "test": "node smoke_v4.js"
+  },
+  "devDependencies": {
+    "playwright": "^1.47.0"
+  }
+}
