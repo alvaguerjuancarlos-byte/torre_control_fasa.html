@@ -21,6 +21,7 @@ from backend.core import (
     VentanaControl, CarrilControl, CARRILES, MOTIVOS_GRIS,
     evaluar_pc7, evaluar_carril, _evaluar_coladas_ventana,
     _buscar_protocolos, _REDISENO_COMBOS, _referencia_actual_flujo,
+    _ALFAMEGA_MONTHLY,
 )
 
 app = FastAPI(title="Torre de Control FASA", version="0.1.0")
