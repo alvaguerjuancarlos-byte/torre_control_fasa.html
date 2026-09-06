@@ -220,6 +220,18 @@ main{padding:16px 20px;max-width:1100px;margin:0 auto}
       <span id="eLatest" style="font-size:12px;color:var(--color-text-success)"></span>
     </span>
   </div>
+  <!-- ── Tonelaje mensual: producto OK vs rechazo, en kg reales de colada ── -->
+  <div id="e-tonelaje" style="margin-bottom:14px;background:#fff;
+    border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-lg);padding:16px 18px">
+    <div style="margin-bottom:12px">
+      <div style="font-size:14px;font-weight:600;color:var(--color-text-primary)">Rendimiento Metálico y Costo de Calidad</div>
+      <div id="ton-sub" style="font-size:11px;color:var(--color-text-tertiary);margin-top:2px">Cargando…</div>
+    </div>
+    <div id="ton-kpis" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px"></div>
+    <div id="ton-chart" style="min-height:150px"></div>
+    <div id="ton-horno" style="margin-top:12px"></div>
+  </div>
+
   <!-- ── Charts Principales: Producción y Pronóstico de Rechazo ── -->
   <div id="e-charts-main" style="margin-bottom:14px;background:#fff;
     border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-lg);padding:16px 18px">
@@ -264,18 +276,6 @@ main{padding:16px 20px;max-width:1100px;margin:0 auto}
     <div id="ch-detalle" style="display:none">
       <div id="charts-tabla-80" style="overflow-x:auto"></div>
     </div>
-  </div>
-
-  <!-- ── Tonelaje mensual: producto OK vs rechazo, en kg reales de colada ── -->
-  <div id="e-tonelaje" style="margin-bottom:14px;background:#fff;
-    border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-lg);padding:16px 18px">
-    <div style="margin-bottom:12px">
-      <div style="font-size:14px;font-weight:600;color:var(--color-text-primary)">Rendimiento Metálico y Costo de Calidad</div>
-      <div id="ton-sub" style="font-size:11px;color:var(--color-text-tertiary);margin-top:2px">Cargando…</div>
-    </div>
-    <div id="ton-kpis" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px"></div>
-    <div id="ton-chart" style="min-height:150px"></div>
-    <div id="ton-horno" style="margin-top:12px"></div>
   </div>
 
   <div id="eDash"></div>
