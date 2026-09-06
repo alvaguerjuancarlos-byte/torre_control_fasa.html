@@ -269,7 +269,7 @@ main{padding:16px 20px;max-width:1100px;margin:0 auto}
   <div id="e-tonelaje" style="margin-bottom:14px;background:#fff;
     border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-lg);padding:16px 18px">
     <div style="margin-bottom:12px">
-      <div style="font-size:14px;font-weight:600;color:var(--color-text-primary)">Rendimiento Metálico · Tonelaje</div>
+      <div style="font-size:14px;font-weight:600;color:var(--color-text-primary)">Rendimiento Metálico y Costo de Calidad</div>
       <div id="ton-sub" style="font-size:11px;color:var(--color-text-tertiary);margin-top:2px">Cargando…</div>
     </div>
     <div id="ton-kpis" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px"></div>
@@ -1519,9 +1519,26 @@ async function initEjecutivo(anio){
 // ── Rendimiento Metálico · Tonelaje (kg reales por colada, cc.c_Kilos / piezas) ──
 // Fuente cscmega_03coladacargametalica — solo tiene datos desde 2025 (ver _tonData.meses).
 let _tonData = null
+// Costo de no-calidad (piso_ia.rechazo x PesoKgs x costo/ton mensual) — fuente y método distintos
+// a los de _tonData a propósito (ver docstring de backend/routers/costo_calidad.py): esta serie
+// SÍ llega a 2026, pero sin producción total verificada para esos meses (cscmega_* congelada
+// desde 2025-12-29) -- por eso solo se dibuja como línea/KPI sobre el año que ya tiene barras
+// reales (2025), nunca se inventa una barra para 2026.
+let _costoNocData = null
 async function loadTonelaje(){
   if(!_tonData) _tonData = await apiFetch('/produccion/tonelaje-mensual?anios=2025')
+  if(!_costoNocData) _costoNocData = await apiFetch('/produccion/costo-no-calidad-mensual')
   renderTonelaje()
+}
+
+function mcNuevo(label,val,sub){
+  return '<div class="mc" style="position:relative;background:var(--amber-bg);'
+    +'border:1px dashed var(--amber);border-radius:8px;padding:8px 10px">'
+    +'<span style="position:absolute;top:-8px;right:8px;font-size:9px;font-weight:700;'
+    +'letter-spacing:.03em;color:#fff;background:var(--amber);padding:1px 6px;border-radius:99px">nuevo</span>'
+    +'<p style="font-size:12px;color:var(--color-text-secondary)">'+label+'</p>'
+    +'<p style="font-size:18px;font-weight:500;margin-top:2px;color:#8a5a12">'+val+'</p>'
+    +(sub?'<p style="font-size:12px;color:var(--color-text-secondary);margin-top:2px">'+sub+'</p>':'')+'</div>'
 }
 
 function renderTonelaje(){
@@ -1542,13 +1559,28 @@ function renderTonelaje(){
 
   sub.textContent = 'Peso real de colada (c_Kilos) repartido por pieza · ' + EAnio + ' · ' + meses.length + ' meses'
 
+  // Costo de no-calidad: mismo año seleccionado, pero de una fuente/método distinto (ver
+  // costo_calidad.py) -- se cruza por (anio, mes), nunca se asume que coincide 1:1 con _tonData.
+  const nocMeses = (_costoNocData && _costoNocData.meses || []).filter(m => m.anio === EAnio)
+  const nocPorMes = {}
+  nocMeses.forEach(m => { nocPorMes[m.mes] = m })
+  const costoNocTotal = nocMeses.reduce((s,m) => s + m.costo_no_calidad_usd, 0)
+  const costoProdTotal = nocMeses.reduce((s,m) => s + (m.costo_produccion_usd || 0), 0)
+  const tonProdVerificada = nocMeses.length > 0 && nocMeses.every(m => m.ton_producidas != null)
+  const tonProdVerificadaTotal = tonProdVerificada ? nocMeses.reduce((s,m) => s + m.ton_producidas, 0) : 0
+
   kpisEl.innerHTML =
     mc('Ton. brutas coladas', tot.ton_brutos.toLocaleString('es-MX')+' t', 'secondary', 'metal cargado al horno')
     + mc('Ton. producto OK', tot.ton_producto_ok.toLocaleString('es-MX')+' t', 'success', '')
     + mc('Ton. rechazo', tot.ton_rechazo.toLocaleString('es-MX')+' t', 'danger', '')
     + mc('% rechazo (kg)', pctRech+'%', pctRech>=15?'danger':pctRech>=7?'warning':'success', 'ponderado por peso')
+    + (tonProdVerificada && costoProdTotal ? mcNuevo('Costo de producción', '$'+Math.round(costoProdTotal).toLocaleString('es-MX'),
+        '$'+Math.round(costoProdTotal/tonProdVerificadaTotal).toLocaleString('es-MX')+'/ton promedio') : '')
+    + (costoNocTotal ? mcNuevo('Costo de no-calidad', '$'+Math.round(costoNocTotal).toLocaleString('es-MX'),
+        tonProdVerificada && costoProdTotal ? (costoNocTotal/costoProdTotal*100).toFixed(1)+'% del costo de producción' : 'piso_ia.rechazo × costo/ton') : '')
+    + (costoNocTotal && tonProdVerificada ? mcNuevo('Costo no-calidad / Ton', '$'+Math.round(costoNocTotal/tonProdVerificadaTotal).toLocaleString('es-MX'), 'por ton. producida') : '')
 
-  chartEl.innerHTML = svgTonelaje(meses)
+  chartEl.innerHTML = svgTonelaje(meses, nocPorMes)
 
   const porHorno = {}
   meses.forEach(m => {
@@ -1581,13 +1613,18 @@ function renderTonelaje(){
     +'</tr></thead><tbody>'+filas+'</tbody></table>'
 }
 
-function svgTonelaje(meses){
-  const VW=720, VH=170, PL=44, PR=12, PT=8, PB=28
+function svgTonelaje(meses, nocPorMes){
+  nocPorMes = nocPorMes || {}
+  const tieneCosto = Object.keys(nocPorMes).length > 0
+  const VW=720, VH=170, PL=44, PR=tieneCosto?54:12, PT=8, PB=28
   const BW=VW-PL-PR, BH=VH-PT-PB
   const maxT = Math.max(...meses.map(m=>m.ton_brutos), 1) * 1.08
+  const maxC = tieneCosto ? Math.max(...meses.map(m => (nocPorMes[m.mes]||{}).costo_no_calidad_usd || 0), 1) * 1.25 : 1
   const slotW = BW/meses.length, barW = slotW*0.62, gap=(slotW-barW)/2
   const Y = t => PT + BH - (t/maxT)*BH
+  const Yc = c => PT + BH - (c/maxC)*BH
   const X = i => PL + i*slotW + gap
+  const Xc = i => PL + i*slotW + slotW/2
 
   let yax=''
   for(let i=0;i<=4;i++){
@@ -1595,6 +1632,10 @@ function svgTonelaje(meses){
     const y = Y(v)
     yax += `<line x1="${PL}" y1="${y}" x2="${VW-PR}" y2="${y}" stroke="#F3F4F6" stroke-width="0.5"/>`
     yax += `<text x="${PL-4}" y="${y+4}" text-anchor="end" font-size="9" fill="#9CA3AF">${v}t</text>`
+    if(tieneCosto){
+      const vC = Math.round(maxC*i/4)
+      yax += `<text x="${VW-PR+7}" y="${y+4}" text-anchor="start" font-size="9" fill="#B7791F">$${(vC/1000).toFixed(0)}k</text>`
+    }
   }
 
   let bars=''
@@ -1609,15 +1650,35 @@ function svgTonelaje(meses){
     bars += `<text x="${x+barW/2}" y="${VH-PB+13}" text-anchor="middle" font-size="9" fill="#6B7280">${MES_LBLS[m.mes-1]}</text>`
   })
 
-  const ly=PT+1, lh=8, lx1=VW-PR-140, lx2=lx1+70
-  const legend = `<rect x="${lx1}" y="${ly}" width="${lh}" height="${lh}" rx="1" fill="#1D9E75"/>`
+  // Costo de no-calidad: línea ámbar sobre eje secundario, fuente/método distinto a las barras
+  // (piso_ia.rechazo x PesoKgs, no c_Kilos/colada) -- por eso no comparte el eje izquierdo.
+  let costoLine='', costoDots='', costoLabels=''
+  if(tieneCosto){
+    let prevX=null, prevY=null
+    meses.forEach((m,i)=>{
+      const noc = nocPorMes[m.mes]
+      if(!noc) return
+      const cx = Xc(i), cy = Yc(noc.costo_no_calidad_usd)
+      if(prevX !== null) costoLine += `<line x1="${prevX.toFixed(1)}" y1="${prevY.toFixed(1)}" x2="${cx.toFixed(1)}" y2="${cy.toFixed(1)}" stroke="#F59E0B" stroke-width="2" stroke-linecap="round"/>`
+      costoDots += `<circle cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="3" fill="#F59E0B" stroke="#fff" stroke-width="1.1"/>`
+      prevX=cx; prevY=cy
+    })
+  }
+
+  const ly=PT+1, lh=8, lx1=VW-PR-(tieneCosto?205:140), lx2=lx1+70, lx3=lx2+70
+  let legend = `<rect x="${lx1}" y="${ly}" width="${lh}" height="${lh}" rx="1" fill="#1D9E75"/>`
     + `<text x="${lx1+11}" y="${ly+7}" font-size="9" fill="#6B7280">Producto OK</text>`
     + `<rect x="${lx2}" y="${ly}" width="${lh}" height="${lh}" rx="1" fill="#EF4444"/>`
     + `<text x="${lx2+11}" y="${ly+7}" font-size="9" fill="#6B7280">Rechazo</text>`
+  if(tieneCosto){
+    legend += `<line x1="${lx3}" y1="${ly+4}" x2="${lx3+lh}" y2="${ly+4}" stroke="#F59E0B" stroke-width="2"/>`
+      + `<text x="${lx3+lh+3}" y="${ly+7}" font-size="9" fill="#6B7280">Costo no-calidad</text>`
+  }
 
   return `<svg width="100%" viewBox="0 0 ${VW} ${VH}" style="display:block;overflow:visible">
-    ${yax}${bars}${legend}
+    ${yax}${bars}${costoLine}${costoDots}${costoLabels}${legend}
     <line x1="${PL}" y1="${PT}" x2="${PL}" y2="${PT+BH}" stroke="#E5E7EB" stroke-width="0.5"/>
+    ${tieneCosto?`<line x1="${VW-PR}" y1="${PT}" x2="${VW-PR}" y2="${PT+BH}" stroke="#F0C374" stroke-width="0.5"/>`:''}
   </svg>`
 }
 

@@ -36,9 +36,11 @@ app.add_middleware(
 from backend.routers import beta as _beta_router_module
 from backend.routers import alfa as _alfa_router_module
 from backend.routers import chat as _chat_router_module
+from backend.routers import costo_calidad as _costo_calidad_router_module
 app.include_router(_beta_router_module.router)
 app.include_router(_alfa_router_module.router)
 app.include_router(_chat_router_module.router)
+app.include_router(_costo_calidad_router_module.router)
 
 
 # ── Modelo ML v2 (RF + calibrador Platt + lookup de partes) ──────────────────
@@ -3696,6 +3698,27 @@ def produccion_tonelaje_mensual(anios: str = Query(default="2024,2025")):
     Tonelaje mensual con estimación de producto terminado vs rechazo.
     Método: peso_pieza = c_Kilos / total_piezas por colada.
     kg_ok = piezas_ok * peso_pieza  |  kg_rech = piezas_rech * peso_pieza
+
+    FIX (2026-09-06, encontrado al validar el nuevo endpoint de costo de no-calidad contra este):
+    la versión anterior unía cscmega_03coladacargametalica contra un GROUP BY de
+    cscmega_01rechazosbyidticket por (u_Colada, u_Horno) SIN fecha -- pero u_Colada es un
+    consecutivo que SE RECICLA (~7,971 coladas reales en 2025 comparten solo ~1,200 números de
+    colada distintos), así que cada colada real se unía contra el conteo de piezas de TODAS las
+    coladas históricas que alguna vez tuvieron ese mismo número. Verificado: eso inflaba
+    total_piezas ~45x (1,977,690 vs 43,666 tickets reales en 2025) y kg_brutos ~5.5x (64,270 t vs
+    11,649 t reales) -- las toneladas absolutas mostradas en los KPI de esta card estaban mal por
+    ese orden de magnitud. El %rechazo (kg) sí salía aproximadamente bien por accidente (15.02%
+    contra el 15.19% corregido) porque la razón kg_rechazo/kg_brutos se preserva bajo ese tipo de
+    fan-out uniforme, pero eso no hacía confiables los totales absolutos.
+
+    Corrección: cscmega_03coladacargametalica YA trae idTicket/bRechazo por pieza (no hace falta
+    unir contra cscmega_01 en absoluto) y c_Kilos se repite idéntico en todas las piezas de una
+    misma colada real -- verificado que agrupando por (u_Colada, u_Horno, c_FechaInicial exacto)
+    nunca hay más de un valor de c_Kilos por grupo, así que ese trío SÍ identifica una colada real
+    aunque el número se recicle (dos coladas reales nunca comparten el mismo segundo exacto de
+    inicio). Se agrega SELECT DISTINCT idTicket antes de agrupar -- ~0.1% de los tickets están
+    duplicados en la tabla origen (mismo idTicket con distinta fecha/colada), no bloqueante pero
+    se dedupea para no contar de más.
     """
     lista_anios = [a.strip() for a in anios.split(",") if a.strip().isdigit()]
     if not lista_anios:
@@ -3703,37 +3726,40 @@ def produccion_tonelaje_mensual(anios: str = Query(default="2024,2025")):
 
     rows = run("""
         SELECT
-            YEAR(cc.c_FechaInicial)   AS anio,
-            MONTH(cc.c_FechaInicial)  AS mes,
-            cc.u_Horno                AS horno,
-            COUNT(DISTINCT cc.u_Colada) AS coladas,
-            ROUND(SUM(cc.c_Kilos), 0)   AS kg_brutos,
-            ROUND(AVG(cc.c_Kilos), 0)   AS kg_prom_colada,
-            SUM(pz.total_piezas)        AS total_piezas,
-            SUM(pz.piezas_ok)           AS piezas_ok,
-            SUM(pz.piezas_rech)         AS piezas_rech,
+            YEAR(ev.c_FechaInicial)  AS anio,
+            MONTH(ev.c_FechaInicial) AS mes,
+            ev.u_Horno               AS horno,
+            COUNT(*)                   AS coladas,
+            ROUND(SUM(ev.c_Kilos), 0)  AS kg_brutos,
+            ROUND(AVG(ev.c_Kilos), 0)  AS kg_prom_colada,
+            SUM(ev.total_piezas)       AS total_piezas,
+            SUM(ev.piezas_ok)          AS piezas_ok,
+            SUM(ev.piezas_rech)        AS piezas_rech,
             ROUND(SUM(
-                CASE WHEN pz.total_piezas > 0
-                     THEN cc.c_Kilos / pz.total_piezas * pz.piezas_ok
+                CASE WHEN ev.total_piezas > 0
+                     THEN ev.c_Kilos / ev.total_piezas * ev.piezas_ok
                      ELSE 0 END
             ), 0) AS kg_producto_ok,
             ROUND(SUM(
-                CASE WHEN pz.total_piezas > 0
-                     THEN cc.c_Kilos / pz.total_piezas * pz.piezas_rech
+                CASE WHEN ev.total_piezas > 0
+                     THEN ev.c_Kilos / ev.total_piezas * ev.piezas_rech
                      ELSE 0 END
             ), 0) AS kg_rechazo
-        FROM cscmega_03coladacargametalica cc
-        JOIN (
-            SELECT u_Colada, u_Horno,
+        FROM (
+            SELECT u_Colada, u_Horno, c_FechaInicial,
+                   MAX(c_Kilos)        AS c_Kilos,
                    COUNT(*)            AS total_piezas,
                    SUM(1 - bRechazo)   AS piezas_ok,
                    SUM(bRechazo)       AS piezas_rech
-            FROM cscmega_01rechazosbyidticket
-            GROUP BY u_Colada, u_Horno
-        ) pz ON pz.u_Colada = cc.u_Colada AND pz.u_Horno = cc.u_Horno
-        WHERE YEAR(cc.c_FechaInicial) IN ({})
-          AND cc.c_Kilos > 0
-          AND cc.c_FechaInicial IS NOT NULL
+            FROM (
+                SELECT DISTINCT idTicket, u_Colada, u_Horno, c_FechaInicial, c_Kilos, bRechazo
+                FROM cscmega_03coladacargametalica
+                WHERE YEAR(c_FechaInicial) IN ({})
+                  AND c_Kilos > 0
+                  AND c_FechaInicial IS NOT NULL
+            ) t
+            GROUP BY u_Colada, u_Horno, c_FechaInicial
+        ) ev
         GROUP BY anio, mes, horno
         ORDER BY anio, mes, horno
     """.format(",".join(lista_anios)))
