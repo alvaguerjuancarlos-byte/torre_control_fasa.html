@@ -210,6 +210,7 @@ main{padding:16px 20px;max-width:1100px;margin:0 auto}
       <button class="pb eyear" data-y="2023" onclick="eSetAnio(2023)">2023</button>
       <button class="pb eyear" data-y="2024" onclick="eSetAnio(2024)">2024</button>
       <button class="pb eyear active" data-y="2025" onclick="eSetAnio(2025)">2025</button>
+      <button class="pb eyear" data-y="2026" onclick="eSetAnio(2026)">2026</button>
     </div>
     <span id="e-periodo-nav" style="font-size:13px;color:var(--color-text-secondary);display:none">
       Período:
@@ -1546,21 +1547,11 @@ function renderTonelaje(){
   const kpisEl = document.getElementById('ton-kpis')
   const chartEl = document.getElementById('ton-chart')
   const hornoEl = document.getElementById('ton-horno')
-  if(!_tonData || !_tonData.meses || !_tonData.meses.length || EAnio !== 2025){
-    sub.textContent = EAnio !== 2025
-      ? 'Disponible solo para 2025 (fuente cscmega_03coladacargametalica sin histórico previo)'
-      : (_tonData ? 'Sin datos de tonelaje para este período' : 'API no disponible')
-    kpisEl.innerHTML = ''; chartEl.innerHTML = ''; hornoEl.innerHTML = ''
-    return
-  }
-  const meses = _tonData.meses.filter(m => m.anio === EAnio)
-  const tot = _tonData.total_por_anio[EAnio] || {ton_brutos:0, ton_producto_ok:0, ton_rechazo:0}
-  const pctRech = tot.ton_brutos ? Math.round(tot.ton_rechazo/tot.ton_brutos*1000)/10 : 0
 
-  sub.textContent = 'Peso real de colada (c_Kilos) repartido por pieza · ' + EAnio + ' · ' + meses.length + ' meses'
-
-  // Costo de no-calidad: mismo año seleccionado, pero de una fuente/método distinto (ver
-  // costo_calidad.py) -- se cruza por (anio, mes), nunca se asume que coincide 1:1 con _tonData.
+  // Costo de no-calidad: fuente/método distinto a _tonData (ver backend/routers/costo_calidad.py)
+  // -- se cruza por (anio, mes), nunca se asume que coincide 1:1 con _tonData. A diferencia de
+  // _tonData (solo 2025, cscmega_* congelada), esta serie SÍ llega a 2026 -- por eso se calcula
+  // siempre, incluso cuando _tonData no tiene barras para el año seleccionado.
   const nocMeses = (_costoNocData && _costoNocData.meses || []).filter(m => m.anio === EAnio)
   const nocPorMes = {}
   nocMeses.forEach(m => { nocPorMes[m.mes] = m })
@@ -1568,6 +1559,32 @@ function renderTonelaje(){
   const costoProdTotal = nocMeses.reduce((s,m) => s + (m.costo_produccion_usd || 0), 0)
   const tonProdVerificada = nocMeses.length > 0 && nocMeses.every(m => m.ton_producidas != null)
   const tonProdVerificadaTotal = tonProdVerificada ? nocMeses.reduce((s,m) => s + m.ton_producidas, 0) : 0
+
+  const tieneBarras = !!(_tonData && _tonData.meses && _tonData.meses.some(m => m.anio === EAnio))
+
+  if(!tieneBarras && !nocMeses.length){
+    sub.textContent = _tonData ? 'Sin datos de tonelaje ni costo de calidad para ' + EAnio : 'API no disponible'
+    kpisEl.innerHTML = ''; chartEl.innerHTML = ''; hornoEl.innerHTML = ''
+    return
+  }
+
+  if(!tieneBarras){
+    // Ej. 2026: cscmega_* (producción total verificada) sigue congelada desde 2025-12-29, así que
+    // no hay con qué dibujar las barras de tonelaje -- pero piso_ia.rechazo sí está vivo, así que
+    // el costo de no-calidad se muestra solo (sin bars, sin tabla por horno).
+    sub.textContent = 'Producción total sin verificar para ' + EAnio + ' (cscmega_* congelada desde 2025-12-29) · mostrando solo costo de no-calidad'
+    kpisEl.innerHTML = mcNuevo('Costo de no-calidad', '$'+Math.round(costoNocTotal).toLocaleString('es-MX'),
+      nocMeses.length + ' mes(es) con dato · piso_ia.rechazo × costo/ton')
+    chartEl.innerHTML = svgCostoNocSolo(nocMeses)
+    hornoEl.innerHTML = ''
+    return
+  }
+
+  const meses = _tonData.meses.filter(m => m.anio === EAnio)
+  const tot = _tonData.total_por_anio[EAnio] || {ton_brutos:0, ton_producto_ok:0, ton_rechazo:0}
+  const pctRech = tot.ton_brutos ? Math.round(tot.ton_rechazo/tot.ton_brutos*1000)/10 : 0
+
+  sub.textContent = 'Peso real de colada (c_Kilos) repartido por pieza · ' + EAnio + ' · ' + meses.length + ' meses'
 
   kpisEl.innerHTML =
     mc('Ton. brutas coladas', tot.ton_brutos.toLocaleString('es-MX')+' t', 'secondary', 'metal cargado al horno')
@@ -1679,6 +1696,43 @@ function svgTonelaje(meses, nocPorMes){
     ${yax}${bars}${costoLine}${costoDots}${costoLabels}${legend}
     <line x1="${PL}" y1="${PT}" x2="${PL}" y2="${PT+BH}" stroke="#E5E7EB" stroke-width="0.5"/>
     ${tieneCosto?`<line x1="${VW-PR}" y1="${PT}" x2="${VW-PR}" y2="${PT+BH}" stroke="#F0C374" stroke-width="0.5"/>`:''}
+  </svg>`
+}
+
+// Solo línea de costo de no-calidad, sin barras -- para años sin producción total verificada
+// (ej. 2026, cscmega_* congelada). Reusa la misma paleta ámbar que la línea de svgTonelaje.
+function svgCostoNocSolo(nocMeses){
+  const VW=720, VH=140, PL=54, PR=16, PT=14, PB=28
+  const BW=VW-PL-PR, BH=VH-PT-PB
+  const maxC = Math.max(...nocMeses.map(m=>m.costo_no_calidad_usd), 1) * 1.25
+  const slotW = BW/Math.max(nocMeses.length,1)
+  const Yc = c => PT + BH - (c/maxC)*BH
+  const Xc = i => PL + i*slotW + slotW/2
+  const MES_LBLS=["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"]
+
+  let yax=''
+  for(let i=0;i<=3;i++){
+    const v = Math.round(maxC*i/3)
+    const y = Yc(v)
+    yax += `<line x1="${PL}" y1="${y}" x2="${VW-PR}" y2="${y}" stroke="#F3F4F6" stroke-width="0.5"/>`
+    yax += `<text x="${PL-6}" y="${y+4}" text-anchor="end" font-size="9" fill="#B7791F">$${(v/1000).toFixed(0)}k</text>`
+  }
+
+  let line='', dots='', labels='', months=''
+  nocMeses.forEach((m,i)=>{
+    const cx=Xc(i), cy=Yc(m.costo_no_calidad_usd)
+    if(i>0){
+      const px=Xc(i-1), py=Yc(nocMeses[i-1].costo_no_calidad_usd)
+      line += `<line x1="${px.toFixed(1)}" y1="${py.toFixed(1)}" x2="${cx.toFixed(1)}" y2="${cy.toFixed(1)}" stroke="#F59E0B" stroke-width="2" stroke-linecap="round"/>`
+    }
+    dots += `<circle cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="3.4" fill="#F59E0B" stroke="#fff" stroke-width="1.2"/>`
+    labels += `<text x="${cx.toFixed(1)}" y="${(cy-8).toFixed(1)}" text-anchor="middle" font-size="9" font-weight="600" fill="#8a5a12">$${Math.round(m.costo_no_calidad_usd/1000)}k</text>`
+    months += `<text x="${cx.toFixed(1)}" y="${VH-PB+14}" text-anchor="middle" font-size="9.5" fill="#6B7280">${MES_LBLS[m.mes-1]}</text>`
+  })
+
+  return `<svg width="100%" viewBox="0 0 ${VW} ${VH}" style="display:block;overflow:visible">
+    ${yax}${line}${dots}${labels}${months}
+    <line x1="${PL}" y1="${PT}" x2="${PL}" y2="${PT+BH}" stroke="#E5E7EB" stroke-width="0.5"/>
   </svg>`
 }
 
