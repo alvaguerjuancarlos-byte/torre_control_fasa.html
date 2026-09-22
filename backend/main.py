@@ -3719,6 +3719,17 @@ def produccion_tonelaje_mensual(anios: str = Query(default="2024,2025")):
     inicio). Se agrega SELECT DISTINCT idTicket antes de agrupar -- ~0.1% de los tickets están
     duplicados en la tabla origen (mismo idTicket con distinta fecha/colada), no bloqueante pero
     se dedupea para no contar de más.
+
+    MIGRACIÓN DE FUENTE (2026-09-22): cscmega_03coladacargametalica está congelada desde
+    2025-12-29 (ETL de origen detenido, fuera de este repo). Se cambió a betamega_03_coladasproceso
+    -- mismos campos con nombres equivalentes (Colada/Horno/FechaInicial/Kilos/idTicket/bRechazo en
+    vez de u_Colada/u_Horno/c_FechaInicial/c_Kilos/idTicket/bRechazo). Validado contra la fuente
+    vieja en nov-dic 2025 (única ventana donde ambas tienen dato): mismo número de coladas (1,075)
+    y kg_brutos idéntico al kilogramo (1,546,090) con el mismo método de agregación -- es la misma
+    fuente de verdad subyacente. betamega_03 además trae 568 tickets que cscmega_03 nunca capturó
+    en esa misma ventana (vs. solo 37 al revés, sin duplicados) y tiene dato vivo hasta hoy, no solo
+    hasta dic-2025. Mismo patrón `SELECT DISTINCT idTicket` se mantiene por seguridad aunque no se
+    encontraron duplicados en la validación.
     """
     lista_anios = [a.strip() for a in anios.split(",") if a.strip().isdigit()]
     if not lista_anios:
@@ -3726,39 +3737,39 @@ def produccion_tonelaje_mensual(anios: str = Query(default="2024,2025")):
 
     rows = run("""
         SELECT
-            YEAR(ev.c_FechaInicial)  AS anio,
-            MONTH(ev.c_FechaInicial) AS mes,
-            ev.u_Horno               AS horno,
-            COUNT(*)                   AS coladas,
-            ROUND(SUM(ev.c_Kilos), 0)  AS kg_brutos,
-            ROUND(AVG(ev.c_Kilos), 0)  AS kg_prom_colada,
-            SUM(ev.total_piezas)       AS total_piezas,
-            SUM(ev.piezas_ok)          AS piezas_ok,
-            SUM(ev.piezas_rech)        AS piezas_rech,
+            YEAR(ev.FechaInicial)  AS anio,
+            MONTH(ev.FechaInicial) AS mes,
+            ev.Horno               AS horno,
+            COUNT(*)                AS coladas,
+            ROUND(SUM(ev.Kilos), 0) AS kg_brutos,
+            ROUND(AVG(ev.Kilos), 0) AS kg_prom_colada,
+            SUM(ev.total_piezas)    AS total_piezas,
+            SUM(ev.piezas_ok)       AS piezas_ok,
+            SUM(ev.piezas_rech)     AS piezas_rech,
             ROUND(SUM(
                 CASE WHEN ev.total_piezas > 0
-                     THEN ev.c_Kilos / ev.total_piezas * ev.piezas_ok
+                     THEN ev.Kilos / ev.total_piezas * ev.piezas_ok
                      ELSE 0 END
             ), 0) AS kg_producto_ok,
             ROUND(SUM(
                 CASE WHEN ev.total_piezas > 0
-                     THEN ev.c_Kilos / ev.total_piezas * ev.piezas_rech
+                     THEN ev.Kilos / ev.total_piezas * ev.piezas_rech
                      ELSE 0 END
             ), 0) AS kg_rechazo
         FROM (
-            SELECT u_Colada, u_Horno, c_FechaInicial,
-                   MAX(c_Kilos)        AS c_Kilos,
+            SELECT Colada, Horno, FechaInicial,
+                   MAX(Kilos)          AS Kilos,
                    COUNT(*)            AS total_piezas,
                    SUM(1 - bRechazo)   AS piezas_ok,
                    SUM(bRechazo)       AS piezas_rech
             FROM (
-                SELECT DISTINCT idTicket, u_Colada, u_Horno, c_FechaInicial, c_Kilos, bRechazo
-                FROM cscmega_03coladacargametalica
-                WHERE YEAR(c_FechaInicial) IN ({})
-                  AND c_Kilos > 0
-                  AND c_FechaInicial IS NOT NULL
+                SELECT DISTINCT idTicket, Colada, Horno, FechaInicial, Kilos, bRechazo
+                FROM betamega_03_coladasproceso
+                WHERE YEAR(FechaInicial) IN ({})
+                  AND Kilos > 0
+                  AND FechaInicial IS NOT NULL
             ) t
-            GROUP BY u_Colada, u_Horno, c_FechaInicial
+            GROUP BY Colada, Horno, FechaInicial
         ) ev
         GROUP BY anio, mes, horno
         ORDER BY anio, mes, horno

@@ -1517,8 +1517,10 @@ async function initEjecutivo(anio){
   loadTonelaje()
 }
 
-// ── Rendimiento Metálico · Tonelaje (kg reales por colada, cc.c_Kilos / piezas) ──
-// Fuente cscmega_03coladacargametalica — solo tiene datos desde 2025 (ver _tonData.meses).
+// ── Rendimiento Metálico · Tonelaje (kg reales por colada, Kilos / piezas) ──
+// Fuente betamega_03_coladasproceso (migrado 2026-09-22 desde cscmega_03coladacargametalica,
+// congelada desde 2025-12-29 — ver docstring de /produccion/tonelaje-mensual en backend/main.py).
+// Vive hasta el mes actual, no solo 2025 (ver _tonData.meses).
 let _tonData = null
 // Costo de no-calidad (piso_ia.rechazo x PesoKgs x costo/ton mensual) — fuente y método distintos
 // a los de _tonData a propósito (ver docstring de backend/routers/costo_calidad.py): esta serie
@@ -1527,7 +1529,7 @@ let _tonData = null
 // reales (2025), nunca se inventa una barra para 2026.
 let _costoNocData = null
 async function loadTonelaje(){
-  if(!_tonData) _tonData = await apiFetch('/produccion/tonelaje-mensual?anios=2025')
+  if(!_tonData) _tonData = await apiFetch('/produccion/tonelaje-mensual?anios=2023,2024,2025,2026')
   if(!_costoNocData) _costoNocData = await apiFetch('/produccion/costo-no-calidad-mensual')
   renderTonelaje()
 }
