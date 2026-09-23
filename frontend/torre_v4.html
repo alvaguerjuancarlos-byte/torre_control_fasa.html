@@ -3148,7 +3148,7 @@ function simRenderTable(items) {
     <b>Producción neta esperada:</b> Kg Buenos del plan × (1 − tasa de rechazo histórica 2025 de esa parte,
     <code>gamamega_01_riesgodefectoparte</code>) — mismo campo que usa el pronóstico histórico de abajo, aplicado
     ahora al plan en vez de a producción real pasada.
-    <b>Ritmo real:</b> piezas terminadas recientes (<code>cscmega_08ruta</code>), mismo motor que Agente Alfa.
+    <b>Ritmo real:</b> piezas terminadas recientes (<code>betamega_08_ticketrutacritica</code>), mismo motor que Agente Alfa.
     <b>Días estimados:</b> saldo pendiente ÷ ritmo real reciente — mismo cálculo que la proyección de Agente Alfa.
   </div>
 
@@ -4354,7 +4354,7 @@ async function flPintarRiesgoBeta(piezas){
   <div id="af-cuellos"><div class="loading-msg">Cargando…</div></div>
 
   <div class="cr-foot" style="margin-top:24px">
-    <b>Ritmo:</b> piezas terminadas (FHrLIMP) por día en cscmega_08ruta. <b>Ciclo real por etapa:</b> promedio
+    <b>Ritmo:</b> piezas terminadas (FHrLIMP) por día en betamega_08_ticketrutacritica. <b>Ciclo real por etapa:</b> promedio
     en horas, filtrado a transiciones de 0-72h entre etapas consecutivas — hay huecos de meses en ~1-7% de
     los tickets (probable rezago de escaneo, no proceso real) que se descartan con el mismo criterio que ya
     usa PC-5. <b>Proceso/cliente:</b> corex_test.modelos.area + clientes — autoritativo, ~el 50% de los

@@ -3,8 +3,10 @@ AGENTE ALFA — ritmo real, cuello de botella y proyección de entrega, 100% lec
 Rediseño 2026-08-05 (JC): la v1 (PC-gate por colada) se retiró de aquí — esa
 señal ya vive en el tab "Alertas y Protocolos", era redundante con Agente Beta.
 Alfa ahora responde "¿vamos a cumplir la entrega de esta parte/cliente?" cruzando:
-  - ritmo real por etapa (cscmega_08ruta: FHrMOLD/FhrVACI/FHrDESM/FHrLIMP —
-    confirmados confiables ~93-99% dentro de 0-72h entre etapas consecutivas)
+  - ritmo real por etapa (betamega_08_ticketrutacritica: FHrMOLD/FHrVACI/FHrDESM/FHrLIMP —
+    migrado 2026-09-23 desde cscmega_08ruta, congelada desde dic-2025; mismos
+    umbrales de confiabilidad ~93-99% dentro de 0-72h entre etapas consecutivas
+    ya validados para la tabla vieja, no re-verificados en la nueva)
   - proceso/cliente (corex_test.modelos.area + corex_test.clientes — AUTORITATIVO,
     no depende del Excel del Plan de Producción)
   - saldo pendiente (programa_produccion_detalle_referencial.sdo_final — NO
@@ -44,16 +46,16 @@ def _resolver_proceso_cliente(no_partes: list) -> dict:
 
 @router.get("/api/alfa/clientes")
 def alfa_clientes():
-    """Clientes con actividad de flujo real (cscmega_08ruta) en los últimos 90 días,
-    ordenados por piezas -- para el selector de descubrimiento del tab Alfa (JC señaló
-    que escribir el No_Parte a ciegas no era usable)."""
+    """Clientes con actividad de flujo real (betamega_08_ticketrutacritica) en los
+    últimos 90 días, ordenados por piezas -- para el selector de descubrimiento del
+    tab Alfa (JC señaló que escribir el No_Parte a ciegas no era usable)."""
     referencia = _referencia_actual_flujo()
     ref_dt = datetime.fromisoformat(referencia)
     desde_dt = ref_dt - timedelta(days=90)
     rows = run("""
         SELECT c.Cliente AS cliente, COUNT(*) AS piezas
-        FROM cscmega_08ruta r
-        JOIN corex_test.modelos m ON m.NoParte = r.u_NoParte
+        FROM betamega_08_ticketrutacritica r
+        JOIN corex_test.modelos m ON m.NoParte = r.No_Parte
         JOIN corex_test.clientes c ON c.IdCliente = m.IdCliente
         WHERE r.FHrLIMP BETWEEN :d AND :h
         GROUP BY c.Cliente
@@ -70,12 +72,12 @@ def alfa_partes_cliente(cliente: str = Query(...), dias: int = Query(default=14,
     ref_dt = datetime.fromisoformat(referencia)
     desde_dt = ref_dt - timedelta(days=dias)
     rows = run("""
-        SELECT r.u_NoParte AS no_parte, NULLIF(m.area, '') AS proceso, COUNT(*) AS piezas
-        FROM cscmega_08ruta r
-        JOIN corex_test.modelos m ON m.NoParte = r.u_NoParte
+        SELECT r.No_Parte AS no_parte, NULLIF(m.area, '') AS proceso, COUNT(*) AS piezas
+        FROM betamega_08_ticketrutacritica r
+        JOIN corex_test.modelos m ON m.NoParte = r.No_Parte
         JOIN corex_test.clientes c ON c.IdCliente = m.IdCliente
         WHERE c.Cliente = :cli AND r.FHrLIMP BETWEEN :d AND :h
-        GROUP BY r.u_NoParte, m.area
+        GROUP BY r.No_Parte, m.area
         ORDER BY piezas DESC
     """, {"cli": cliente, "d": desde_dt, "h": ref_dt})
     return {
@@ -103,22 +105,22 @@ def _ritmo_parte(no_parte: str, dias: int, referencia: str) -> dict:
 
     serie = run("""
         SELECT DATE(FHrLIMP) AS dia, COUNT(*) AS piezas
-        FROM cscmega_08ruta
-        WHERE u_NoParte = :np AND FHrLIMP BETWEEN :d AND :h
+        FROM betamega_08_ticketrutacritica
+        WHERE No_Parte = :np AND FHrLIMP BETWEEN :d AND :h
         GROUP BY DATE(FHrLIMP) ORDER BY dia
     """, {"np": no_parte, "d": desde_dt, "h": ref_dt})
     total = sum(int(r["piezas"]) for r in serie)
 
     ciclo = run("""
         SELECT
-          ROUND(AVG(CASE WHEN TIMESTAMPDIFF(HOUR, FHrMOLD, FhrVACI) BETWEEN 0 AND 72
-                     THEN TIMESTAMPDIFF(MINUTE, FHrMOLD, FhrVACI)/60.0 END), 1) AS h_molde_vaciado,
-          ROUND(AVG(CASE WHEN TIMESTAMPDIFF(HOUR, FhrVACI, FHrDESM) BETWEEN 0 AND 72
-                     THEN TIMESTAMPDIFF(MINUTE, FhrVACI, FHrDESM)/60.0 END), 1) AS h_vaciado_desmoldeo,
+          ROUND(AVG(CASE WHEN TIMESTAMPDIFF(HOUR, FHrMOLD, FHrVACI) BETWEEN 0 AND 72
+                     THEN TIMESTAMPDIFF(MINUTE, FHrMOLD, FHrVACI)/60.0 END), 1) AS h_molde_vaciado,
+          ROUND(AVG(CASE WHEN TIMESTAMPDIFF(HOUR, FHrVACI, FHrDESM) BETWEEN 0 AND 72
+                     THEN TIMESTAMPDIFF(MINUTE, FHrVACI, FHrDESM)/60.0 END), 1) AS h_vaciado_desmoldeo,
           ROUND(AVG(CASE WHEN TIMESTAMPDIFF(HOUR, FHrDESM, FHrLIMP) BETWEEN 0 AND 72
                      THEN TIMESTAMPDIFF(MINUTE, FHrDESM, FHrLIMP)/60.0 END), 1) AS h_desmoldeo_limpieza
-        FROM cscmega_08ruta
-        WHERE u_NoParte = :np AND FHrLIMP BETWEEN :d AND :h
+        FROM betamega_08_ticketrutacritica
+        WHERE No_Parte = :np AND FHrLIMP BETWEEN :d AND :h
     """, {"np": no_parte, "d": desde_dt, "h": ref_dt})
     c = ciclo[0] if ciclo else {}
 
@@ -205,15 +207,15 @@ def alfa_cuello_botella(dias: int = Query(default=7, le=30)):
     def _ciclo_por_proceso(desde_dt, hasta_dt):
         rows = run("""
             SELECT m.area AS proceso,
-                   ROUND(AVG(CASE WHEN TIMESTAMPDIFF(HOUR, r.FHrMOLD, r.FhrVACI) BETWEEN 0 AND 72
-                              THEN TIMESTAMPDIFF(MINUTE, r.FHrMOLD, r.FhrVACI)/60.0 END), 2) AS h_molde_vaciado,
-                   ROUND(AVG(CASE WHEN TIMESTAMPDIFF(HOUR, r.FhrVACI, r.FHrDESM) BETWEEN 0 AND 72
-                              THEN TIMESTAMPDIFF(MINUTE, r.FhrVACI, r.FHrDESM)/60.0 END), 2) AS h_vaciado_desmoldeo,
+                   ROUND(AVG(CASE WHEN TIMESTAMPDIFF(HOUR, r.FHrMOLD, r.FHrVACI) BETWEEN 0 AND 72
+                              THEN TIMESTAMPDIFF(MINUTE, r.FHrMOLD, r.FHrVACI)/60.0 END), 2) AS h_molde_vaciado,
+                   ROUND(AVG(CASE WHEN TIMESTAMPDIFF(HOUR, r.FHrVACI, r.FHrDESM) BETWEEN 0 AND 72
+                              THEN TIMESTAMPDIFF(MINUTE, r.FHrVACI, r.FHrDESM)/60.0 END), 2) AS h_vaciado_desmoldeo,
                    ROUND(AVG(CASE WHEN TIMESTAMPDIFF(HOUR, r.FHrDESM, r.FHrLIMP) BETWEEN 0 AND 72
                               THEN TIMESTAMPDIFF(MINUTE, r.FHrDESM, r.FHrLIMP)/60.0 END), 2) AS h_desmoldeo_limpieza,
                    COUNT(*) AS n
-            FROM cscmega_08ruta r
-            JOIN corex_test.modelos m ON m.NoParte = r.u_NoParte
+            FROM betamega_08_ticketrutacritica r
+            JOIN corex_test.modelos m ON m.NoParte = r.No_Parte
             WHERE r.FHrLIMP BETWEEN :d AND :h AND m.area IN ('AF1','AF2','AF3')
             GROUP BY m.area
         """, {"d": desde_dt, "h": hasta_dt})
@@ -343,10 +345,10 @@ def _ritmo_real_partes_batch(no_partes: list, dias: int, referencia: str) -> dic
     params = {f"p{i}": p for i, p in enumerate(no_partes)}
     params.update({"d": desde_dt, "h": ref_dt})
     rows = run(f"""
-        SELECT u_NoParte AS no_parte, COUNT(*) AS piezas
-        FROM cscmega_08ruta
-        WHERE u_NoParte IN ({placeholders}) AND FHrLIMP BETWEEN :d AND :h
-        GROUP BY u_NoParte
+        SELECT No_Parte AS no_parte, COUNT(*) AS piezas
+        FROM betamega_08_ticketrutacritica
+        WHERE No_Parte IN ({placeholders}) AND FHrLIMP BETWEEN :d AND :h
+        GROUP BY No_Parte
     """, params)
     return {r["no_parte"]: round(int(r["piezas"]) / dias, 2) for r in rows}
 

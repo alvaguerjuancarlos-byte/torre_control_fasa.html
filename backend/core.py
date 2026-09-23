@@ -623,20 +623,27 @@ def _buscar_protocolos(defectos_unicos: list) -> list:
 
 def _referencia_actual_flujo() -> str:
     """Ancla la ventana al último día con volumen real de coladas (>=5), no al
-    MAX(c_FechaInicial) crudo — hay registros aislados posteriores al cierre
-    real de datos (ej. colada 78830 el 2025-12-29, 9 días después de la última
-    racha densa el 2025-12-20) que dejan la ventana vacía si se usan como ancla.
-    Compartida por Agente Alfa y Plan de Producción."""
+    MAX(FHrVaciado) crudo — hay registros aislados posteriores al cierre
+    real de datos que dejan la ventana vacía si se usan como ancla.
+    Compartida por Agente Alfa y Plan de Producción.
+
+    MIGRACIÓN (2026-09-23): de cscmega_03coladacargametalica (congelada desde
+    2025-12-29 -- esta función SIEMPRE devolvía ~2025-12-19/20, sin importar la
+    fecha real, porque esa era la fuente) a betamega_03_coladasproceso (viva
+    hasta hoy). Ancla en FHrVaciado, no en FechaInicial -- mismo motivo que
+    _evaluar_coladas_ventana() arriba: el encabezado de colada de betamega_03
+    (FechaInicial/Kilos/Status) está pegado en 2026-08-17 aunque el ticket-level
+    esté vivo."""
     row = run("""
-        SELECT MAX(c.c_FechaInicial) AS mx FROM cscmega_03coladacargametalica c
+        SELECT MAX(b.FHrVaciado) AS mx FROM betamega_03_coladasproceso b
         JOIN (
-            SELECT DATE(c_FechaInicial) AS dia
-            FROM cscmega_03coladacargametalica
+            SELECT DATE(FHrVaciado) AS dia
+            FROM betamega_03_coladasproceso
             WHERE c_IdColada > 0
-            GROUP BY DATE(c_FechaInicial)
+            GROUP BY DATE(FHrVaciado)
             HAVING COUNT(*) >= 5
-        ) denso ON DATE(c.c_FechaInicial) = denso.dia
-        WHERE c.c_IdColada > 0
+        ) denso ON DATE(b.FHrVaciado) = denso.dia
+        WHERE b.c_IdColada > 0
     """, {})
     mx = row[0]["mx"] if row and row[0].get("mx") else None
     return mx.strftime("%Y-%m-%dT%H:%M") if mx else "2025-12-19T08:00"
