@@ -3017,14 +3017,21 @@ def serve_v4():
                         headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
 @app.get("/v3/gestion/coladas")
 def v3_gestion_coladas(
-    referencia: str = Query(default="2025-12-19T08:00"),
+    referencia: Optional[str] = Query(default=None),
     horas: int = Query(default=48),
 ):
     """
     Lista de coladas en la ventana con los 7 carriles pre-evaluados.
     PC-1 y PC-3 son GRIS estructural (sin fuente integrada en ia_fasa);
     PC-2, PC-4, PC-5, PC-6, PC-7 se evalúan en vivo.
+
+    Sin `referencia` cae a "ahora" (2026-09-23: antes caía a un string fijo
+    "2025-12-19T08:00" -- inofensivo mientras _evaluar_coladas_ventana() leía de
+    cscmega_* congelada, pero desde que se migró a betamega_* (viva) un default
+    fijo escondería datos nuevos a cualquier caller que no mande el parámetro).
     """
+    if referencia is None:
+        referencia = datetime.now().strftime("%Y-%m-%dT%H:%M")
     resultado = _evaluar_coladas_ventana(referencia, horas)
     return {"referencia": referencia, "horas": horas, "coladas": resultado}
 
@@ -3239,7 +3246,7 @@ def v3_carriles_colada(id_colada: int):
 # Se marcan aparte para no sugerir un protocolo de piso inútil.
 @app.get("/v3/gestion/alertas")
 def v3_gestion_alertas(
-    referencia: str = Query(default="2025-12-19T08:00"),
+    referencia: Optional[str] = Query(default=None),
     horas: int = Query(default=48),
 ):
     """
@@ -3251,7 +3258,11 @@ def v3_gestion_alertas(
     El defecto dominante solo se resuelve para alertas de PC-6, que es el único
     carril con un nomDefecto asociado; los demás PCs son mediciones de proceso
     (química, temperatura, tiempo) sin un defecto puntual que buscar en el puente.
+
+    Sin `referencia` cae a "ahora" -- mismo motivo que /v3/gestion/coladas (ver ahí).
     """
+    if referencia is None:
+        referencia = datetime.now().strftime("%Y-%m-%dT%H:%M")
     coladas = _evaluar_coladas_ventana(referencia, horas)
 
     ESTADOS_ALERTA = ("ROJO", "AMBAR")

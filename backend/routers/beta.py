@@ -15,6 +15,7 @@ Dos compuertas de datos, nunca mezcladas:
 """
 
 from datetime import datetime
+from typing import Optional
 from fastapi import APIRouter, Query
 
 from backend.core import run, _evaluar_coladas_ventana, _buscar_protocolos, _REDISENO_COMBOS
@@ -164,7 +165,7 @@ def beta_riesgo_lote(no_partes: str = Query(...)):
 
 @router.get("/criticas")
 def beta_criticas(
-    referencia: str = Query(default="2025-12-19T08:00"),
+    referencia: Optional[str] = Query(default=None),
     horas: int = Query(default=48),
 ):
     """
@@ -177,7 +178,13 @@ def beta_criticas(
 
     No existe ningún SLA/deadline real en las fuentes de datos — se reporta
     tiempo transcurrido como proxy de urgencia, nunca un plazo inventado.
+
+    Sin `referencia` cae a "ahora" (mismo motivo que /v3/gestion/coladas en
+    main.py — el default viejo "2025-12-19T08:00" escondía datos vivos desde
+    que _evaluar_coladas_ventana() se migró a betamega_* el 2026-09-23).
     """
+    if referencia is None:
+        referencia = datetime.now().strftime("%Y-%m-%dT%H:%M")
     ref_dt = datetime.fromisoformat(referencia)
     coladas = _evaluar_coladas_ventana(referencia, horas)
 

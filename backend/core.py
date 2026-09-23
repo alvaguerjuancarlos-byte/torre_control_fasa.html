@@ -326,6 +326,28 @@ def _evaluar_coladas_ventana(referencia: str, horas: int) -> list:
     Evalúa los 7 carriles (PC-1..PC-7) para cada colada en la ventana [referencia-horas, referencia].
     Compartida por /v3/gestion/coladas, /v3/gestion/alertas y /api/beta/criticas para
     que los tres usen exactamente la misma lógica de evaluación (evita que diverjan).
+
+    MIGRACIÓN (2026-09-23): fuente cambiada de cscmega_03coladacargametalica/
+    cscmega_01rechazosbyidticket/cscmega_08ruta (las 3 congeladas desde 2025-12-29/
+    dic-2025) a betamega_03_coladasproceso/betamega_08_ticketrutacritica (vivas hasta
+    hoy). betamega_03 ya trae idTicket+bRechazo+No_Parte en la misma fila (a diferencia
+    de cscmega_03+cscmega_01 que requerían join), así que ya no hace falta la tabla de
+    rechazo aparte -- solo betamega_08 para las columnas de etapa (bMOLD/bVACI/bDESM/bLIMP).
+
+    Detalle importante: betamega_03 tiene dos partes con distinta frescura -- los campos
+    de TICKET (idTicket, FHrVaciado, bRechazo, No_Parte) están vivos hasta hoy, pero los
+    de ENCABEZADO DE COLADA (Kilos, Status, FechaInicial, FechaLiberado) dependen de otra
+    tabla fuente que se quedó pegada en 2026-08-17 -- para coladas más recientes que esa
+    fecha esos 4 campos salen NULL. Por eso la ventana se ancla en FHrVaciado (vivo), no
+    en FechaInicial, y inicio_fusion/fin_fusion caen a MIN/MAX(FHrVaciado) cuando
+    FechaInicial/FechaLiberado son NULL (aproximación pedida por JC, sin marcarla aparte
+    en la UI -- ver conversación 2026-09-23).
+
+    Las llaves de los índices por colada (rec_idx/cierre_idx/molde5_idx/etapa_idx/sku_idx)
+    se cambiaron de u_Colada a id_colada (c_IdColada): u_Colada es un consecutivo que se
+    recicla (ver nota de Tonelaje en 2026-09-06), c_IdColada es el identificador real único
+    y betamega_03 lo trae en cada fila -- evita el riesgo de mezclar dos coladas reales que
+    compartan número de colada dentro de la misma ventana.
     """
     ref_dt = datetime.fromisoformat(referencia)
     desde_dt = ref_dt - timedelta(hours=horas)
@@ -333,52 +355,50 @@ def _evaluar_coladas_ventana(referencia: str, horas: int) -> list:
     h = ref_dt.strftime("%Y-%m-%d %H:%M:%S")
 
     coladas = run("""
-        SELECT c.c_IdColada        AS id_colada,
-               MAX(c.u_Colada)     AS u_colada,
-               MAX(c.u_Horno)      AS horno,
-               MIN(c.c_FechaInicial) AS inicio_fusion,
-               MAX(c.c_FechaFinal)   AS fin_fusion,
-               MAX(c.c_Kilos)      AS kilos,
-               MAX(c.c_Status)     AS status
-        FROM cscmega_03coladacargametalica c
-        WHERE c.c_FechaInicial BETWEEN :d AND :h
-          AND c.c_IdColada > 0
-        GROUP BY c.c_IdColada
-        ORDER BY MIN(c.c_FechaInicial) DESC
+        SELECT c_IdColada AS id_colada,
+               MAX(Colada) AS u_colada,
+               MAX(Horno)  AS horno,
+               COALESCE(MIN(FechaInicial), MIN(FHrVaciado))  AS inicio_fusion,
+               COALESCE(MAX(FechaLiberado), MAX(FHrVaciado)) AS fin_fusion,
+               MAX(Kilos)  AS kilos,
+               MAX(Status) AS status
+        FROM betamega_03_coladasproceso
+        WHERE FHrVaciado BETWEEN :d AND :h
+          AND c_IdColada > 0
+        GROUP BY c_IdColada
+        ORDER BY COALESCE(MIN(FechaInicial), MIN(FHrVaciado)) DESC
         LIMIT 60
     """, {"d": d, "h": h})
 
     if not coladas:
         return []
 
+    id_list = ",".join(str(c["id_colada"]) for c in coladas if c["id_colada"]) or "0"
     u_list = ",".join(str(c["u_colada"]) for c in coladas if c["u_colada"]) or "0"
 
     rec_raw = run(f"""
-        SELECT u_Colada,
+        SELECT c_IdColada AS id_colada,
                COUNT(*) AS total,
                SUM(bRechazo) AS rechazos,
                ROUND(AVG(bRechazo)*100, 1) AS pct_rechazo,
-               MAX(u_Fecha) AS ts_ultimo
-        FROM cscmega_01rechazosbyidticket
-        WHERE u_Colada IN ({u_list})
-        GROUP BY u_Colada
+               MAX(FHrVaciado) AS ts_ultimo
+        FROM betamega_03_coladasproceso
+        WHERE c_IdColada IN ({id_list})
+        GROUP BY c_IdColada
     """, {})
-    rec_idx = {r["u_Colada"]: r for r in rec_raw}
+    rec_idx = {r["id_colada"]: r for r in rec_raw}
 
     cierre_raw = run(f"""
-        SELECT rb.u_Colada,
+        SELECT b3.c_IdColada AS id_colada,
                COUNT(*) AS total,
-               SUM(r.bLIMP) AS terminadas,
-               ROUND(SUM(r.bLIMP)/COUNT(*)*100, 1) AS pct_cierre
-        FROM cscmega_01rechazosbyidticket rb
-        JOIN cscmega_08ruta r ON r.u_idTicket = rb.idTicket
-        WHERE rb.u_Colada IN ({u_list})
-        GROUP BY rb.u_Colada
+               SUM(b8.bLIMP) AS terminadas,
+               ROUND(SUM(b8.bLIMP)/COUNT(*)*100, 1) AS pct_cierre
+        FROM betamega_03_coladasproceso b3
+        JOIN betamega_08_ticketrutacritica b8 ON b8.idTicket = b3.idTicket
+        WHERE b3.c_IdColada IN ({id_list})
+        GROUP BY b3.c_IdColada
     """, {})
-    cierre_idx = {r["u_Colada"]: r for r in cierre_raw}
-
-    # PC-4: batch de temperatura desde alfamega_06_vaciado por c_IdColada
-    id_list = ",".join(str(c["id_colada"]) for c in coladas if c["id_colada"]) or "0"
+    cierre_idx = {r["id_colada"]: r for r in cierre_raw}
     temp_raw = run(f"""
         SELECT c_IdColada,
                COUNT(*) AS n_tickets,
@@ -418,57 +438,57 @@ def _evaluar_coladas_ventana(referencia: str, horas: int) -> list:
 
     # PC-5 batch: tiempo en molde vs TiempoDesmoldeo por NoParte
     molde5_batch = run(f"""
-        SELECT rb.u_Colada,
-               SUM(CASE WHEN r.FHrMOLD IS NOT NULL AND r.FHrDESM IS NOT NULL
+        SELECT b3.c_IdColada AS id_colada,
+               SUM(CASE WHEN b8.FHrMOLD IS NOT NULL AND b8.FHrDESM IS NOT NULL
                         AND m.TiempoDesmoldeo > 0
                    THEN 1 ELSE 0 END) AS con_umbral,
-               SUM(CASE WHEN r.FHrMOLD IS NOT NULL AND r.FHrDESM IS NOT NULL
+               SUM(CASE WHEN b8.FHrMOLD IS NOT NULL AND b8.FHrDESM IS NOT NULL
                         AND m.TiempoDesmoldeo > 0
-                        AND TIMESTAMPDIFF(MINUTE, r.FHrMOLD, r.FHrDESM) / 60.0 >= m.TiempoDesmoldeo
+                        AND TIMESTAMPDIFF(MINUTE, b8.FHrMOLD, b8.FHrDESM) / 60.0 >= m.TiempoDesmoldeo
                    THEN 1 ELSE 0 END) AS cumple
-        FROM cscmega_01rechazosbyidticket rb
-        JOIN cscmega_08ruta r ON r.u_idTicket = rb.idTicket
+        FROM betamega_03_coladasproceso b3
+        JOIN betamega_08_ticketrutacritica b8 ON b8.idTicket = b3.idTicket
         LEFT JOIN (
             SELECT NoParte, MAX(IdModelo) AS IdModelo
             FROM corex_test.modelos WHERE TiempoDesmoldeo > 0 GROUP BY NoParte
-        ) best ON best.NoParte = r.u_NoParte
+        ) best ON best.NoParte = b8.No_Parte
         LEFT JOIN corex_test.modelos m ON m.IdModelo = best.IdModelo
-        WHERE rb.u_Colada IN ({uid_list})
-          AND (r.FHrMOLD IS NULL OR r.FHrDESM IS NULL
-               OR TIMESTAMPDIFF(HOUR, r.FHrMOLD, r.FHrDESM) BETWEEN 0 AND 72)
-        GROUP BY rb.u_Colada
+        WHERE b3.c_IdColada IN ({id_list})
+          AND (b8.FHrMOLD IS NULL OR b8.FHrDESM IS NULL
+               OR TIMESTAMPDIFF(HOUR, b8.FHrMOLD, b8.FHrDESM) BETWEEN 0 AND 72)
+        GROUP BY b3.c_IdColada
     """, {})
-    molde5_idx = {r["u_Colada"]: r for r in molde5_batch}
+    molde5_idx = {r["id_colada"]: r for r in molde5_batch}
 
     # Desglose por No. Parte (para el toggle "Por Colada / Por No. Parte" del Nivel 1)
+    # betamega_03 ya trae No_Parte+bRechazo por ticket, no hace falta join para esto.
     sku_batch = run(f"""
-        SELECT rb.u_Colada, r.u_NoParte AS sku,
-               COUNT(*) AS total, SUM(rb.bRechazo) AS rechazos
-        FROM cscmega_01rechazosbyidticket rb
-        JOIN cscmega_08ruta r ON r.u_idTicket = rb.idTicket
-        WHERE rb.u_Colada IN ({uid_list})
-        GROUP BY rb.u_Colada, r.u_NoParte
+        SELECT c_IdColada AS id_colada, No_Parte AS sku,
+               COUNT(*) AS total, SUM(bRechazo) AS rechazos
+        FROM betamega_03_coladasproceso
+        WHERE c_IdColada IN ({id_list})
+        GROUP BY c_IdColada, No_Parte
     """, {})
     sku_idx = {}
     for r in sku_batch:
-        sku_idx.setdefault(r["u_Colada"], []).append({
+        sku_idx.setdefault(r["id_colada"], []).append({
             "sku": r["sku"] or "—",
             "total": int(r["total"] or 0),
             "rechazos": int(r["rechazos"] or 0),
         })
 
     # Etapa de flujo (mismo criterio que /piso/flujo): basada en la pieza más
-    # retrasada de la colada, vía flags bMOLD/bVACI/bDESM/bLIMP de cscmega_08ruta.
+    # retrasada de la colada, vía flags bMOLD/bVACI/bDESM/bLIMP de betamega_08.
     etapa_batch = run(f"""
-        SELECT rb.u_Colada,
-               SUM(r.bMOLD) AS n_mold, SUM(r.bVACI) AS n_vaci,
-               SUM(r.bDESM) AS n_desm, SUM(r.bLIMP) AS n_limp
-        FROM cscmega_01rechazosbyidticket rb
-        JOIN cscmega_08ruta r ON r.u_idTicket = rb.idTicket
-        WHERE rb.u_Colada IN ({uid_list})
-        GROUP BY rb.u_Colada
+        SELECT b3.c_IdColada AS id_colada,
+               SUM(b8.bMOLD) AS n_mold, SUM(b8.bVACI) AS n_vaci,
+               SUM(b8.bDESM) AS n_desm, SUM(b8.bLIMP) AS n_limp
+        FROM betamega_03_coladasproceso b3
+        JOIN betamega_08_ticketrutacritica b8 ON b8.idTicket = b3.idTicket
+        WHERE b3.c_IdColada IN ({id_list})
+        GROUP BY b3.c_IdColada
     """, {})
-    etapa_idx = {r["u_Colada"]: r for r in etapa_batch}
+    etapa_idx = {r["id_colada"]: r for r in etapa_batch}
 
     pc2 = next(c for c in CARRILES if c.id_pc == "PC-2")
     pc4 = next(c for c in CARRILES if c.id_pc == "PC-4")
@@ -481,8 +501,8 @@ def _evaluar_coladas_ventana(referencia: str, horas: int) -> list:
         uid = col["u_colada"]
         cid = col["id_colada"]
 
-        r   = rec_idx.get(uid, {})
-        ci  = cierre_idx.get(uid, {})
+        r   = rec_idx.get(cid, {})
+        ci  = cierre_idx.get(cid, {})
         tr  = temp_idx.get(cid, {})
 
         pct_rec  = float(r["pct_rechazo"]) if r.get("total") else None
@@ -497,7 +517,7 @@ def _evaluar_coladas_ventana(referencia: str, horas: int) -> list:
         _q_pass  = sum(1 for k in _QKEYS if qq.get(k) is not None and str(qq[k]).endswith(")1"))
         pct_quim = round(_q_pass / _q_total * 100.0, 1) if _q_total else None
 
-        mo5 = molde5_idx.get(uid, {})
+        mo5 = molde5_idx.get(cid, {})
         con_umbral5 = int(mo5.get("con_umbral") or 0)
         cumple5     = int(mo5.get("cumple") or 0)
         pct_cumple5 = round(cumple5 / con_umbral5 * 100.0, 1) if con_umbral5 else None
@@ -508,7 +528,7 @@ def _evaluar_coladas_ventana(referencia: str, horas: int) -> list:
         ev6 = evaluar_carril(pc6, pct_rec,     r.get("ts_ultimo"),       cid)
         ev7 = evaluar_pc7(pct_ci, col["inicio_fusion"], cid)
 
-        et = etapa_idx.get(uid, {})
+        et = etapa_idx.get(cid, {})
         n_limp_e = int(et.get("n_limp") or 0)
         n_desm_e = int(et.get("n_desm") or 0)
         n_vaci_e = int(et.get("n_vaci") or 0)
@@ -548,7 +568,7 @@ def _evaluar_coladas_ventana(referencia: str, horas: int) -> list:
             "estados":       estados,
             "etapa":         etapa,
             "tiene_alerta":  tiene_alerta,
-            "skus":          sku_idx.get(uid, []),
+            "skus":          sku_idx.get(cid, []),
             "latencia_pc4_seg": ev4.get("latencia_seg"),
             "latencia_pc6_seg": ev6.get("latencia_seg"),
         })

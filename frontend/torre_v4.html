@@ -2254,6 +2254,22 @@ function renderBetaCriticas(data){
 // ════════════════════════════════════════════════════════════
 // INIT
 // ════════════════════════════════════════════════════════════
+
+// Referencia por defecto de Flujo del Proceso/Alertas = ahora, no la fecha fija
+// 2025-12-19 que traía el HTML (ver backend/core.py::_evaluar_coladas_ventana,
+// migrado 2026-09-23 de cscmega_*/congeladas a betamega_*/vivas hasta hoy -- si
+// el input se queda en el valor viejo la ventana nunca sale de dic-2025 aunque
+// el backend ya sirva 2026). Se calcula una sola vez al cargar la página.
+;(function(){
+  const now = new Date()
+  const pad = n => String(n).padStart(2, '0')
+  const localVal = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`
+  const flRef = document.getElementById('fl-inp-ref')
+  const alRef = document.getElementById('al-inp-ref')
+  if (flRef) flRef.value = localVal
+  if (alRef) alRef.value = localVal
+})()
+
 tabLoaded['ejecutivo'] = true
 initEjecutivo()
 
