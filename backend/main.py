@@ -112,6 +112,52 @@ def ml_score(no_parte: str,
     return round(raw_prob, 4)
 
 
+def ml_score_batch(no_partes: list) -> dict:
+    """Version vectorizada de ml_score() para varias partes a la vez, todas con los
+    parametros opcionales en default (sin temp_ok/pc5_cumple/mes/horno/rate_prior_override)
+    -- UNA sola llamada a predict_proba en vez de una por parte.
+
+    Encontrada al investigar por que /v2/ejecutivo/pronostico se sentia "colgado"
+    (JC, 2026-09-24): el loop de partes_80 llamaba ml_score() por cada una de las
+    ~69 partes necesarias para cubrir el 80% del volumen, cada llamada reconstruyendo
+    un DataFrame de una fila e invocando el modelo por separado -- ~7-9s medidos,
+    tiempo suficiente para que el navegador (limite de 6 conexiones concurrentes por
+    origen) dejara en cola otras requests de la misma pestana Ejecutivo (ver
+    core.py::engine, pool_size subido de 5 a 15 el mismo dia -- eso NO era la causa
+    real, se descarto con instrumentacion antes de encontrar esta)."""
+    if _ML_MODEL is None or _PARTE_LOOKUP is None or _ML_META is None or not no_partes:
+        return {}
+    S   = _ML_META["sentinel"]
+    gm  = _ML_META["global_mean"]
+    gmp = _ML_META["global_median_peso"]
+    import pandas as pd
+    rows = []
+    for no_parte in no_partes:
+        parte = _PARTE_LOOKUP.get(no_parte, {})
+        vals = {
+            "pct_quimica_ok":       S,
+            "n_quimica_disponible": S,
+            "temp_ok_n":            S,
+            "pc5_cumple_n":         S,
+            "inoc_s_n":             S,
+            "mes":                  S,
+            "rate_parte_2024":      float(parte.get("rate_prior", gm)),
+            "rate_parte_2024_flag": float(parte.get("sin_hist", 1)),
+            "log_peso":             float(parte.get("log_peso", np.log1p(gmp))),
+        }
+        row = {}
+        for col in _ML_META["feature_columns"]:
+            row[col] = 0.0 if col.startswith("horno_") else vals.get(col, S)
+        rows.append(row)
+    X = pd.DataFrame(rows)[_ML_META["feature_columns"]]
+    raw_probs = _ML_MODEL.predict_proba(X)[:, 1]
+    if _ML_CALIBRATOR is not None:
+        scores = _ML_CALIBRATOR.predict_proba(raw_probs.reshape(-1, 1))[:, 1]
+    else:
+        scores = raw_probs
+    return {no_partes[i]: round(float(scores[i]), 4) for i in range(len(no_partes))}
+
+
 # ── UI ───────────────────────────────────────────────────────────────────────
 
 FRONTEND = Path(__file__).parent.parent / "frontend" / "torre_control.html"
@@ -938,6 +984,11 @@ def v2_pronostico(ventana: int = 12, periodos: int = 3, year: int = 0):
 
     total_vol = sum(d["n"] for d in parts_agg.values())
     sorted_parts = sorted(parts_agg.items(), key=lambda x: x[1]["n"], reverse=True)
+    # Batch de scores ML para todas las partes candidatas de una sola vez (ver
+    # ml_score_batch) -- el loop de abajo corta en 80% acumulado, pero calificar
+    # de más aquí es barato (una sola predict_proba) comparado con una llamada
+    # individual por parte dentro del loop.
+    ml_scores = ml_score_batch([no_parte for no_parte, _ in sorted_parts])
     partes_80, acum = [], 0
     for no_parte, d in sorted_parts:
         acum += d["n"]
@@ -946,7 +997,7 @@ def v2_pronostico(ventana: int = 12, periodos: int = 3, year: int = 0):
         share    = d["n"] / total_vol if total_vol else 0
         prod_est_p = round(share * n_est_first)
         rech_est_p = round(rate_p / 100 * prod_est_p)
-        prob = ml_score(no_parte)
+        prob = ml_scores.get(no_parte)
         ml_tend = None
         if prob is not None and d["n"] >= 10:
             rf = rate_p / 100

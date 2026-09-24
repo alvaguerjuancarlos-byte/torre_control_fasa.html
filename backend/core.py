@@ -61,7 +61,18 @@ SCHEMA = os.environ.get("DB_SCHEMA", "ia_fasa")
 engine = create_engine(
     f"mysql+pymysql://{USER}:{PWD}@{HOST}:{PORT}/{SCHEMA}?charset=utf8mb4",
     pool_pre_ping=True,
-    pool_size=5,
+    # pool_size=5 (default anterior) se quedaba corto: solo el tab Ejecutivo dispara
+    # ~6-8 requests concurrentes que pegan a BD (resumen-anual, cierre-ciclo,
+    # partes-scatter, pronostico, tonelaje-mensual, costo-no-calidad-mensual), y
+    # con Flujo/Alertas/Pedidos sincronizados desde hoy (eSincronizarFechas())
+    # pueden sumarse mas en simultaneo. La 6a+ request esperaba una conexion libre
+    # -- si coincidia con pronostico (lento por ml_score() en loop, ver migracion
+    # 2026-09-23) el bloqueo se sentia como "no responde" (JC, 2026-09-24: Tonelaje
+    # se quedaba en "Cargando..." indefinido en Trimestre/Mes -- en realidad
+    # pasaba tambien en Año, solo que con timing distinto). max_overflow da
+    # holgura extra en picos sin mantener conexiones ociosas todo el tiempo.
+    pool_size=15,
+    max_overflow=10,
 )
 
 
