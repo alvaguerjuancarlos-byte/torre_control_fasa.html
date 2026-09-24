@@ -689,13 +689,16 @@ function aggForecast(pronostico, g, mode) {
 function renderMainCharts() {
   const kpis = document.getElementById('charts-kpis')
   // Años históricos (anteriores al actual): sin pronóstico hacia adelante.
-  // Mismo umbral dinámico que initPronostico() -- debe coincidir con isHist ahí,
-  // si no el botón "Detalle 80/20" queda habilitado para un año sin ese dato.
+  // Mismo umbral dinámico que initPronostico() (isHist) para que ambos concuerden
+  // en qué año es "histórico".
   if (EAnio < new Date().getFullYear()) {
-    // Forzar vista "Alto nivel" — Detalle 80/20 usa datos 2025
+    // Vista por default "Alto nivel", pero Detalle 80/20 SÍ sigue disponible --
+    // antes se deshabilitaba aquí porque "histórico" solía significar 2023/2024
+    // sin partes_80 calculado; desde que /v2/ejecutivo/pronostico se unificó
+    // sobre betamega_03 (2026-09-23) el backend devuelve partes_80 para
+    // cualquier año, incluido uno histórico como 2025 (JC lo reportó perdido
+    // 2026-09-24 justo por este disabled=true que ya no aplicaba).
     document.getElementById('ch-v-alto').classList.add('active')
-    document.getElementById('ch-v-det').classList.remove('active')
-    document.getElementById('ch-v-det').disabled = true
     document.getElementById('ch-alto').style.display = ''
     document.getElementById('ch-detalle').style.display = 'none'
     // Usar _pronData.historico si ya cargó para este año (tiene estimados), si no D.mensual
@@ -1134,7 +1137,7 @@ async function initPronostico() {
         `Últimos ${data.ventana}m · hasta ${data.max_date} · Estimado ${p.label}: ${p.n_piezas_est.toLocaleString('es-MX')} pzas · ${p.rate_est}% tasa · confianza ${conf}`
     }
     renderMainCharts()
-    if (!isHist && document.getElementById('ch-v-det').classList.contains('active')) {
+    if (document.getElementById('ch-v-det').classList.contains('active')) {
       renderDetalle80(_pronData.partes_80)
     }
   } catch(e) {
