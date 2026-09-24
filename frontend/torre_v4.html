@@ -1359,6 +1359,66 @@ function eRender(){
   document.getElementById('eDash-ciclo').innerHTML = eCierreCiclo()
   renderMainCharts()
   initScatterZoom()
+
+  // Sincronización de fecha entre pestañas (JC, 2026-09-23): el período que se ve
+  // en Ejecutivo (EAnio/EG/EI) es la fuente única de verdad para Flujo del Proceso,
+  // Alertas y Pedidos. eRender() es el punto de convergencia de las 4 formas de
+  // cambiar el período aquí (año, granularidad, flechas, selector) -- ver eStep/
+  // ePick/eSetG/eSetAnio. Se salta en el primer render (carga de página) para no
+  // pisar el default "ahora" de Flujo/Alertas ni el default "año con dato real" de
+  // Pedidos con el año 2025 hardcodeado de Ejecutivo -- solo sincroniza cuando el
+  // usuario cambia el período activamente.
+  if (_eInicializado) eSincronizarFechas()
+  _eInicializado = true
+}
+let _eInicializado = false
+
+// Fin del período seleccionado en Ejecutivo, para anclar ahí la ventana operacional
+// de Flujo del Proceso/Alertas (que trabajan con un punto en el tiempo, no un año).
+function eFinDePeriodo(anio, g, idx) {
+  if (g === 'trimestral') return new Date(anio, (idx + 1) * 3, 0, 23, 59)
+  if (g === 'mensual')    return new Date(anio, idx + 1, 0, 23, 59)
+  if (g === 'semanal') {
+    // Aproximación de semana ISO (el backend usa YEARWEEK(...,3), modo ISO) -- domingo
+    // de la semana idx+1. Pedidos numera semanas distinto (simple, no-ISO, ver
+    // pedPeriodos) por eso no se le pasa el índice exacto en este modo, solo año+agr.
+    const simple = new Date(anio, 0, 1 + idx * 7)
+    const dow = simple.getDay() || 7
+    const monday = new Date(simple)
+    monday.setDate(simple.getDate() - dow + 1)
+    const sunday = new Date(monday)
+    sunday.setDate(monday.getDate() + 6)
+    sunday.setHours(23, 59, 0, 0)
+    return sunday
+  }
+  return new Date(anio, 11, 31, 23, 59)  // 'anual'
+}
+function eFmtLocalInput(dt) {
+  const pad = n => String(n).padStart(2, '0')
+  return `${dt.getFullYear()}-${pad(dt.getMonth()+1)}-${pad(dt.getDate())}T${pad(dt.getHours())}:${pad(dt.getMinutes())}`
+}
+
+let _pedSyncedFromEjecutivo = false
+
+function eSincronizarFechas() {
+  const val = eFmtLocalInput(eFinDePeriodo(EAnio, EG, EI))
+  const flRef = document.getElementById('fl-inp-ref')
+  const alRef = document.getElementById('al-inp-ref')
+  if (flRef) flRef.value = val
+  if (alRef) alRef.value = val
+  if (tabLoaded['flujo']) { cargarFlujo(); cargarAlertas() }
+
+  // Pedidos usa la misma forma año+agrupación+índice que Ejecutivo para anual/
+  // trimestral/mensual (calendario exacto, mapeo 1:1 seguro). Para 'semanal' se
+  // sincroniza año+agrupación pero se deja que Pedidos elija su propio índice
+  // (pedDefaultIdx), porque la numeración de semana no coincide entre los dos.
+  _pedAgr = EG
+  _pedAnio = EAnio
+  if (EG !== 'semanal') _pedIdx = EI
+  _pedSyncedFromEjecutivo = true
+  document.querySelectorAll('#tab-pedidos .ped-agr').forEach(b=>b.classList.toggle('active', b.dataset.agr===_pedAgr))
+  document.querySelectorAll('#tab-pedidos .ped-anio').forEach(b=>b.classList.toggle('active', +b.dataset.y===_pedAnio))
+  if (tabLoaded['pedidos']) pedBuildNav()
 }
 
 function eNav(){
@@ -3299,13 +3359,18 @@ let _pedMaxFecha = null   // fecha más reciente real en fdbase (puede ir muy po
 async function initPedidosPanel(){
   if (!_pedMaxFecha) {
     const probe = await apiFetch('/v2/pedidos/lista?limit=1')
-    if (probe && probe.hasta) {
-      _pedMaxFecha = probe.hasta
+    if (probe && probe.hasta) _pedMaxFecha = probe.hasta
+  }
+  // Si Ejecutivo ya sincronizó año/agrupación/índice antes de que se abriera esta
+  // pestaña por primera vez, no pisarlo con el default "año con dato real" -- ver
+  // eSincronizarFechas().
+  if (!_pedSyncedFromEjecutivo) {
+    if (_pedMaxFecha) {
       _pedAnio = +_pedMaxFecha.slice(0,4)
       document.querySelectorAll('#tab-pedidos .ped-anio').forEach(b=>b.classList.toggle('active', +b.dataset.y===_pedAnio))
     }
+    _pedIdx = pedDefaultIdx(_pedAgr, _pedAnio)
   }
-  _pedIdx = pedDefaultIdx(_pedAgr, _pedAnio)
   pedBuildNav()
   initPedidosTonelajePanel()
 }
