@@ -21,7 +21,6 @@ from backend.core import (
     VentanaControl, CarrilControl, CARRILES, MOTIVOS_GRIS,
     evaluar_pc7, evaluar_carril, _evaluar_coladas_ventana,
     _buscar_protocolos, _REDISENO_COMBOS, _referencia_actual_flujo,
-    _ALFAMEGA_MONTHLY,
 )
 
 app = FastAPI(title="Torre de Control FASA", version="0.1.0")
@@ -686,6 +685,18 @@ def v2_pronostico(ventana: int = 12, periodos: int = 3, year: int = 0):
     ventana: meses historicos a incluir (6, 12, 18, 24).
     year: si > 0 y < 2025, modo historico — usa max_date = 31 dic de ese año.
     Devuelve historico mensual, pronostico (vacío si periodos=0), partes_80.
+
+    MIGRACIÓN (2026-09-23): unificado sobre betamega_03_coladasproceso para todo
+    el rango de fechas -- antes había un corte duro en 2025-01-01 (PIVOT):
+    meses previos leían de un cache en memoria precargado de
+    alfamega_01_rechazosbyidticket (_ALFAMEGA_MONTHLY, necesario en su momento
+    porque esa tabla no tenía índice en FHrVaciado y cada scan tardaba ~5s),
+    meses de 2025 en adelante consultaban cscmega_01rechazosbyidticket/
+    cscmega_01resultadoidticket en vivo. Ambas familias congeladas desde
+    dic-2025. betamega_03 cubre 2023-2026 parejo y responde rápido sin
+    necesitar precarga, así que se eliminó el split pre/post-PIVOT y la
+    dependencia de _ALFAMEGA_MONTHLY (ver también core.py::_preload_alfamega,
+    eliminada por quedar sin usuarios).
     """
     from datetime import date, timedelta
     import calendar as cal_mod
@@ -693,14 +704,12 @@ def v2_pronostico(ventana: int = 12, periodos: int = 3, year: int = 0):
     ventana = max(6, min(24, int(ventana)))
     periodos = max(0, min(3, int(periodos)))   # permite 0 para años históricos
     MESES = ['','Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic']
-    PIVOT = date(2025, 1, 1)
 
     # Modo histórico: fijar max_date al último día del año solicitado
     if 0 < year < 2025:
         max_date = date(year, 12, 31)
     else:
-        # Ultimo dato disponible en 2025
-        max_row = run("SELECT MAX(DATE(u_Fecha)) AS mx FROM cscmega_01rechazosbyidticket", {})
+        max_row = run("SELECT MAX(DATE(FHrVaciado)) AS mx FROM betamega_03_coladasproceso", {})
         max_date = date.fromisoformat(str(max_row[0]["mx"])) if max_row and max_row[0]["mx"] else date(2025, 12, 29)
 
     # Lista de meses del historico
@@ -714,30 +723,21 @@ def v2_pronostico(ventana: int = 12, periodos: int = 3, year: int = 0):
             y -= 1
         months.append(date(y, m, 1))
 
-    pre_months  = [m for m in months if m < PIVOT]
-    post_months = [m for m in months if m >= PIVOT]
+    h_ini = months[0].isoformat() + " 00:00:00"
+    h_fin = date(months[-1].year, months[-1].month,
+                 cal_mod.monthrange(months[-1].year, months[-1].month)[1]).isoformat() + " 23:59:59"
 
     # ── Batch query: conteos por mes ──────────────────────────────
     hist_agg: dict = {}
-
-    # Pre-2025 (alfamega): usar cache en memoria, sin scan a BD
-    for pm in pre_months:
-        mk = f"{pm.year}-{pm.month:02d}"
-        if mk in _ALFAMEGA_MONTHLY:
-            hist_agg[mk] = {**_ALFAMEGA_MONTHLY[mk], "col": 0}
-
-    if post_months:
-        h_fin_post = date(post_months[-1].year, post_months[-1].month,
-                          cal_mod.monthrange(post_months[-1].year, post_months[-1].month)[1])
-        for r in run("""
-            SELECT DATE_FORMAT(u_Fecha,'%Y-%m') AS mk,
-                   COUNT(*) AS n, SUM(bRechazo) AS rec,
-                   COUNT(DISTINCT CONCAT(u_Colada,'-',u_Horno)) AS col
-            FROM cscmega_01rechazosbyidticket
-            WHERE u_Fecha BETWEEN :d AND :h
-            GROUP BY mk
-        """, {"d": post_months[0].isoformat() + " 00:00:00", "h": h_fin_post.isoformat() + " 23:59:59"}):
-            hist_agg[r["mk"]] = {"n": int(r["n"] or 0), "rec": int(r["rec"] or 0), "col": int(r["col"] or 0)}
+    for r in run("""
+        SELECT DATE_FORMAT(FHrVaciado,'%Y-%m') AS mk,
+               COUNT(*) AS n, SUM(bRechazo) AS rec,
+               COUNT(DISTINCT CONCAT(Colada,'-',Horno)) AS col
+        FROM betamega_03_coladasproceso
+        WHERE FHrVaciado BETWEEN :d AND :h
+        GROUP BY mk
+    """, {"d": h_ini, "h": h_fin}):
+        hist_agg[r["mk"]] = {"n": int(r["n"] or 0), "rec": int(r["rec"] or 0), "col": int(r["col"] or 0)}
 
     # ── Batch query: toneladas por mes (via parte_lookup) ─────────
     lookup = _PARTE_LOOKUP or {}
@@ -752,28 +752,13 @@ def v2_pronostico(ventana: int = 12, periodos: int = 3, year: int = 0):
             tons_agg[mk]["tons"]      += pk * int(r["cnt"] or 0) / 1000
             tons_agg[mk]["tons_rech"] += pk * int(r["rec"] or 0) / 1000
 
-    if pre_months:
-        h_fin_pre2 = date(pre_months[-1].year, pre_months[-1].month,
-                          cal_mod.monthrange(pre_months[-1].year, pre_months[-1].month)[1])
-        _acum_tons(run("""
-            SELECT DATE_FORMAT(FHrVaciado,'%Y-%m') AS mk,
-                   No_Parte AS no_parte, COUNT(*) AS cnt, SUM(bRechazo) AS rec
-            FROM alfamega_01_rechazosbyidticket
-            WHERE FHrVaciado BETWEEN :d AND :h AND No_Parte IS NOT NULL AND No_Parte != ''
-            GROUP BY mk, No_Parte
-        """, {"d": months[0].isoformat() + " 00:00:00", "h": h_fin_pre2.isoformat() + " 23:59:59"}))
-
-    if post_months:
-        h_fin_post2 = date(post_months[-1].year, post_months[-1].month,
-                           cal_mod.monthrange(post_months[-1].year, post_months[-1].month)[1])
-        _acum_tons(run("""
-            SELECT DATE_FORMAT(rb.u_Fecha,'%Y-%m') AS mk,
-                   rt.No_Parte AS no_parte, COUNT(*) AS cnt, SUM(rb.bRechazo) AS rec
-            FROM cscmega_01rechazosbyidticket rb
-            JOIN cscmega_01resultadoidticket rt ON rt.idTicket = rb.idTicket
-            WHERE rb.u_Fecha BETWEEN :d AND :h AND rt.No_Parte IS NOT NULL AND rt.No_Parte != ''
-            GROUP BY mk, rt.No_Parte
-        """, {"d": post_months[0].isoformat() + " 00:00:00", "h": h_fin_post2.isoformat() + " 23:59:59"}))
+    _acum_tons(run("""
+        SELECT DATE_FORMAT(FHrVaciado,'%Y-%m') AS mk,
+               No_Parte AS no_parte, COUNT(*) AS cnt, SUM(bRechazo) AS rec
+        FROM betamega_03_coladasproceso
+        WHERE FHrVaciado BETWEEN :d AND :h AND No_Parte IS NOT NULL AND No_Parte != ''
+        GROUP BY mk, No_Parte
+    """, {"d": h_ini, "h": h_fin}))
 
     # ── Historico list ────────────────────────────────────────────
     historico = []
@@ -804,24 +789,20 @@ def v2_pronostico(ventana: int = 12, periodos: int = 3, year: int = 0):
         if mk in hist_agg:
             t = tons_agg.get(mk, {"tons": 0.0, "tons_rech": 0.0})
             return {**hist_agg[mk], **t}
-        # Pre-2025: cache en memoria (evita scan individual a alfamega)
-        if y < 2025 and mk in _ALFAMEGA_MONTHLY:
-            return {**_ALFAMEGA_MONTHLY[mk], "col": 0, "tons": 0.0, "tons_rech": 0.0}
         ld = cal_mod.monthrange(y, m)[1]
         d0 = f"{y}-{m:02d}-01 00:00:00"
         d1 = f"{y}-{m:02d}-{ld:02d} 23:59:59"
-        if y >= 2025:
-            rows = run("SELECT COUNT(*) AS n, SUM(bRechazo) AS rec FROM cscmega_01rechazosbyidticket WHERE u_Fecha BETWEEN :d AND :h", {"d": d0, "h": d1})
-        else:
-            rows = run("SELECT COUNT(*) AS n, SUM(bRechazo) AS rec FROM alfamega_01_rechazosbyidticket WHERE FHrVaciado BETWEEN :d AND :h", {"d": d0, "h": d1})
+        rows = run("SELECT COUNT(*) AS n, SUM(bRechazo) AS rec FROM betamega_03_coladasproceso WHERE FHrVaciado BETWEEN :d AND :h", {"d": d0, "h": d1})
         if rows and rows[0]["n"]:
             return {"n": int(rows[0]["n"]), "rec": int(rows[0]["rec"] or 0), "col": 0, "tons": 0.0, "tons_rech": 0.0}
         return None
 
-    # ── Estimados retrospectivos: cache alfamega + hist_agg ───────
+    # ── Estimados retrospectivos: hist_agg (ventana actual) + fallback en vivo
+    # para meses fuera de ella (ej. comparar contra hace 2 años desde el borde
+    # de la ventana) ───────────────────────────────────────────────
     def _retro(y, m):
         mk = f"{y}-{m:02d}"
-        return hist_agg.get(mk) or _ALFAMEGA_MONTHLY.get(mk)
+        return hist_agg.get(mk) or _query_month(y, m)
 
     for h in historico:
         yp1 = _retro(h["anio"] - 1, h["mes"])
@@ -937,26 +918,12 @@ def v2_pronostico(ventana: int = 12, periodos: int = 3, year: int = 0):
             parts_agg[p]["n"]   += int(r["n"] or 0)
             parts_agg[p]["rec"] += int(r["rec"] or 0)
 
-    if pre_months:
-        h_fp = date(pre_months[-1].year, pre_months[-1].month,
-                    cal_mod.monthrange(pre_months[-1].year, pre_months[-1].month)[1])
-        _acum_parts(run("""
-            SELECT No_Parte AS no_parte, COUNT(*) AS n, SUM(bRechazo) AS rec
-            FROM alfamega_01_rechazosbyidticket
-            WHERE FHrVaciado BETWEEN :d AND :h AND No_Parte IS NOT NULL AND No_Parte != ''
-            GROUP BY No_Parte
-        """, {"d": months[0].isoformat() + " 00:00:00", "h": h_fp.isoformat() + " 23:59:59"}))
-
-    if post_months:
-        h_pp = date(post_months[-1].year, post_months[-1].month,
-                    cal_mod.monthrange(post_months[-1].year, post_months[-1].month)[1])
-        _acum_parts(run("""
-            SELECT rt.No_Parte AS no_parte, COUNT(*) AS n, SUM(rb.bRechazo) AS rec
-            FROM cscmega_01rechazosbyidticket rb
-            JOIN cscmega_01resultadoidticket rt ON rt.idTicket = rb.idTicket
-            WHERE rb.u_Fecha BETWEEN :d AND :h AND rt.No_Parte IS NOT NULL AND rt.No_Parte != ''
-            GROUP BY rt.No_Parte
-        """, {"d": post_months[0].isoformat() + " 00:00:00", "h": h_pp.isoformat() + " 23:59:59"}))
+    _acum_parts(run("""
+        SELECT No_Parte AS no_parte, COUNT(*) AS n, SUM(bRechazo) AS rec
+        FROM betamega_03_coladasproceso
+        WHERE FHrVaciado BETWEEN :d AND :h AND No_Parte IS NOT NULL AND No_Parte != ''
+        GROUP BY No_Parte
+    """, {"d": h_ini, "h": h_fin}))
 
     total_vol = sum(d["n"] for d in parts_agg.values())
     sorted_parts = sorted(parts_agg.items(), key=lambda x: x[1]["n"], reverse=True)
@@ -1001,13 +968,15 @@ def v2_cierre_ciclo(anio: int = Query(default=2025)):
     Distribución de coladas por tiempo de cierre de ciclo.
     Grupos: cerradas (≤8h…>32h), cuarentena (>120h sin cerrar), en_proceso (<120h sin cerrar), atipico (>30d).
     La referencia para 'abierto' es el fin del año analizado.
+
+    MIGRACIÓN (2026-09-23): de cscmega_01rechazosbyidticket+cscmega_08ruta (ambas
+    congeladas desde dic-2025) a betamega_03_coladasproceso+betamega_08_ticketrutacritica
+    (vivas hasta hoy) -- mismo par de tablas/join ya validado en
+    core.py::_evaluar_coladas_ventana(). Se quita el corte "anio < 2025" (devolvía
+    todo en cero): betamega_03/08 cubren 2023-2026 parejo.
     """
     d_ini = f"{anio}-01-01 00:00:00"
     d_fin = f"{anio}-12-31 23:59:59"
-
-    if anio < 2025:
-        return {"anio": anio, "total_coladas": 0, "cerradas": 0, "en_meta_24h": 0,
-                "pct_en_meta": 0, "cuarentena": 0, "cuarentena_piezas": 0, "distribucion": []}
 
     rows = run("""
         SELECT
@@ -1028,17 +997,17 @@ def v2_cierre_ciclo(anio: int = Query(default=2025)):
             SUM(sub.total - sub.n_limp)            AS piezas_pendientes
         FROM (
             SELECT
-                rb.u_Colada, rb.u_Horno,
+                rb.Colada, rb.Horno,
                 COUNT(*)        AS total,
                 SUM(r.bLIMP)    AS n_limp,
-                MIN(r.FhrVACI)  AS vaci_min,
+                MIN(r.FHrVACI)  AS vaci_min,
                 ROUND(TIMESTAMPDIFF(MINUTE,
-                    MIN(r.FhrVACI), MAX(r.FHrLIMP)) / 60.0, 1) AS ciclo_h
-            FROM cscmega_01rechazosbyidticket rb
-            JOIN cscmega_08ruta r ON r.u_idTicket = rb.idTicket
-            WHERE rb.u_Fecha BETWEEN :d AND :h
-              AND r.FhrVACI IS NOT NULL
-            GROUP BY rb.u_Colada, rb.u_Horno
+                    MIN(r.FHrVACI), MAX(r.FHrLIMP)) / 60.0, 1) AS ciclo_h
+            FROM betamega_03_coladasproceso rb
+            JOIN betamega_08_ticketrutacritica r ON r.idTicket = rb.idTicket
+            WHERE rb.FHrVaciado BETWEEN :d AND :h
+              AND r.FHrVACI IS NOT NULL
+            GROUP BY rb.Colada, rb.Horno
         ) sub
         GROUP BY bucket
     """, {"d": d_ini, "h": d_fin, "ref": d_fin})
@@ -1180,53 +1149,36 @@ def v2_partes_scatter(anio: int = Query(default=2025)):
     Scatter de rechazo por NoParte para el año indicado.
     Retorna: no_parte, n (piezas), rechazos, rate (%), tons, tons_rech.
     Filtrado a partes con n >= 30 piezas en el año.
+
+    MIGRACIÓN (2026-09-23): unificado sobre betamega_03_coladasproceso para todos
+    los años -- antes dos ramas (cscmega_01rechazosbyidticket+cscmega_01resultadoidticket
+    para 2025+, alfamega_01_rechazosbyidticket para <2025), ambas familias congeladas
+    desde dic-2025. betamega_03 ya trae No_Parte+bRechazo en la misma fila, no hace
+    falta join contra una segunda tabla de tickets.
     """
     d_ini = f"{anio}-01-01 00:00:00"
     d_fin = f"{anio}-12-31 23:59:59"
 
-    if anio >= 2025:
-        rows = run("""
-            SELECT rt.No_Parte AS no_parte,
-                   COUNT(*)                                              AS n,
-                   SUM(rb.bRechazo)                                      AS rechazos,
-                   ROUND(AVG(rb.bRechazo)*100, 2)                        AS rate,
-                   ROUND(SUM(COALESCE(m.PesoKgs,0))/1000.0, 2)          AS tons,
-                   ROUND(SUM(CASE WHEN rb.bRechazo=1 THEN COALESCE(m.PesoKgs,0) ELSE 0 END)/1000.0, 2) AS tons_rech,
-                   COUNT(DISTINCT MONTH(rb.u_Fecha))                     AS meses_activa
-            FROM cscmega_01rechazosbyidticket rb
-            JOIN cscmega_01resultadoidticket rt ON rt.idTicket = rb.idTicket
-            LEFT JOIN (
-                SELECT NoParte, MAX(IdModelo) AS IdModelo
-                FROM corex_test.modelos WHERE PesoKgs > 0 GROUP BY NoParte
-            ) best ON best.NoParte = rt.No_Parte
-            LEFT JOIN corex_test.modelos m ON m.IdModelo = best.IdModelo
-            WHERE rb.u_Fecha BETWEEN :d AND :h
-              AND rt.No_Parte IS NOT NULL AND rt.No_Parte != ''
-            GROUP BY rt.No_Parte
-            HAVING n >= 100
-            ORDER BY tons_rech DESC
-        """, {"d": d_ini, "h": d_fin})
-    else:
-        rows = run("""
-            SELECT rb.No_Parte AS no_parte,
-                   COUNT(*)                                              AS n,
-                   SUM(rb.bRechazo)                                      AS rechazos,
-                   ROUND(AVG(rb.bRechazo)*100, 2)                        AS rate,
-                   ROUND(SUM(COALESCE(m.PesoKgs,0))/1000.0, 2)          AS tons,
-                   ROUND(SUM(CASE WHEN rb.bRechazo=1 THEN COALESCE(m.PesoKgs,0) ELSE 0 END)/1000.0, 2) AS tons_rech,
-                   COUNT(DISTINCT MONTH(rb.FHrVaciado))                  AS meses_activa
-            FROM alfamega_01_rechazosbyidticket rb
-            LEFT JOIN (
-                SELECT NoParte, MAX(IdModelo) AS IdModelo
-                FROM corex_test.modelos WHERE PesoKgs > 0 GROUP BY NoParte
-            ) best ON best.NoParte = rb.No_Parte
-            LEFT JOIN corex_test.modelos m ON m.IdModelo = best.IdModelo
-            WHERE rb.FHrVaciado BETWEEN :d AND :h
-              AND rb.No_Parte IS NOT NULL AND rb.No_Parte != ''
-            GROUP BY rb.No_Parte
-            HAVING n >= 100
-            ORDER BY tons_rech DESC
-        """, {"d": d_ini, "h": d_fin})
+    rows = run("""
+        SELECT rb.No_Parte AS no_parte,
+               COUNT(*)                                              AS n,
+               SUM(rb.bRechazo)                                      AS rechazos,
+               ROUND(AVG(rb.bRechazo)*100, 2)                        AS rate,
+               ROUND(SUM(COALESCE(m.PesoKgs,0))/1000.0, 2)          AS tons,
+               ROUND(SUM(CASE WHEN rb.bRechazo=1 THEN COALESCE(m.PesoKgs,0) ELSE 0 END)/1000.0, 2) AS tons_rech,
+               COUNT(DISTINCT MONTH(rb.FHrVaciado))                  AS meses_activa
+        FROM betamega_03_coladasproceso rb
+        LEFT JOIN (
+            SELECT NoParte, MAX(IdModelo) AS IdModelo
+            FROM corex_test.modelos WHERE PesoKgs > 0 GROUP BY NoParte
+        ) best ON best.NoParte = rb.No_Parte
+        LEFT JOIN corex_test.modelos m ON m.IdModelo = best.IdModelo
+        WHERE rb.FHrVaciado BETWEEN :d AND :h
+          AND rb.No_Parte IS NOT NULL AND rb.No_Parte != ''
+        GROUP BY rb.No_Parte
+        HAVING n >= 100
+        ORDER BY tons_rech DESC
+    """, {"d": d_ini, "h": d_fin})
 
     return [
         {

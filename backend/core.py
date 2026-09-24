@@ -89,29 +89,6 @@ def rango(desde: str = None, hasta: str = None):
     return d, h
 
 
-# ── Cache mensual de alfamega: carga única al arrancar ────────────────────────
-# alfamega no tiene índice en FHrVaciado → cada scan toma ~5s.
-# Precargamos todos los meses (2023-2024) para que los endpoints sean O(1).
-_ALFAMEGA_MONTHLY: dict = {}
-
-def _preload_alfamega():
-    global _ALFAMEGA_MONTHLY
-    try:
-        rows = run("""
-            SELECT DATE_FORMAT(FHrVaciado,'%Y-%m') AS mk,
-                   COUNT(*) AS n, SUM(bRechazo) AS rec
-            FROM alfamega_01_rechazosbyidticket
-            GROUP BY mk
-        """, {})
-        _ALFAMEGA_MONTHLY = {r["mk"]: {"n": int(r["n"] or 0), "rec": int(r["rec"] or 0)}
-                              for r in rows}
-        print(f"[alfamega] cache mensual: {len(_ALFAMEGA_MONTHLY)} meses")
-    except Exception as e:
-        print(f"[alfamega] preload falló ({e}) — lookups al vuelo")
-
-_preload_alfamega()
-
-
 # ══════════════════════════════════════════════════════════════════════════════
 # TORRE V3 — Contrato de Visibilidad (los 7 Puntos de Control)
 # ══════════════════════════════════════════════════════════════════════════════
