@@ -344,13 +344,16 @@ def serve_v2():
 
 def _tons_mensuales(d_ini: str, d_fin: str) -> Dict[str, dict]:
     """Toneladas producidas y rechazadas por mes usando peso real de pieza.
-    Join alfamega_01_rechazosbyidticket x corex_test.modelos.PesoKgs (99.7% cobertura)."""
+    Join betamega_03_coladasproceso x corex_test.modelos.PesoKgs (99.7% cobertura).
+
+    MIGRACIÓN (2026-09-23): de alfamega_01_rechazosbyidticket (congelada desde
+    2025-12-29, igual que cscmega_*) a betamega_03_coladasproceso (viva hasta hoy)."""
     rows = run("""
         SELECT
             DATE_FORMAT(r.FHrVaciado, '%Y-%m') AS mes,
             ROUND(SUM(m.PesoKgs)/1000, 2) AS tons,
             ROUND(SUM(CASE WHEN r.bRechazo=1 THEN m.PesoKgs ELSE 0 END)/1000, 2) AS tons_rech
-        FROM alfamega_01_rechazosbyidticket r
+        FROM betamega_03_coladasproceso r
         JOIN (
             SELECT NoParte, MAX(IdModelo) AS IdModelo
             FROM corex_test.modelos
@@ -365,197 +368,34 @@ def _tons_mensuales(d_ini: str, d_fin: str) -> Dict[str, dict]:
             for r in rows}
 
 
-def _resumen_anual_historico(anio: int, d_ini: str, d_fin: str) -> dict:
-    """Resumen anual para años sin tablas cscmega (2023/2024).
-    Usa alfamega_01_rechazosbyidticket con FHrVaciado como eje de fecha."""
-    MES_LBLS = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"]
-    CAT_ZERO = {
-        "aceptada":       {"col":0,"pz":0,"r":0},
-        "en_objetivo":    {"col":0,"pz":0,"r":0},
-        "fuera_objetivo": {"col":0,"pz":0,"r":0},
-        "grave":          {"col":0,"pz":0,"r":0},
-    }
-
-    meses_raw = run("""
-        SELECT DATE_FORMAT(FHrVaciado,'%Y-%m') AS mes,
-               COUNT(*) AS n, SUM(bRechazo) AS r,
-               ROUND(AVG(bRechazo)*100,2) AS rate
-        FROM alfamega_01_rechazosbyidticket
-        WHERE FHrVaciado BETWEEN :d AND :h
-        GROUP BY mes ORDER BY mes
-    """, {"d": d_ini, "h": d_fin})
-
-    fam_raw = run(f"""
-        SELECT DATE_FORMAT(FHrVaciado,'%Y-%m') AS mes,
-               {FAMILIA_SQL} AS familia, COUNT(*) AS n
-        FROM alfamega_01_rechazosbyidticket
-        WHERE bRechazo=1 AND FHrVaciado BETWEEN :d AND :h AND nomDefecto IS NOT NULL
-        GROUP BY mes, familia ORDER BY mes, n DESC
-    """, {"d": d_ini, "h": d_fin})
-    fam_idx: Dict[str, list] = {}
-    for f in fam_raw:
-        fam_idx.setdefault(f["mes"], []).append(f)
-
-    coladas_raw = run("""
-        SELECT DATE_FORMAT(FHrVaciado,'%Y-%m') AS mes,
-               COUNT(DISTINCT Colada) AS coladas
-        FROM alfamega_06_vaciado
-        WHERE FHrVaciado BETWEEN :d AND :h
-        GROUP BY mes
-    """, {"d": d_ini, "h": d_fin})
-    coladas_idx = {c["mes"]: int(c["coladas"] or 0) for c in coladas_raw}
-
-    tons_idx = _tons_mensuales(d_ini, d_fin)
-
-    mensual = []
-    for m in meses_raw:
-        mes_num = int(m["mes"].split("-")[1]) - 1
-        fams = fam_idx.get(m["mes"], [])
-        total_fam = sum(f["n"] for f in fams) or 1
-        rate = float(m["rate"] or 0)
-        tons_entry = tons_idx.get(m["mes"], {})
-        tons = tons_entry.get("tons", 0.0)
-        tons_rech = tons_entry.get("tons_rech", 0.0)
-        mensual.append({
-            "lbl": MES_LBLS[mes_num],
-            "rate": rate,
-            "n": int(m["n"] or 0),
-            "r": int(m["r"] or 0),
-            "coladas": coladas_idx.get(m["mes"], 0),
-            "tons": tons,
-            "tons_rech": tons_rech,
-            "fusion_min": 0.0,
-            "ciclo_min": 0.0,
-            "cat": {k: dict(v) for k, v in CAT_ZERO.items()},
-            "fams": [{"f": f["familia"], "pct": round(f["n"]/total_fam*100,1), "n": int(f["n"])}
-                     for f in fams if f["familia"] != "Otros"],
-        })
-
-    Q_LBLS = ["1Q","2Q","3Q","4Q"]
-    trimestral = []
-    for q in range(4):
-        mq = mensual[q*3:(q+1)*3]
-        if not mq: continue
-        n_t = sum(m["n"] for m in mq)
-        r_t = sum(m["r"] for m in mq)
-        tons_t = round(sum(m["tons"] for m in mq), 1)
-        tons_rech_t = round(sum(m["tons_rech"] for m in mq), 1)
-        fam_ac: Dict[str, int] = {}
-        for m in mq:
-            for f in m["fams"]:
-                fam_ac[f["f"]] = fam_ac.get(f["f"], 0) + f["n"]
-        tot_fac = sum(fam_ac.values()) or 1
-        trimestral.append({
-            "lbl": Q_LBLS[q], "rate": round(r_t/n_t*100,2) if n_t else 0,
-            "n": n_t, "r": r_t, "coladas": sum(m["coladas"] for m in mq),
-            "tons": tons_t, "tons_rech": tons_rech_t,
-            "fusion_min": 0.0, "ciclo_min": 0.0,
-            "cat": {k: dict(v) for k, v in CAT_ZERO.items()},
-            "fams": [{"f":k,"pct":round(v/tot_fac*100,1),"n":v}
-                     for k,v in sorted(fam_ac.items(), key=lambda x:-x[1])],
-        })
-
-    sem_raw = run("""
-        SELECT YEARWEEK(FHrVaciado,3) AS wk,
-               COUNT(*) AS n, SUM(bRechazo) AS r,
-               ROUND(AVG(bRechazo)*100,2) AS rate
-        FROM alfamega_01_rechazosbyidticket
-        WHERE FHrVaciado BETWEEN :d AND :h
-        GROUP BY wk HAVING n >= 50 ORDER BY wk
-    """, {"d": d_ini, "h": d_fin})
-
-    sf_raw = run(f"""
-        SELECT YEARWEEK(FHrVaciado,3) AS wk,
-               {FAMILIA_SQL} AS familia, COUNT(*) AS n
-        FROM alfamega_01_rechazosbyidticket
-        WHERE bRechazo=1 AND FHrVaciado BETWEEN :d AND :h AND nomDefecto IS NOT NULL
-        GROUP BY wk, familia ORDER BY wk, n DESC
-    """, {"d": d_ini, "h": d_fin})
-    sf_idx: Dict[int, list] = {}
-    for f in sf_raw:
-        sf_idx.setdefault(f["wk"], []).append(f)
-
-    semanal = []
-    for s in sem_raw:
-        fams = sf_idx.get(s["wk"], [])
-        tf = sum(f["n"] for f in fams) or 1
-        semanal.append({
-            "lbl": "S"+str(s["wk"])[-2:],
-            "rate": float(s["rate"] or 0),
-            "n": int(s["n"] or 0),
-            "r": int(s["r"] or 0),
-            "coladas": 0, "tons": 0.0, "tons_rech": 0.0,
-            "fusion_min": 0.0, "ciclo_min": 0.0,
-            "cat": {k: dict(v) for k, v in CAT_ZERO.items()},
-            "fams": [{"f":f["familia"],"pct":round(f["n"]/tf*100,1),"n":int(f["n"])}
-                     for f in fams if f["familia"] != "Otros"],
-        })
-
-    n_a = sum(m["n"] for m in mensual)
-    r_a = sum(m["r"] for m in mensual)
-    tons_a = round(sum(m["tons"] for m in mensual), 1)
-    tons_rech_a = round(sum(m["tons_rech"] for m in mensual), 1)
-    fam_an: Dict[str, int] = {}
-    for m in mensual:
-        for f in m["fams"]:
-            fam_an[f["f"]] = fam_an.get(f["f"], 0) + f["n"]
-    tot_an = sum(fam_an.values()) or 1
-    anual = {
-        "lbl": str(anio), "n": n_a, "r": r_a, "coladas": sum(m["coladas"] for m in mensual),
-        "tons": tons_a, "tons_rech": tons_rech_a,
-        "fusion_min": 0.0, "ciclo_min": 0.0,
-        "cat": {k: dict(v) for k, v in CAT_ZERO.items()},
-        "rate": round(r_a/n_a*100,2) if n_a else 0,
-        "fams": [{"f":k,"pct":round(v/tot_an*100,1),"n":v}
-                 for k,v in sorted(fam_an.items(), key=lambda x:-x[1])],
-    }
-
-    parts_raw = run("""
-        SELECT No_Parte AS p, COUNT(*) AS n, ROUND(AVG(bRechazo)*100,1) AS rate
-        FROM alfamega_01_rechazosbyidticket
-        WHERE FHrVaciado BETWEEN :d AND :h AND No_Parte IS NOT NULL
-        GROUP BY No_Parte HAVING n >= 50
-        ORDER BY rate DESC LIMIT 10
-    """, {"d": d_ini, "h": d_fin})
-
-    rates = [(m["lbl"], m["rate"]) for m in mensual if m["n"] >= 100]
-    best  = min(rates, key=lambda x: x[1]) if rates else ("—", 0)
-    worst = max(rates, key=lambda x: x[1]) if rates else ("—", 0)
-
-    return {
-        "meta": {
-            "target": 7, "bandLo": 5, "bandHi": 7,
-            "tonPt": 87.6, "cLo": 711, "cHi": 1185,
-            "avg": round(r_a/n_a*100,2) if n_a else 0,
-        },
-        "mensual": mensual, "trimestral": trimestral, "semanal": semanal, "anual": anual,
-        "parts": [{"p":p["p"],"n":int(p["n"]),"rate":float(p["rate"]),"tag":"—"}
-                  for p in parts_raw],
-        "best":  {"lbl": best[0],  "rate": best[1]},
-        "worst": {"lbl": worst[0], "rate": worst[1]},
-    }
-
-
 @app.get("/v2/ejecutivo/resumen-anual")
 def v2_resumen_anual(anio: int = Query(default=2025)):
     """
     Devuelve la estructura D completa que consume el dashboard ejecutivo:
     mensual, trimestral, semanal, anual, parts, best, worst, meta.
+
+    MIGRACIÓN (2026-09-23): unificado sobre betamega_03_coladasproceso para
+    TODOS los años (antes cscmega_01rechazosbyidticket/cscmega_01resultadoidticket/
+    cscmega_03coladacargametalica para 2025+, con una rama "histórica" aparte
+    para 2023/2024 sobre alfamega_01_rechazosbyidticket con fusion_min/ciclo_min/cat
+    siempre en 0 -- ambas familias (cscmega_*/alfamega_01) congeladas desde
+    2025-12-29). betamega_03 cubre 2023-2026 de forma uniforme y trae todos los
+    campos necesarios (bRechazo, No_Parte, nomDefecto, Colada, Horno,
+    MinutosTiempoHorno, FechaInicial, FechaLiberado) -- ya no hace falta la rama
+    histórica empobrecida, se eliminó _resumen_anual_historico(). 2023/2024 ahora
+    también traen fusion_min/ciclo_min/cat reales (antes siempre 0).
     """
     d_ini = f"{anio}-01-01 00:00:00"
     d_fin = f"{anio}-12-31 23:59:59"
 
-    if anio < 2025:
-        return _resumen_anual_historico(anio, d_ini, d_fin)
-
     # ── Totales por mes ──────────────────────────────────────────────────────
     meses_raw = run("""
-        SELECT DATE_FORMAT(u_Fecha,'%Y-%m') AS mes,
+        SELECT DATE_FORMAT(FHrVaciado,'%Y-%m') AS mes,
                COUNT(*) AS n, SUM(bRechazo) AS r,
                ROUND(AVG(bRechazo)*100,2) AS rate,
-               COUNT(DISTINCT CONCAT(u_Colada,'-',u_Horno)) AS coladas
-        FROM cscmega_01rechazosbyidticket
-        WHERE u_Fecha BETWEEN :d AND :h
+               COUNT(DISTINCT CONCAT(Colada,'-',Horno)) AS coladas
+        FROM betamega_03_coladasproceso
+        WHERE FHrVaciado BETWEEN :d AND :h
         GROUP BY mes ORDER BY mes
     """, {"d": d_ini, "h": d_fin})
 
@@ -575,43 +415,43 @@ def v2_resumen_anual(anio: int = Query(default=2025)):
                SUM(CASE WHEN rate >= 15              THEN piezas ELSE 0 END) AS gr_pz,
                SUM(CASE WHEN rate >= 15              THEN rech   ELSE 0 END) AS gr_r
         FROM (
-            SELECT DATE_FORMAT(u_Fecha,'%Y-%m') AS mes,
-                   CONCAT(u_Colada,'-',u_Horno) AS ck,
+            SELECT DATE_FORMAT(FHrVaciado,'%Y-%m') AS mes,
+                   CONCAT(Colada,'-',Horno) AS ck,
                    COUNT(*) AS piezas,
                    SUM(bRechazo) AS rech,
                    ROUND(SUM(bRechazo)/COUNT(*)*100, 2) AS rate
-            FROM cscmega_01rechazosbyidticket
-            WHERE u_Fecha BETWEEN :d AND :h
+            FROM betamega_03_coladasproceso
+            WHERE FHrVaciado BETWEEN :d AND :h
             GROUP BY mes, ck
         ) sub
         GROUP BY mes ORDER BY mes
     """, {"d": d_ini, "h": d_fin})
     cat_idx = {c["mes"]: c for c in cat_raw}
 
-    # ── Tiempos de ciclo por mes (cscmega_03coladacargametalica) ─────────────
+    # ── Tiempos de ciclo por mes (betamega_03_coladasproceso) ─────────────
     ciclo_raw = run("""
-        SELECT DATE_FORMAT(u_Fecha,'%Y-%m') AS mes,
+        SELECT DATE_FORMAT(FHrVaciado,'%Y-%m') AS mes,
                ROUND(AVG(CASE
-                   WHEN c_TiempoFundicion > 0 AND c_TiempoFundicion < 300
-                   THEN c_TiempoFundicion END), 1) AS fusion_min,
+                   WHEN MinutosTiempoHorno > 0 AND MinutosTiempoHorno < 300
+                   THEN MinutosTiempoHorno END), 1) AS fusion_min,
                ROUND(AVG(CASE
-                   WHEN c_FechaCarga IS NOT NULL AND c_FechaLiberado IS NOT NULL
-                    AND TIMESTAMPDIFF(MINUTE,c_FechaCarga,c_FechaLiberado) BETWEEN 30 AND 500
-                   THEN TIMESTAMPDIFF(MINUTE,c_FechaCarga,c_FechaLiberado)
+                   WHEN FechaInicial IS NOT NULL AND FechaLiberado IS NOT NULL
+                    AND TIMESTAMPDIFF(MINUTE,FechaInicial,FechaLiberado) BETWEEN 30 AND 500
+                   THEN TIMESTAMPDIFF(MINUTE,FechaInicial,FechaLiberado)
                END), 1) AS ciclo_min
-        FROM cscmega_03coladacargametalica
-        WHERE u_Fecha BETWEEN :d AND :h
+        FROM betamega_03_coladasproceso
+        WHERE FHrVaciado BETWEEN :d AND :h
         GROUP BY mes ORDER BY mes
     """, {"d": d_ini, "h": d_fin})
     ciclo_idx = {c["mes"]: c for c in ciclo_raw}
 
     # ── Familias por mes ─────────────────────────────────────────────────────
     fam_raw = run(f"""
-        SELECT DATE_FORMAT(u_FechaHr,'%Y-%m') AS mes,
+        SELECT DATE_FORMAT(FHrVaciado,'%Y-%m') AS mes,
                {FAMILIA_SQL} AS familia,
                COUNT(*) AS n
-        FROM cscmega_01resultadoidticket
-        WHERE bRechazo=1 AND u_FechaHr BETWEEN :d AND :h
+        FROM betamega_03_coladasproceso
+        WHERE bRechazo=1 AND FHrVaciado BETWEEN :d AND :h
           AND nomDefecto IS NOT NULL
         GROUP BY mes, familia ORDER BY mes, n DESC
     """, {"d": d_ini, "h": d_fin})
@@ -715,21 +555,21 @@ def v2_resumen_anual(anio: int = Query(default=2025)):
 
     # ── Semanal (últimas semanas del año) ────────────────────────────────────
     sem_raw = run("""
-        SELECT YEARWEEK(u_Fecha,3) AS wk,
-               MIN(DATE(u_Fecha)) AS lunes,
+        SELECT YEARWEEK(FHrVaciado,3) AS wk,
+               MIN(DATE(FHrVaciado)) AS lunes,
                COUNT(*) AS n, SUM(bRechazo) AS r,
                ROUND(AVG(bRechazo)*100,2) AS rate,
-               COUNT(DISTINCT CONCAT(u_Colada,'-',u_Horno)) AS coladas
-        FROM cscmega_01rechazosbyidticket
-        WHERE u_Fecha BETWEEN :d AND :h
+               COUNT(DISTINCT CONCAT(Colada,'-',Horno)) AS coladas
+        FROM betamega_03_coladasproceso
+        WHERE FHrVaciado BETWEEN :d AND :h
         GROUP BY wk HAVING n >= 50 ORDER BY wk
     """, {"d": d_ini, "h": d_fin})
 
     sem_fam = run(f"""
-        SELECT YEARWEEK(u_FechaHr,3) AS wk,
+        SELECT YEARWEEK(FHrVaciado,3) AS wk,
                {FAMILIA_SQL} AS familia, COUNT(*) AS n
-        FROM cscmega_01resultadoidticket
-        WHERE bRechazo=1 AND u_FechaHr BETWEEN :d AND :h
+        FROM betamega_03_coladasproceso
+        WHERE bRechazo=1 AND FHrVaciado BETWEEN :d AND :h
           AND nomDefecto IS NOT NULL
         GROUP BY wk, familia ORDER BY wk, n DESC
     """, {"d": d_ini, "h": d_fin})
@@ -739,17 +579,17 @@ def v2_resumen_anual(anio: int = Query(default=2025)):
         sf_idx.setdefault(f["wk"], []).append(f)
 
     sem_ciclo = run("""
-        SELECT YEARWEEK(u_Fecha,3) AS wk,
+        SELECT YEARWEEK(FHrVaciado,3) AS wk,
                ROUND(AVG(CASE
-                   WHEN c_TiempoFundicion > 0 AND c_TiempoFundicion < 300
-                   THEN c_TiempoFundicion END), 1) AS fusion_min,
+                   WHEN MinutosTiempoHorno > 0 AND MinutosTiempoHorno < 300
+                   THEN MinutosTiempoHorno END), 1) AS fusion_min,
                ROUND(AVG(CASE
-                   WHEN c_FechaCarga IS NOT NULL AND c_FechaLiberado IS NOT NULL
-                    AND TIMESTAMPDIFF(MINUTE,c_FechaCarga,c_FechaLiberado) BETWEEN 30 AND 500
-                   THEN TIMESTAMPDIFF(MINUTE,c_FechaCarga,c_FechaLiberado)
+                   WHEN FechaInicial IS NOT NULL AND FechaLiberado IS NOT NULL
+                    AND TIMESTAMPDIFF(MINUTE,FechaInicial,FechaLiberado) BETWEEN 30 AND 500
+                   THEN TIMESTAMPDIFF(MINUTE,FechaInicial,FechaLiberado)
                END), 1) AS ciclo_min
-        FROM cscmega_03coladacargametalica
-        WHERE u_Fecha BETWEEN :d AND :h
+        FROM betamega_03_coladasproceso
+        WHERE FHrVaciado BETWEEN :d AND :h
         GROUP BY wk
     """, {"d": d_ini, "h": d_fin})
     sc_idx = {c["wk"]: c for c in sem_ciclo}
@@ -769,13 +609,13 @@ def v2_resumen_anual(anio: int = Query(default=2025)):
                SUM(CASE WHEN rate >= 15              THEN piezas ELSE 0 END) AS gr_pz,
                SUM(CASE WHEN rate >= 15              THEN rech   ELSE 0 END) AS gr_r
         FROM (
-            SELECT YEARWEEK(u_Fecha,3) AS wk,
-                   CONCAT(u_Colada,'-',u_Horno) AS ck,
+            SELECT YEARWEEK(FHrVaciado,3) AS wk,
+                   CONCAT(Colada,'-',Horno) AS ck,
                    COUNT(*) AS piezas,
                    SUM(bRechazo) AS rech,
                    ROUND(SUM(bRechazo)/COUNT(*)*100, 2) AS rate
-            FROM cscmega_01rechazosbyidticket
-            WHERE u_Fecha BETWEEN :d AND :h
+            FROM betamega_03_coladasproceso
+            WHERE FHrVaciado BETWEEN :d AND :h
             GROUP BY wk, ck
         ) sub
         GROUP BY wk
@@ -811,8 +651,8 @@ def v2_resumen_anual(anio: int = Query(default=2025)):
         SELECT No_Parte AS p,
                COUNT(*) AS n,
                ROUND(AVG(bRechazo)*100,1) AS rate
-        FROM cscmega_01resultadoidticket
-        WHERE u_FechaHr BETWEEN :d AND :h AND No_Parte IS NOT NULL
+        FROM betamega_03_coladasproceso
+        WHERE FHrVaciado BETWEEN :d AND :h AND No_Parte IS NOT NULL
         GROUP BY No_Parte HAVING n >= 50
         ORDER BY rate DESC LIMIT 10
     """, {"d": d_ini, "h": d_fin})
