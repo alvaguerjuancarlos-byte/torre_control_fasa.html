@@ -209,7 +209,7 @@ main{padding:16px 20px;max-width:1100px;margin:0 auto}
       <span style="width:1px;background:var(--color-border-secondary);margin:0 4px"></span>
       <button class="pb eyear" data-y="2023" onclick="eSetAnio(2023)">2023</button>
       <button class="pb eyear" data-y="2024" onclick="eSetAnio(2024)">2024</button>
-      <button class="pb eyear active" data-y="2025" onclick="eSetAnio(2025)">2025</button>
+      <button class="pb eyear" data-y="2025" onclick="eSetAnio(2025)">2025</button>
       <button class="pb eyear" data-y="2026" onclick="eSetAnio(2026)">2026</button>
     </div>
     <span id="e-periodo-nav" style="font-size:13px;color:var(--color-text-secondary);display:none">
@@ -1447,7 +1447,16 @@ function eSetG(g){
   EI=eDef(g); eBuild(); eNav(); eRender()
 }
 
-var EAnio = 2025
+// Año por default = actual, acotado al rango de botones disponibles (2023-2026).
+// Antes era "2025" fijo -- se quedó desactualizado el mismo día en que 2026 se
+// migró a datos reales: con Ejecutivo abriendo en 2025 por default y Flujo del
+// Proceso/Alertas/Pedidos abriendo en "ahora" (2026) por su cuenta, ambos
+// defaults NUNCA coincidían al cargar la página, y la sincronización de
+// eSincronizarFechas() solo se dispara con una interacción activa (cambiar de
+// año/período) -- si el usuario nunca toca el selector porque ya ve seleccionado
+// lo que quiere, la sincronización nunca corre. JC lo encontró así: seleccionó
+// 2025 (ya activo por default) y el resto de las pestañas se quedaron en 2026.
+var EAnio = Math.min(2026, Math.max(2023, new Date().getFullYear()))
 let PS = null  // partes scatter data
 
 function eScatterSVG(parts, rateAnio) {
@@ -2338,6 +2347,10 @@ function renderBetaCriticas(data){
   if (flRef) flRef.value = localVal
   if (alRef) alRef.value = localVal
 })()
+
+// Marca el botón de año activo según el EAnio dinámico (ya no hay "active" fijo
+// en el HTML sobre 2025 -- ver declaración de EAnio arriba).
+document.querySelectorAll('#tab-ejecutivo .eyear').forEach(b => b.classList.toggle('active', +b.dataset.y === EAnio))
 
 tabLoaded['ejecutivo'] = true
 initEjecutivo()
