@@ -688,8 +688,10 @@ function aggForecast(pronostico, g, mode) {
 
 function renderMainCharts() {
   const kpis = document.getElementById('charts-kpis')
-  // Años históricos (2023/2024): sin pronóstico hacia adelante
-  if (EAnio < 2025) {
+  // Años históricos (anteriores al actual): sin pronóstico hacia adelante.
+  // Mismo umbral dinámico que initPronostico() -- debe coincidir con isHist ahí,
+  // si no el botón "Detalle 80/20" queda habilitado para un año sin ese dato.
+  if (EAnio < new Date().getFullYear()) {
     // Forzar vista "Alto nivel" — Detalle 80/20 usa datos 2025
     document.getElementById('ch-v-alto').classList.add('active')
     document.getElementById('ch-v-det').classList.remove('active')
@@ -1104,7 +1106,14 @@ function renderDetalle80(partes) {
 
 async function initPronostico() {
   if (_pronLoaded && _pronYear === EAnio) return
-  const isHist = EAnio < 2025
+  // "Histórico" = cualquier año anterior al actual (se ancla a 31-dic de ese año,
+  // vía el parámetro year del backend). Antes era "EAnio < 2025" hardcodeado --
+  // correcto mientras 2025 fue el año en curso, pero al llegar 2026 (con dato real
+  // migrado 2026-09-23) se quedó desactualizado: seleccionar "2025" en Ejecutivo
+  // ya no activaba el modo histórico, así que la gráfica seguía mostrando "últimos
+  // 12 meses terminando hoy" en vez de anclarse a 2025 -- reportado por JC.
+  const anioActual = new Date().getFullYear()
+  const isHist = EAnio < anioActual
   const effV   = isHist && EAnio === 2023 ? Math.min(_pronVentana, 12) : _pronVentana
   const url    = isHist
     ? `/v2/ejecutivo/pronostico?ventana=${effV}&periodos=3&year=${EAnio}`
@@ -1567,7 +1576,7 @@ async function initEjecutivo(anio){
   PS = ps
   if(data){
     Object.assign(D, data)
-    const src = EAnio < 2025 ? 'Histórico ' : 'Datos reales '
+    const src = EAnio < new Date().getFullYear() ? 'Histórico ' : 'Datos reales '
     setHdrStatus(src + EAnio + ' · ' + D.anual.n.toLocaleString('es-MX') + ' piezas · ' + D.anual.rate + '% rech')
   } else {
     setHdrStatus('API no disponible')

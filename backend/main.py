@@ -705,8 +705,12 @@ def v2_pronostico(ventana: int = 12, periodos: int = 3, year: int = 0):
     periodos = max(0, min(3, int(periodos)))   # permite 0 para años históricos
     MESES = ['','Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic']
 
-    # Modo histórico: fijar max_date al último día del año solicitado
-    if 0 < year < 2025:
+    # Modo histórico: fijar max_date al último día del año solicitado.
+    # Umbral dinámico (año actual), no hardcodeado -- un "2025" fijo aquí se
+    # desactualiza cada enero (ver mismo fix en initPronostico() del frontend,
+    # 2026-09-23: JC reportó que seleccionar 2025 en Ejecutivo seguía mostrando
+    # "últimos 12 meses" en vez de anclarse a 2025, porque el año actual ya es 2026).
+    if 0 < year < date.today().year:
         max_date = date(year, 12, 31)
     else:
         max_row = run("SELECT MAX(DATE(FHrVaciado)) AS mx FROM betamega_03_coladasproceso", {})
@@ -728,6 +732,13 @@ def v2_pronostico(ventana: int = 12, periodos: int = 3, year: int = 0):
                  cal_mod.monthrange(months[-1].year, months[-1].month)[1]).isoformat() + " 23:59:59"
 
     # ── Batch query: conteos por mes ──────────────────────────────
+    # Rango AMPLIADO 2 años hacia atrás desde months[0]: _retro()/_query_month()
+    # comparan cada mes de "historico" contra el mismo mes 1-2 años antes, y sin
+    # esto cada una de esas ~24 comparaciones (12 meses x 2 años atrás) disparaba
+    # una query individual a la BD -- ~8.7s medidos para ventana=12. Con el rango
+    # ampliado en este único batch, _query_month() casi siempre encuentra el mes
+    # ya en hist_agg y no necesita ir a la BD por separado.
+    retro_ini = date(months[0].year - 2, months[0].month, 1).isoformat() + " 00:00:00"
     hist_agg: dict = {}
     for r in run("""
         SELECT DATE_FORMAT(FHrVaciado,'%Y-%m') AS mk,
@@ -736,7 +747,7 @@ def v2_pronostico(ventana: int = 12, periodos: int = 3, year: int = 0):
         FROM betamega_03_coladasproceso
         WHERE FHrVaciado BETWEEN :d AND :h
         GROUP BY mk
-    """, {"d": h_ini, "h": h_fin}):
+    """, {"d": retro_ini, "h": h_fin}):
         hist_agg[r["mk"]] = {"n": int(r["n"] or 0), "rec": int(r["rec"] or 0), "col": int(r["col"] or 0)}
 
     # ── Batch query: toneladas por mes (via parte_lookup) ─────────
