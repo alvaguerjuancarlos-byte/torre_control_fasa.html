@@ -609,6 +609,68 @@ def _buscar_protocolos(defectos_unicos: list) -> list:
     return protocolos
 
 
+def historial_rechazo_partes(d_ini: str, d_fin: str) -> dict:
+    """
+    Agrega n/rechazos por No. Parte en [d_ini, d_fin] (strings 'YYYY-MM-DD HH:MM:SS'),
+    fusionando dos fuentes por fecha de corte (2025-01-01) -- mismo patrón que la
+    MIGRACIÓN 2026-09-23 de _evaluar_coladas_ventana(): la porción >= PIVOT viene de
+    betamega_03_coladasproceso (viva hasta hoy, trae No_Parte+bRechazo+FHrVaciado en
+    la misma fila); la porción < PIVOT de alfamega_01_rechazosbyidticket (histórico,
+    no requiere fuente viva).
+
+    Extraído de /v2/gestion/riesgo-partes (main.py), que hasta el 2026-09-27 seguía
+    apuntando a cscmega_01rechazosbyidticket/cscmega_01resultadoidticket para la
+    porción "reciente" -- esas tablas están congeladas desde 2025-12-29 (mismo
+    congelamiento que ya se había corregido en _evaluar_coladas_ventana), así que
+    "reciente" en realidad tenía tope en dic-2025 sin avisar. Compartido ahora por
+    /v2/gestion/riesgo-partes y /api/riesgo-plan para que ninguno vuelva a divergir
+    de la fuente viva.
+    """
+    PIVOT = "2025-01-01 00:00:00"
+    agg: dict = {}
+
+    def _acumular(rows):
+        for r in rows:
+            p = r["no_parte"]
+            if p not in agg:
+                agg[p] = {"n": 0, "rechazos": 0}
+            agg[p]["n"]        += int(r["n"] or 0)
+            agg[p]["rechazos"] += int(r["rechazos"] or 0)
+
+    if d_fin >= PIVOT:
+        d_ini_recientes = max(d_ini, PIVOT)
+        _acumular(run("""
+            SELECT No_Parte AS no_parte, COUNT(*) AS n, SUM(bRechazo) AS rechazos
+            FROM betamega_03_coladasproceso
+            WHERE FHrVaciado BETWEEN :d AND :h
+              AND No_Parte IS NOT NULL AND No_Parte != ''
+            GROUP BY No_Parte
+        """, {"d": d_ini_recientes, "h": d_fin}))
+
+    if d_ini < PIVOT:
+        d_fin_hist = min(d_fin, "2024-12-31 23:59:59")
+        _acumular(run("""
+            SELECT No_Parte AS no_parte, COUNT(*) AS n, SUM(bRechazo) AS rechazos
+            FROM alfamega_01_rechazosbyidticket
+            WHERE FHrVaciado BETWEEN :d AND :h
+              AND No_Parte IS NOT NULL AND No_Parte != ''
+            GROUP BY No_Parte
+        """, {"d": d_ini, "h": d_fin_hist}))
+
+    return agg
+
+
+def tasa_shrunk(n: int, rechazos: int, global_rate: float, k: int = 75) -> tuple:
+    """Shrinkage Bayesiano de la tasa de rechazo hacia la tasa global -- k=75 =>
+    a n=k piezas el peso de la tasa propia de la parte es 50% (n=200 => 73%,
+    n=500 => 87%). Devuelve (tasa_pct redondeada, peso_propio redondeado)."""
+    if not n:
+        return round(global_rate * 100, 1), 0.0
+    w = n / (n + k)
+    rate = (w * (rechazos / n) + (1 - w) * global_rate) * 100
+    return round(rate, 1), round(w, 2)
+
+
 def _referencia_actual_flujo() -> str:
     """Ancla la ventana al último día con volumen real de coladas (>=5), no al
     MAX(FHrVaciado) crudo — hay registros aislados posteriores al cierre

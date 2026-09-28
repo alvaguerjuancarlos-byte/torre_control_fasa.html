@@ -13,7 +13,14 @@
 const { chromium } = require('playwright')
 
 const BASE = 'http://127.0.0.1:8000'
-const TABS = ['ejecutivo', 'flujo', 'riesgo', 'pron', 'pedidos', 'beta', 'alfa']
+const TABS = ['ejecutivo', 'flujo', 'riesgo', 'pron', 'pedidos', 'riesgoplan', 'beta', 'alfa']
+
+// pron y riesgoplan (Riesgo del Plan) dependen del Excel del Plan de Producción del mes en
+// curso -- si nadie lo ha subido todavía, el endpoint da 404 con gracia y la pestaña lo maneja
+// mostrando "sin plan" (no es un fallo real). El navegador igual loguea el 404 del fetch a
+// consola, así que ese mensaje puntual se tolera solo para estas dos pestañas.
+const TABS_TOLERAN_404_MES_ACTUAL = new Set(['pron', 'riesgoplan'])
+const PREFIJOS_404_TOLERADO = ['/api/programa', '/api/riesgo-plan']
 
 const API_ENDPOINTS = [
   '/health',
@@ -27,6 +34,7 @@ const API_ENDPOINTS = [
   '/api/beta/criticas',
   '/api/alfa/clientes',
   '/api/programa?mes=' + new Date().toISOString().slice(0, 7),  // puede dar 404 si no hay plan cargado para el mes actual - se acepta
+  '/api/riesgo-plan?mes=' + new Date().toISOString().slice(0, 7),  // mismo caso -- depende del mismo Excel
 ]
 
 let fails = 0
@@ -40,7 +48,7 @@ async function checkApiEndpoints() {
   for (const path of API_ENDPOINTS) {
     try {
       const res = await fetch(BASE + path)
-      const okStatus = res.status === 200 || (path.startsWith('/api/programa') && res.status === 404)
+      const okStatus = res.status === 200 || (PREFIJOS_404_TOLERADO.some(p => path.startsWith(p)) && res.status === 404)
       ok(okStatus, `GET ${path} -> ${res.status}`)
     } catch (e) {
       ok(false, `GET ${path} -> excepción: ${e.message}`)
@@ -71,11 +79,21 @@ async function checkTabs() {
       return text.length > 200 && !/^Cargando/i.test(text.trim())
     }, tab, { timeout: 20000 }).catch(() => {})
 
+    // pron/riesgoplan disparan un fetch que puede dar 404 (ver arriba) -- el texto del panel
+    // ya se actualiza en cuanto la promesa resuelve, pero el log de consola del recurso fallido
+    // puede llegar unos ms después y terminar contado en el tab SIGUIENTE si no se espera aquí
+    // (hallazgo 2026-09-28: causaba un falso fallo en #tab-beta, justo después de riesgoplan).
+    if (TABS_TOLERAN_404_MES_ACTUAL.has(tab)) await page.waitForTimeout(400)
+
     const el = await page.$(`#tab-${tab}`)
     const text = el ? await el.innerText() : ''
     ok(!!el, `#tab-${tab} existe en el DOM`)
     ok(text.length > 200, `#tab-${tab} tiene contenido real (${text.length} chars)`)
-    ok(consoleErrors.length === 0, `#tab-${tab} sin errores de consola` + (consoleErrors.length ? `: ${consoleErrors[0]}` : ''))
+
+    const erroresReales = TABS_TOLERAN_404_MES_ACTUAL.has(tab)
+      ? consoleErrors.filter(e => !/Failed to load resource.*404/.test(e))
+      : consoleErrors
+    ok(erroresReales.length === 0, `#tab-${tab} sin errores de consola` + (erroresReales.length ? `: ${erroresReales[0]}` : ''))
   }
 
   await browser.close()

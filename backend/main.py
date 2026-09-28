@@ -21,6 +21,7 @@ from backend.core import (
     VentanaControl, CarrilControl, CARRILES, MOTIVOS_GRIS,
     evaluar_pc7, evaluar_carril, _evaluar_coladas_ventana,
     _buscar_protocolos, _REDISENO_COMBOS, _referencia_actual_flujo,
+    historial_rechazo_partes, tasa_shrunk,
 )
 
 app = FastAPI(title="Torre de Control FASA", version="0.1.0")
@@ -36,10 +37,12 @@ from backend.routers import beta as _beta_router_module
 from backend.routers import alfa as _alfa_router_module
 from backend.routers import chat as _chat_router_module
 from backend.routers import costo_calidad as _costo_calidad_router_module
+from backend.routers import riesgo_plan as _riesgo_plan_router_module
 app.include_router(_beta_router_module.router)
 app.include_router(_alfa_router_module.router)
 app.include_router(_chat_router_module.router)
 app.include_router(_costo_calidad_router_module.router)
+app.include_router(_riesgo_plan_router_module.router)
 
 
 # ── Modelo ML v2 (RF + calibrador Platt + lookup de partes) ──────────────────
@@ -1279,49 +1282,14 @@ def v2_riesgo_partes(anio: int = None, mes: int = None, ventana: int = 12):
         max_date = date(anio, mes, 1) - timedelta(days=1)
         ini_date = _restar_meses(date(anio, mes, 1), ventana)
     else:
-        max_row = run("SELECT MAX(DATE(u_Fecha)) AS mx FROM cscmega_01rechazosbyidticket", {})
+        max_row = run("SELECT MAX(DATE(FHrVaciado)) AS mx FROM betamega_03_coladasproceso WHERE c_IdColada > 0", {})
         max_date_str = str(max_row[0]["mx"]) if max_row and max_row[0]["mx"] else "2025-12-31"
         max_date = date.fromisoformat(max_date_str)
         ini_date = _restar_meses(max_date, ventana)
     d_ini = ini_date.isoformat() + " 00:00:00"
     d_fin = max_date.isoformat()  + " 23:59:59"
-    PIVOT = "2025-01-01 00:00:00"
 
-    # Datos de 2025 (cscmega)
-    rows_2025 = []
-    if d_fin >= PIVOT:
-        d_ini_25 = max(d_ini, PIVOT)
-        rows_2025 = run("""
-            SELECT rt.No_Parte AS no_parte,
-                   COUNT(*) AS n, SUM(rb.bRechazo) AS rechazos
-            FROM cscmega_01rechazosbyidticket rb
-            JOIN cscmega_01resultadoidticket rt ON rt.idTicket = rb.idTicket
-            WHERE rb.u_Fecha BETWEEN :d AND :h
-              AND rt.No_Parte IS NOT NULL AND rt.No_Parte != ''
-            GROUP BY rt.No_Parte
-        """, {"d": d_ini_25, "h": d_fin})
-
-    # Datos pre-2025 (alfamega) si el rango lo requiere
-    rows_hist = []
-    if d_ini < PIVOT:
-        d_fin_hist = min(d_fin, "2024-12-31 23:59:59")
-        rows_hist = run("""
-            SELECT No_Parte AS no_parte,
-                   COUNT(*) AS n, SUM(bRechazo) AS rechazos
-            FROM alfamega_01_rechazosbyidticket
-            WHERE FHrVaciado BETWEEN :d AND :h
-              AND No_Parte IS NOT NULL AND No_Parte != ''
-            GROUP BY No_Parte
-        """, {"d": d_ini, "h": d_fin_hist})
-
-    # Merge en Python: acumular n y rechazos por parte
-    agg: dict = {}
-    for r in rows_hist + rows_2025:
-        p = r["no_parte"]
-        if p not in agg:
-            agg[p] = {"n": 0, "rechazos": 0}
-        agg[p]["n"]        += int(r["n"] or 0)
-        agg[p]["rechazos"] += int(r["rechazos"] or 0)
+    agg = historial_rechazo_partes(d_ini, d_fin)
 
     # Score ML + métricas por parte
     lookup = _PARTE_LOOKUP or {}
@@ -1352,15 +1320,9 @@ def v2_riesgo_partes(anio: int = None, mes: int = None, ventana: int = 12):
     total_rec = sum(r["rechazos_periodo"] for r in resultado)
     global_rate = total_rec / total_n if total_n else 0.15
 
-    # k = tamaño de muestra del prior; con n=k el peso propio es 50%
-    # k=75 → parte con 75 piezas: w=0.5 | 200 piezas: w=0.73 | 500: w=0.87
     K = 75
     for r in resultado:
-        n   = r["n_periodo"]
-        rec = r["rechazos_periodo"]
-        w   = n / (n + K)
-        r["rate_shrunk"] = round((w * (rec / n) + (1 - w) * global_rate) * 100, 1) if n else round(global_rate * 100, 1)
-        r["shrink_w"]    = round(w, 2)   # peso de la tasa propia (0-1)
+        r["rate_shrunk"], r["shrink_w"] = tasa_shrunk(r["n_periodo"], r["rechazos_periodo"], global_rate, K)
     # ────────────────────────────────────────────────────────────────────────
 
     resultado.sort(key=lambda x: x["rechazos_esp"] or 0, reverse=True)

@@ -194,6 +194,7 @@ main{padding:16px 20px;max-width:1100px;margin:0 auto}
   <div class="tab" data-tab="riesgo" onclick="switchTab('riesgo')">Calidad del Producto</div>
   <div class="tab" data-tab="pron" onclick="switchTab('pron')">Plan de Producción</div>
   <div class="tab" data-tab="pedidos" onclick="switchTab('pedidos')">Clientes · Pedidos · Partes</div>
+  <div class="tab" data-tab="riesgoplan" onclick="switchTab('riesgoplan')">Riesgo del Plan</div>
   <div class="tab" data-tab="beta" onclick="switchTab('beta')">🤖 Agente Beta</div>
   <div class="tab" data-tab="alfa" onclick="switchTab('alfa')">🤖 Agente Alfa</div>
 </div>
@@ -1149,7 +1150,7 @@ async function initPronostico() {
 // ════════════════════════════════════════════════════════════
 // TAB SYSTEM
 // ════════════════════════════════════════════════════════════
-const TABS = ['ejecutivo','flujo','riesgo','pron','pedidos','beta','alfa']
+const TABS = ['ejecutivo','flujo','riesgo','pron','pedidos','riesgoplan','beta','alfa']
 const tabLoaded = {}
 
 function switchTab(name) {
@@ -1164,6 +1165,7 @@ function switchTab(name) {
     if (name === 'riesgo') rpSwitchSub('semana')
     if (name === 'pron') initPronPanel()
     if (name === 'pedidos') initPedidosPanel()
+    if (name === 'riesgoplan') initRiesgoPlanPanel()
     if (name === 'beta') window.initBetaPanel()
     if (name === 'alfa') window.initAlfaPanel()
   }
@@ -3240,6 +3242,253 @@ function simRenderTable(items) {
 </section>
 </main>
 </div>
+
+<!-- ════════════════════════════════════════════════════
+     RIESGO DEL PLAN — HTML, estilos y lógica
+════════════════════════════════════════════════════ -->
+
+<div id="tab-riesgoplan" style="display:none">
+<main>
+<section id="p-riesgoplan">
+
+  <div class="rgp-eyebrow">Riesgo del Plan · compromiso por cliente/parte vs. pronóstico de rechazo</div>
+
+  <div class="rgp-bar">
+    <div class="rgp-field">
+      <label class="rgp-lbl">Mes</label>
+      <select id="rgp-mes" class="rgp-sel"></select>
+    </div>
+    <div class="rgp-field">
+      <label class="rgp-lbl">Ventana histórica</label>
+      <select id="rgp-ventana" class="rgp-sel">
+        <option value="6">6 meses</option>
+        <option value="12" selected>12 meses</option>
+        <option value="18">18 meses</option>
+        <option value="24">24 meses</option>
+      </select>
+    </div>
+    <span id="rgp-msg" class="rgp-msg"></span>
+  </div>
+
+  <div id="rgp-sin-plan" class="rgp-msg-box" style="display:none"></div>
+
+  <div id="rgp-content" style="display:none">
+
+    <div class="rgp-kpis-grid" id="rgp-kpis"></div>
+
+    <div class="rgp-section-title">Por cliente</div>
+    <div id="rgp-clientes-tabla"></div>
+
+    <div class="rgp-section-title">Partes ordenadas por impacto (piezas en riesgo)</div>
+    <div class="rgp-det-wrap">
+      <div id="rgp-detalle-tabla"></div>
+    </div>
+    <div class="rgp-hint">Orden por impacto absoluto (comprometido × tasa), no por % de rechazo solo. Filas rojas/ámbar: tasa shrunk ≥15%/≥7%.</div>
+    <div id="rgp-detalle-parte" class="rgp-detalle-parte" style="display:none"></div>
+
+  </div>
+
+  <div class="cr-foot" style="margin-top:24px">
+    <b>Compromiso:</b> saldo pendiente (<code>sdo_final</code>) del Plan de Producción Mensual — Excel en vivo,
+    zona de trabajo del responsable, <b>no autoritativo</b>. <b>Tasa de rechazo:</b> shrinkage bayesiano (k=75)
+    sobre la historia real de la parte en la ventana elegida (<code>betamega_03_coladasproceso</code> +
+    <code>alfamega_01_rechazosbyidticket</code> para historia pre-2025) — mismo motor que
+    "Calidad del Producto → Todas las partes", no la tasa fija 2025 que usa el resumen de Plan de Producción.
+    <b>Piezas en riesgo:</b> compromiso × tasa — prioriza por impacto absoluto. <b>Colchón sugerido:</b> piezas
+    extra a correr para seguir netando el compromiso si la tasa se mantiene. <b>Protocolos:</b> defecto histórico
+    dominante de la parte (<code>gamamega_01_riesgodefectoparte</code>) cruzado contra el puente Defecto→Control
+    (mismo motor que Agente Beta / Alertas y Protocolos), solo para partes en ámbar o rojo.
+  </div>
+
+</section>
+</main>
+</div>
+
+<style>
+#p-riesgoplan{
+  color:var(--txt); font-family:var(--font-sans); font-size:13px; line-height:1.45;
+  background:var(--bg); min-height:60vh; padding:0 0 32px;
+}
+#p-riesgoplan *{box-sizing:border-box}
+#p-riesgoplan .rgp-eyebrow{font-size:10px;letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin:24px 0 14px;font-weight:700}
+#p-riesgoplan .rgp-bar{display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;margin-bottom:20px}
+#p-riesgoplan .rgp-field{display:flex;flex-direction:column;gap:4px}
+#p-riesgoplan .rgp-lbl{font-size:11px;font-weight:700;color:var(--muted)}
+#p-riesgoplan .rgp-sel{background:#fff;border:1px solid var(--border);border-radius:8px;color:var(--txt);padding:8px 12px;font-size:13px;outline:none;cursor:pointer}
+#p-riesgoplan .rgp-msg{font-size:12px;color:var(--muted);align-self:center}
+#p-riesgoplan .rgp-msg-box{font-size:13px;color:var(--muted);padding:24px;text-align:center;background:#fff;
+  border:0.5px solid var(--color-border-tertiary);border-radius:10px}
+#p-riesgoplan .rgp-section-title{font-size:12px;font-weight:700;color:var(--muted);margin:20px 0 6px;letter-spacing:.04em;text-transform:uppercase}
+#p-riesgoplan .rgp-kpis-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:8px}
+#p-riesgoplan .rgp-kpi{background:#fff;border:0.5px solid var(--color-border-tertiary);border-radius:8px;padding:14px 16px;position:relative;overflow:hidden}
+#p-riesgoplan .rgp-kpi::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--green)}
+#p-riesgoplan .rgp-kpi .kl{font-size:11px;color:var(--muted);margin-bottom:8px}
+#p-riesgoplan .rgp-kpi .kv{font-family:var(--font-mono);font-size:24px;font-weight:600;letter-spacing:-.5px;color:var(--txt)}
+#p-riesgoplan .rgp-kpi .ks{font-size:11px;color:var(--faint);margin-top:6px}
+#p-riesgoplan .rgp-cli-row{display:grid;grid-template-columns:1fr 130px 130px 100px;gap:8px;padding:7px 12px;
+  font-size:12px;border-bottom:1px solid var(--border);align-items:center;background:#fff}
+#p-riesgoplan .rgp-cli-row.head{font-weight:700;color:var(--muted);font-size:10px;text-transform:uppercase;
+  background:var(--color-background-secondary);letter-spacing:.03em}
+#p-riesgoplan .rgp-cli-row.warn{background:#FCEBEB}
+#p-riesgoplan .rgp-det-wrap{max-height:480px;overflow-y:auto;overflow-x:auto;border:0.5px solid var(--color-border-tertiary);
+  border-radius:8px;background:#fff;margin-top:6px}
+#p-riesgoplan .rgp-det-row{display:grid;grid-template-columns:28px 90px 115px 48px 85px 60px 80px 70px 70px 60px 1fr;
+  gap:6px;min-width:900px;padding:6px 10px;font-size:11.5px;border-bottom:1px solid var(--border);align-items:center}
+#p-riesgoplan .rgp-det-row.head{font-weight:700;color:var(--muted);font-size:10px;text-transform:uppercase;
+  background:var(--color-background-secondary);position:sticky;top:0}
+#p-riesgoplan .rgp-det-row.nivel-rojo{background:#FCEBEB}
+#p-riesgoplan .rgp-det-row.nivel-ambar{background:#FEF3E2}
+#p-riesgoplan .mono{font-family:var(--font-mono)}
+#p-riesgoplan .rgp-badge{display:inline-block;padding:2px 8px;border-radius:12px;font-size:10.5px;font-weight:700}
+#p-riesgoplan .rgp-badge.rojo{background:#FCEBEB;color:#A32D2D}
+#p-riesgoplan .rgp-badge.ambar{background:#FEF3E2;color:#854F0B}
+#p-riesgoplan .rgp-badge.verde{background:#E1F5EE;color:#0F6E56}
+#p-riesgoplan .rgp-badge.gris{background:#F1F1EF;color:#8a8983}
+#p-riesgoplan .rgp-proto-link{color:var(--green);font-weight:600;cursor:pointer;text-decoration:underline}
+#p-riesgoplan .rgp-proto-link:hover{opacity:.75}
+#p-riesgoplan .rgp-detalle-parte{margin-top:12px;background:#fff;border:0.5px solid var(--color-border-tertiary);
+  border-radius:8px;padding:14px 16px}
+#p-riesgoplan .rgp-detalle-parte .rgp-dp-title{font-size:12px;font-weight:700;color:var(--txt);margin-bottom:8px}
+#p-riesgoplan .rgp-detalle-parte ul{margin:0;padding-left:18px;font-size:12px;color:var(--muted);line-height:1.7}
+#p-riesgoplan .rgp-hint{font-size:11px;color:var(--faint);margin-top:8px;text-align:center}
+#p-riesgoplan .cr-foot{font-size:11px;color:var(--muted);line-height:1.7;border-top:1px solid var(--border);padding-top:14px}
+#p-riesgoplan .cr-foot b{color:var(--txt)}
+</style>
+
+<script>
+// ════════════════════════════════════════════════════════════
+// RIESGO DEL PLAN — combina compromiso del plan mensual con la
+// tasa de rechazo shrunk (/api/riesgo-plan, backend/routers/riesgo_plan.py)
+// ════════════════════════════════════════════════════════════
+let RGP_LOADED = false
+let _rgpData = null
+
+function initRiesgoPlanPanel(){
+  if (RGP_LOADED) return
+  RGP_LOADED = true
+  document.getElementById('rgp-ventana').addEventListener('change', function(){
+    rgpCargar(document.getElementById('rgp-mes').value)
+  })
+  rgpPoblarSelectorMes()
+}
+
+function rgpPoblarSelectorMes(){
+  const sel = document.getElementById('rgp-mes')
+  const hoy = new Date()
+  const opciones = []
+  for (let i = -3; i <= 1; i++) {
+    const d = new Date(hoy.getFullYear(), hoy.getMonth() + i, 1)
+    const val = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0')
+    let lbl = d.toLocaleDateString('es-MX', { month: 'long', year: 'numeric' })
+    lbl = lbl.charAt(0).toUpperCase() + lbl.slice(1)
+    opciones.push('<option value="' + val + '">' + lbl + '</option>')
+  }
+  sel.innerHTML = opciones.join('')
+  sel.addEventListener('change', function(){ rgpCargar(this.value) })
+  const mesActual = hoy.getFullYear() + '-' + String(hoy.getMonth() + 1).padStart(2, '0')
+  sel.value = mesActual
+  rgpCargar(sel.value)
+}
+
+function rgpFmt(v, dec){
+  if (v == null) return '—'
+  return Number(v).toLocaleString('es-MX', { maximumFractionDigits: dec == null ? 1 : dec })
+}
+
+function rgpBadge(rate){
+  if (rate === null || rate === undefined) return '<span class="rgp-badge gris">sin dato</span>'
+  const cls = rate >= 15 ? 'rojo' : rate >= 7 ? 'ambar' : 'verde'
+  return '<span class="rgp-badge ' + cls + '">' + rate + '%</span>'
+}
+
+async function rgpCargar(mes){
+  const msg = document.getElementById('rgp-msg')
+  const content = document.getElementById('rgp-content')
+  const sinPlan = document.getElementById('rgp-sin-plan')
+  const ventana = document.getElementById('rgp-ventana').value
+  document.getElementById('rgp-detalle-parte').style.display = 'none'
+  msg.textContent = 'Cargando…'
+  content.style.display = 'none'
+  sinPlan.style.display = 'none'
+
+  const d = await apiFetch('/api/riesgo-plan?mes=' + encodeURIComponent(mes) + '&ventana=' + ventana)
+  msg.textContent = ''
+
+  if (!d) {
+    sinPlan.style.display = ''
+    sinPlan.textContent = 'Sin plan para este mes — ni cargado en base de datos, ni un archivo Excel encontrado en la carpeta del Plan de Producción con ese mes/año en el título.'
+    return
+  }
+  _rgpData = d
+  content.style.display = ''
+  rgpRenderKpis(d)
+  rgpRenderClientes(d)
+  rgpRenderDetalle(d)
+}
+
+function rgpRenderKpis(d){
+  const k = d.kpis
+  const kpis = [
+    { l: 'Piezas comprometidas', v: rgpFmt(k.piezas_comprometidas_total, 0), s: 'saldo pendiente del plan' },
+    { l: 'Piezas en riesgo', v: rgpFmt(k.piezas_en_riesgo_total, 0), s: 'esperado perdido sin colchón' },
+    { l: 'Partes en rojo', v: k.partes_rojo, s: 'tasa shrunk ≥15%' },
+    { l: 'Partes en ámbar', v: k.partes_ambar, s: 'tasa shrunk ≥7%' },
+    { l: 'Clientes afectados', v: k.clientes_afectados, s: 'con ≥1 parte en rojo' },
+  ]
+  document.getElementById('rgp-kpis').innerHTML = kpis.map(function(kp){
+    return '<div class="rgp-kpi"><div class="kl">' + kp.l + '</div><div class="kv">' + kp.v + '</div><div class="ks">' + kp.s + '</div></div>'
+  }).join('')
+}
+
+function rgpRenderClientes(d){
+  const rows = d.por_cliente || []
+  const head = '<div class="rgp-cli-row head"><span>Cliente</span><span>Comprometido</span><span>En riesgo</span><span>Partes rojo</span></div>'
+  const body = rows.map(function(c){
+    return '<div class="rgp-cli-row' + (c.partes_rojo > 0 ? ' warn' : '') + '">'
+      + '<span>' + c.cliente + '</span>'
+      + '<span>' + rgpFmt(c.piezas_comprometidas, 0) + '</span>'
+      + '<span>' + rgpFmt(c.piezas_en_riesgo, 0) + '</span>'
+      + '<span>' + c.partes_rojo + '</span></div>'
+  }).join('')
+  document.getElementById('rgp-clientes-tabla').innerHTML = head + body
+}
+
+function rgpRenderDetalle(d){
+  const detalle = d.detalle || []
+  const head = '<div class="rgp-det-row head"><span>#</span><span>Parte</span><span>Cliente</span><span>Proc.</span>'
+    + '<span>Compromet.</span><span>Tasa</span><span>En riesgo</span><span>Colchón</span><span>Ritmo real</span><span>Días est.</span><span>Protocolos</span></div>'
+  const rows = detalle.map(function(f, i){
+    const protoCount = (f.protocolos_sugeridos || []).length
+    const protoTxt = protoCount ? ('<span class="rgp-proto-link" onclick="rgpVerProtocolos(' + i + ')">Ver (' + protoCount + ')</span>') : '—'
+    return '<div class="rgp-det-row nivel-' + f.nivel_riesgo + '">'
+      + '<span>' + f.orden_sugerido + '</span>'
+      + '<span class="mono">' + f.parte + '</span>'
+      + '<span>' + (f.cliente || '—') + '</span>'
+      + '<span>' + (f.proceso || '—') + '</span>'
+      + '<span>' + rgpFmt(f.sdo_final, 0) + '</span>'
+      + '<span>' + rgpBadge(f.rate_shrunk_pct) + '</span>'
+      + '<span>' + rgpFmt(f.piezas_en_riesgo, 0) + '</span>'
+      + '<span>' + (f.buffer_sugerido_piezas != null ? '+' + f.buffer_sugerido_piezas : '—') + '</span>'
+      + '<span>' + (f.ritmo_real_pzas_dia != null ? f.ritmo_real_pzas_dia : '—') + '</span>'
+      + '<span>' + (f.dias_estimados_saldo != null ? f.dias_estimados_saldo + ' d' : '—') + '</span>'
+      + '<span>' + protoTxt + '</span></div>'
+  }).join('')
+  document.getElementById('rgp-detalle-tabla').innerHTML = head + rows
+}
+
+function rgpVerProtocolos(idx){
+  const f = (_rgpData.detalle || [])[idx]
+  const box = document.getElementById('rgp-detalle-parte')
+  if (!f || !(f.protocolos_sugeridos || []).length) { box.style.display = 'none'; return }
+  const items = f.protocolos_sugeridos.map(function(p){
+    return '<li><b>' + (p.elemento_control || '—') + '</b> — puesto ' + (p.puesto || '—') + ', proceso ' + (p.proceso || '—') + '</li>'
+  }).join('')
+  box.innerHTML = '<div class="rgp-dp-title">Refuerzo preventivo sugerido — parte ' + f.parte
+    + ' (defecto dominante: ' + (f.defecto_dominante || '—') + ')</div><ul>' + items + '</ul>'
+  box.style.display = ''
+  box.scrollIntoView({behavior:'smooth', block:'nearest'})
+}
+</script>
 
 <!-- ════════════════════════════════════════════════════
      CLIENTES · PEDIDOS · PARTES  —  HTML, estilos y lógica
