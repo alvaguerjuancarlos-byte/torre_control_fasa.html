@@ -1707,6 +1707,16 @@ async function initEjecutivo(anio){
   _scG = 'anual'; _scI = 0; PS = null
   _ccG = 'anual'; _ccI = 0; CC = null
   _tonG = 'anual'; _tonI = 0
+
+  // Estas 4 no leen D (el resultado de resumen-anual) -- solo EAnio, ya fijado arriba. Se
+  // disparan ANTES de esperar resumen-anual, no encadenadas detrás, porque ese fetch por sí
+  // solo tarda ~4s (medido 2026-09-29) y no hay razón para que Tonelaje/Scatter/Cierre de
+  // ciclo/Pronóstico esperen algo que no necesitan antes de empezar a cargar.
+  scCargar()
+  ccCargar()
+  initPronostico()
+  loadTonelaje()
+
   const data = await apiFetch('/v2/ejecutivo/resumen-anual?anio=' + EAnio)
   if(data){
     Object.assign(D, data)
@@ -1716,10 +1726,6 @@ async function initEjecutivo(anio){
     setHdrStatus('API no disponible')
   }
   eSetG(EG)
-  scCargar()
-  ccCargar()
-  initPronostico()
-  loadTonelaje()
 }
 
 // ── Rendimiento Metálico · Tonelaje (kg reales por colada, Kilos / piezas) ──
@@ -1734,8 +1740,21 @@ let _tonData = null
 // reales (2025), nunca se inventa una barra para 2026.
 let _costoNocData = null
 async function loadTonelaje(){
-  if(!_tonData) _tonData = await apiFetch('/produccion/tonelaje-mensual?anios=2023,2024,2025,2026')
-  if(!_costoNocData) _costoNocData = await apiFetch('/produccion/costo-no-calidad-mensual')
+  // Los botones del selector propio aparecen de inmediato (no esperan al fetch) -- si no, con la
+  // congestión de conexiones concurrentes de Ejecutivo (ver commit 1b8691c) el usuario ve la
+  // tarjeta sin selector varios segundos y concluye que "no existe" (JC, 2026-09-29).
+  document.getElementById('ton-periodo-sel').innerHTML = periodoSelectorHTML('ton')
+  periodoSelectorSync('ton', _tonG, _tonI)
+
+  // En paralelo, no secuencial -- antes cada fetch esperaba al anterior (~2s extra sumados al
+  // final de una cadena ya larga: resumen-anual -> scatter/cierre-ciclo/pronostico/tonelaje-mensual
+  // en paralelo -> [aquí] costo-no-calidad). Ninguno de los dos depende del otro.
+  const [ton, noc] = await Promise.all([
+    _tonData ? Promise.resolve(_tonData) : apiFetch('/produccion/tonelaje-mensual?anios=2023,2024,2025,2026'),
+    _costoNocData ? Promise.resolve(_costoNocData) : apiFetch('/produccion/costo-no-calidad-mensual'),
+  ])
+  _tonData = ton
+  _costoNocData = noc
   renderTonelaje()
 }
 
