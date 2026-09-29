@@ -1028,11 +1028,20 @@ def v2_pronostico(ventana: int = 12, periodos: int = 3, year: int = 0):
 
 
 @app.get("/v2/ejecutivo/cierre-ciclo")
-def v2_cierre_ciclo(anio: int = Query(default=2025)):
+def v2_cierre_ciclo(anio: int = Query(default=2025), desde: str = Query(default=None), hasta: str = Query(default=None)):
     """
-    Distribución de coladas por tiempo de cierre de ciclo.
-    Grupos: cerradas (≤8h…>32h), cuarentena (>120h sin cerrar), en_proceso (<120h sin cerrar), atipico (>30d).
-    La referencia para 'abierto' es el fin del año analizado.
+    Distribución de coladas por tiempo de cierre de ciclo, para el año completo o para una
+    ventana acotada dentro de ese año (desde/hasta, YYYY-MM-DD) -- mismo patrón que
+    /v2/pedidos/lista, para que Ejecutivo pueda pedir esta gráfica por trimestre/mes en vez de
+    solo año completo (JC, 2026-09-29).
+    Grupos: cerradas (≤8h…>32h, según el histograma natural de ciclo_h), cuarentena (>144h sin
+    cerrar, en rojo), en_proceso (<144h sin cerrar), atipico (>30d). La referencia para 'abierto'
+    es el final de la ventana analizada (fin de año, o `hasta` si se pasó una ventana acotada).
+
+    Umbral de cuarentena movido de 120h a 144h (JC, 2026-09-28) -- ver historial de commits para
+    el intento previo (separar un bucket ">144h" dentro de las YA CERRADAS), que no era lo
+    pedido: el corte de 144h aplica a las coladas SIN cerrar (cuarentena), no a las cerradas --
+    esas se siguen dibujando con los bins originales del histograma (≤8h/16h/24h/32h/>32h).
 
     MIGRACIÓN (2026-09-23): de cscmega_01rechazosbyidticket+cscmega_08ruta (ambas
     congeladas desde dic-2025) a betamega_03_coladasproceso+betamega_08_ticketrutacritica
@@ -1040,8 +1049,12 @@ def v2_cierre_ciclo(anio: int = Query(default=2025)):
     core.py::_evaluar_coladas_ventana(). Se quita el corte "anio < 2025" (devolvía
     todo en cero): betamega_03/08 cubren 2023-2026 parejo.
     """
-    d_ini = f"{anio}-01-01 00:00:00"
-    d_fin = f"{anio}-12-31 23:59:59"
+    if desde and hasta:
+        d_ini = desde + " 00:00:00"
+        d_fin = hasta + " 23:59:59"
+    else:
+        d_ini = f"{anio}-01-01 00:00:00"
+        d_fin = f"{anio}-12-31 23:59:59"
 
     rows = run("""
         SELECT
@@ -1052,7 +1065,7 @@ def v2_cierre_ciclo(anio: int = Query(default=2025)):
                 WHEN sub.n_limp >= sub.total AND sub.ciclo_h <=  32 THEN 'h32'
                 WHEN sub.n_limp >= sub.total AND sub.ciclo_h <= 720 THEN 'h32p'
                 WHEN sub.n_limp >= sub.total                        THEN 'atipico'
-                WHEN TIMESTAMPDIFF(HOUR, sub.vaci_min, :ref) < 120  THEN 'en_proceso'
+                WHEN TIMESTAMPDIFF(HOUR, sub.vaci_min, :ref) < 144  THEN 'en_proceso'
                 ELSE                                                     'cuarentena'
             END AS bucket,
             COUNT(*)   AS coladas,
@@ -1084,8 +1097,8 @@ def v2_cierre_ciclo(anio: int = Query(default=2025)):
         "h24":       "16 – 24 h",
         "h32":       "24 – 32 h",
         "h32p":      "> 32 h",
-        "en_proceso":"En proceso  (< 120 h)",
-        "cuarentena":"Cuarentena  (> 120 h sin cierre)",
+        "en_proceso":"En proceso  (< 144 h)",
+        "cuarentena":"Cuarentena  (> 144 h sin cierre)",
         "atipico":   "Atípico  (> 30 días)",
     }
     idx   = {r["bucket"]: r for r in rows}
@@ -1209,11 +1222,15 @@ def v2_ml_riesgo_colada(
 
 
 @app.get("/v2/ejecutivo/partes-scatter")
-def v2_partes_scatter(anio: int = Query(default=2025)):
+def v2_partes_scatter(anio: int = Query(default=2025), desde: str = Query(default=None), hasta: str = Query(default=None)):
     """
-    Scatter de rechazo por NoParte para el año indicado.
+    Scatter de rechazo por NoParte para el año indicado, o para una ventana acotada dentro de
+    ese año (desde/hasta, YYYY-MM-DD) -- mismo patrón que /v2/pedidos/lista, para que Ejecutivo
+    pueda pedir esta gráfica por trimestre/mes en vez de solo año completo (JC, 2026-09-29).
     Retorna: no_parte, n (piezas), rechazos, rate (%), tons, tons_rech.
-    Filtrado a partes con n >= 30 piezas en el año.
+
+    El piso HAVING n>=100 está calibrado para un año completo -- con una ventana más corta se
+    escala proporcional a los días pedidos (piso 15) para que "Mes" no salga vacío casi siempre.
 
     MIGRACIÓN (2026-09-23): unificado sobre betamega_03_coladasproceso para todos
     los años -- antes dos ramas (cscmega_01rechazosbyidticket+cscmega_01resultadoidticket
@@ -1221,10 +1238,19 @@ def v2_partes_scatter(anio: int = Query(default=2025)):
     desde dic-2025. betamega_03 ya trae No_Parte+bRechazo en la misma fila, no hace
     falta join contra una segunda tabla de tickets.
     """
-    d_ini = f"{anio}-01-01 00:00:00"
-    d_fin = f"{anio}-12-31 23:59:59"
+    from datetime import date
 
-    rows = run("""
+    if desde and hasta:
+        d_ini = desde + " 00:00:00"
+        d_fin = hasta + " 23:59:59"
+        dias_ventana = (date.fromisoformat(hasta) - date.fromisoformat(desde)).days + 1
+    else:
+        d_ini = f"{anio}-01-01 00:00:00"
+        d_fin = f"{anio}-12-31 23:59:59"
+        dias_ventana = 365
+    piso_n = max(15, round(100 * dias_ventana / 365))
+
+    rows = run(f"""
         SELECT rb.No_Parte AS no_parte,
                COUNT(*)                                              AS n,
                SUM(rb.bRechazo)                                      AS rechazos,
@@ -1241,7 +1267,7 @@ def v2_partes_scatter(anio: int = Query(default=2025)):
         WHERE rb.FHrVaciado BETWEEN :d AND :h
           AND rb.No_Parte IS NOT NULL AND rb.No_Parte != ''
         GROUP BY rb.No_Parte
-        HAVING n >= 100
+        HAVING n >= {piso_n}
         ORDER BY tons_rech DESC
     """, {"d": d_ini, "h": d_fin})
 

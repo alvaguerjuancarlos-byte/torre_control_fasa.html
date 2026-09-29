@@ -228,6 +228,7 @@ main{padding:16px 20px;max-width:1100px;margin:0 auto}
       <div style="font-size:14px;font-weight:600;color:var(--color-text-primary)">Rendimiento Metálico y Costo de Calidad</div>
       <div id="ton-sub" style="font-size:11px;color:var(--color-text-tertiary);margin-top:2px">Cargando…</div>
     </div>
+    <div id="ton-periodo-sel"></div>
     <div id="ton-kpis" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px"></div>
     <div id="ton-chart" style="min-height:150px"></div>
     <div id="ton-horno" style="margin-top:12px"></div>
@@ -746,11 +747,15 @@ function renderMainCharts() {
       `Histórico ${EAnio} · ${hist.length} meses${estNote}` + (fcLbl ? ` · estimado: ${fcLbl}` : '')
     return
   }
-  // 2025: re-habilitar Detalle 80/20
+  // Año en curso (no histórico): re-habilitar Detalle 80/20
   document.getElementById('ch-v-det').disabled = false
   document.getElementById('ch-estimado-ctrl').style.display = 'contents'
-  // 2025: usar datos del endpoint de pronóstico (solo si ya cargó para 2025)
-  if (!_pronData || _pronYear !== 2025) return
+  // Usar datos del endpoint de pronóstico, solo si ya cargó para el año seleccionado --
+  // antes decía "!== 2025" a secas (hallazgo JC 2026-09-28): con 2025 como año en curso
+  // funcionaba, pero al llegar 2026 como año en curso esta condición nunca se cumplía y
+  // "Número de Piezas Producidas y Rechazadas" se quedaba en "Cargando…" para siempre,
+  // sin importar el toggle Año/Trimestre/Mes (ese si actualizaba bien las demás tarjetas).
+  if (!_pronData || _pronYear !== EAnio) return
   const hist = _pronData.historico
   const fc   = aggForecast(_pronData.pronostico, 'mensual', _pronForecastMode)
   document.getElementById('charts-prod').innerHTML = svgProduccion(hist, fc)
@@ -1211,6 +1216,63 @@ let D = {meta:{target:7,bandLo:5,bandHi:7,tonPt:87.6,cLo:711,cHi:1185,avg:13.3},
   best:{lbl:'—',rate:0}, worst:{lbl:'—',rate:0}}
 let EG='anual', EI=0, CC=null
 
+// Selectores de período propios por gráfica (JC, 2026-09-29) -- independientes del toggle
+// Año/Trimestre/Mes de arriba (EG/EI), que solo gobierna Período/Familias de defecto. El año
+// (EAnio) sigue siendo compartido por las 3: no tienen su propio botón de año, solo
+// granularidad + índice dentro del año global. Ver periodoSelectorHTML()/periodosDelAnio().
+let _tonG='anual', _tonI=0
+let _scG='anual', _scI=0
+let _ccG='anual', _ccI=0
+
+// Construye los botones Año/Trimestre/Mes + navegador de período (‹ dropdown ›), igual criterio
+// visual que el selector global de arriba (líneas ~207-222) pero con id/prefijo propio por
+// tarjeta para no chocar entre sí ni con el global.
+function periodoSelectorHTML(prefix){
+  return '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:10px">'
+    +'<button class="pb active" data-pg="anual" onclick="'+prefix+'SetG(\'anual\')" style="font-size:11px;padding:4px 10px">Año</button>'
+    +'<button class="pb" data-pg="trimestral" onclick="'+prefix+'SetG(\'trimestral\')" style="font-size:11px;padding:4px 10px">Trimestre</button>'
+    +'<button class="pb" data-pg="mensual" onclick="'+prefix+'SetG(\'mensual\')" style="font-size:11px;padding:4px 10px">Mes</button>'
+    +'<span id="'+prefix+'-periodo-nav" style="font-size:12px;color:var(--color-text-secondary);display:none;margin-left:2px">'
+    +'<button id="'+prefix+'Prev" class="navb" onclick="'+prefix+'Step(-1)">&lsaquo;</button>'
+    +'<select id="'+prefix+'Sel" onchange="'+prefix+'Pick(this.selectedIndex)" style="min-width:100px;font-size:12px"></select>'
+    +'<button id="'+prefix+'Next" class="navb" onclick="'+prefix+'Step(1)">&rsaquo;</button>'
+    +'</span></div>'
+}
+// Refleja el estado activo (botón resaltado + navegador visible/oculto + opciones del <select>)
+// para una tarjeta dada -- se llama después de inyectar periodoSelectorHTML() en el DOM.
+function periodoSelectorSync(prefix, g, i){
+  document.querySelectorAll('#'+ID_CARD[prefix]+' .pb[data-pg]').forEach(b=>b.classList.toggle('active', b.dataset.pg===g))
+  const nav = document.getElementById(prefix+'-periodo-nav')
+  if (!nav) return
+  nav.style.display = g==='anual' ? 'none' : ''
+  if (g==='anual') return
+  const P = periodosDelAnio(g, EAnio)
+  document.getElementById(prefix+'Sel').innerHTML = P.map((p,idx)=>'<option value="'+idx+'">'+p.label+'</option>').join('')
+  document.getElementById(prefix+'Sel').value = i
+  document.getElementById(prefix+'Prev').disabled = i<=0
+  document.getElementById(prefix+'Next').disabled = i>=P.length-1
+}
+// Mapea cada prefijo a la tarjeta contenedora donde viven sus botones .pb[data-pg] -- necesario
+// porque los 3 selectores comparten los mismos data-pg ('anual'/'trimestral'/'mensual') y hay
+// que buscarlos scopeados a su propia tarjeta, no globalmente en #tab-ejecutivo.
+const ID_CARD = { ton: 'e-tonelaje', sc: 'e-scatter-card', cc: 'e-ciclo-card' }
+
+// Al activar Trimestre/Mes por primera vez hay que caer en el último período que ya empezó, no
+// en el último del calendario -- periodosDelAnio() genera los 4 trimestres/12 meses completos
+// sin importar si ya pasaron, así que "length-1" cae en un período futuro vacío para el año en
+// curso (ej. 4T en septiembre). Mismo criterio que ya usa eDef() para el toggle global, pero ahí
+// funciona gratis porque D.trimestral/D.mensual solo trae los períodos con dato real -- aquí no.
+function defaultPeriodoIdx(g, anio){
+  const P = periodosDelAnio(g, anio)
+  if (anio === new Date().getFullYear()) {
+    const hoy = new Date().toISOString().slice(0,10)
+    for (let i = P.length - 1; i >= 0; i--) if (P[i].desde <= hoy) return i
+    return 0
+  }
+  return P.length - 1
+}
+
+const round2 = v => Math.round(v*100)/100
 const eP = v => (Math.round(v*100)/100)+'%'
 const eM = v => { v=Math.round(v); return v>=1e6?'$'+(v/1e6).toFixed(2)+'M':'$'+Math.round(v/1e3).toLocaleString('en-US')+'K' }
 function ePer(g) { return g==='anual'?[D.anual]:g==='semanal'?D.semanal:g==='trimestral'?D.trimestral:D.mensual }
@@ -1292,22 +1354,31 @@ function initScatterZoom() {
   })
 }
 
+function scEtiquetaPeriodo(){
+  if (_scG === 'anual') return String(EAnio)
+  return periodosDelAnio(_scG, EAnio)[_scI].label
+}
 function eScatterCard(){
   const n = PS ? PS.length : 0
   const subtitle = n
-    ? n + ' partes (≥30 piezas) · año ' + EAnio + ' · etiquetadas: 7 con mayor ton. rechazadas'
-    : 'Cargando…'
+    ? n + ' partes · ' + scEtiquetaPeriodo() + ' · etiquetadas: 7 con mayor ton. rechazadas'
+    : (PS ? 'Sin partes con volumen suficiente en ' + scEtiquetaPeriodo() : 'Cargando…')
   const chart = PS ? eScatterSVG(PS, D.anual.rate || D.meta.avg) : '<p style="font-size:12px;color:var(--color-text-tertiary)">Cargando…</p>'
-  return '<div class="card2" style="margin-top:12px">'
-    +'<p style="font-size:14px;font-weight:500;margin:0 0 2px">Rechazo por número de parte · ' + EAnio + '</p>'
+  return '<div class="card2" id="e-scatter-card" style="margin-top:12px">'
+    +'<p style="font-size:14px;font-weight:500;margin:0 0 10px">Rechazo por número de parte · ' + scEtiquetaPeriodo() + '</p>'
+    + periodoSelectorHTML('sc')
     +'<p style="font-size:11px;color:var(--color-text-tertiary);margin:0 0 12px">' + subtitle + '</p>'
     + chart
     +'<p style="font-size:10px;color:var(--color-text-tertiary);margin:8px 0 0;text-align:center">🔍 Scroll para zoom &nbsp;·&nbsp; Arrastrar para mover &nbsp;·&nbsp; Doble clic para resetear</p>'
     +'</div>'
 }
 
+function ccEtiquetaPeriodo(){
+  if (_ccG === 'anual') return String(EAnio)
+  return periodosDelAnio(_ccG, EAnio)[_ccI].label
+}
 function eCierreCiclo(){
-  if(!CC) return ''
+  if(!CC) return '<div class="card2" id="e-ciclo-card" style="margin-top:12px">'+periodoSelectorHTML('cc')+'<p style="font-size:12px;color:var(--color-text-tertiary)">Cargando…</p></div>'
   const dist=CC.distribucion
   const BCOL={h08:'#0F6E56',h16:'#1D9E75',h24:'#378ADD',h32:'#BA7517',h32p:'#854F0B',cuarentena:'#A32D2D',atipico:'#9a9890',en_proceso:'#5c57b0'}
   const maxPct=Math.max(...dist.map(d=>d.pct))
@@ -1328,16 +1399,59 @@ function eCierreCiclo(){
   if(CC.cuarentena>0){
     alertHtml='<div style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:#FCEBEB;border-radius:8px;margin-bottom:14px;border-left:3px solid #A32D2D">'
       +'<div style="flex:1"><div style="font-size:13px;font-weight:600;color:#A32D2D">'+CC.cuarentena.toLocaleString('en-US')+' coladas en cuarentena</div>'
-      +'<div style="font-size:11px;color:#A32D2D;margin-top:2px">'+CC.cuarentena_piezas.toLocaleString('en-US')+' piezas sin veredicto · más de 120 h sin cierre</div></div>'
+      +'<div style="font-size:11px;color:#A32D2D;margin-top:2px">'+CC.cuarentena_piezas.toLocaleString('en-US')+' piezas sin veredicto · más de 144 h sin cierre</div></div>'
       +'<div style="text-align:right;flex-shrink:0"><div style="font-size:22px;font-weight:700;color:#A32D2D">'+CC.pct_en_meta+'%</div>'
       +'<div style="font-size:10px;color:#A32D2D">en meta ≤ 24 h</div></div></div>'
   }
-  return '<div class="card2" style="margin-top:12px">'
-    +'<p style="font-size:14px;font-weight:500;margin:0 0 12px">Cierre de ciclo de coladas · '+EAnio+'</p>'
+  return '<div class="card2" id="e-ciclo-card" style="margin-top:12px">'
+    +'<p style="font-size:14px;font-weight:500;margin:0 0 10px">Cierre de ciclo de coladas · '+ccEtiquetaPeriodo()+'</p>'
+    +periodoSelectorHTML('cc')
     +alertHtml+bars
-    +'<p style="font-size:11px;color:var(--color-text-tertiary);margin:10px 0 0">Meta: cerrar el ciclo en ≤ 24 h · Cuarentena: > 120 h · Atípico: > 30 días</p>'
+    +'<p style="font-size:11px;color:var(--color-text-tertiary);margin:10px 0 0">Meta: cerrar el ciclo en ≤ 24 h · Cuarentena (en rojo): > 144 h sin cerrar · Atípico: > 30 días</p>'
     +'</div>'
 }
+
+// ── Selector de período propio: Rechazo por número de parte (scatter) ──────────
+async function scCargar(){
+  const params = new URLSearchParams({anio: EAnio})
+  if (_scG !== 'anual') {
+    const per = periodosDelAnio(_scG, EAnio)[_scI]
+    params.set('desde', per.desde); params.set('hasta', per.hasta)
+  }
+  PS = null
+  eRender()
+  PS = await apiFetch('/v2/ejecutivo/partes-scatter?' + params.toString())
+  eRender()
+}
+function scSetG(g){ _scG = g; _scI = defaultPeriodoIdx(g, EAnio); scCargar() }
+function scStep(d){
+  const P = periodosDelAnio(_scG, EAnio)
+  _scI = Math.min(P.length - 1, Math.max(0, _scI + d))
+  scCargar()
+}
+function scPick(i){ _scI = +i; scCargar() }
+
+// ── Selector de período propio: Cierre de ciclo de coladas ─────────────────────
+async function ccCargar(){
+  const params = new URLSearchParams({anio: EAnio})
+  if (_ccG !== 'anual') {
+    const per = periodosDelAnio(_ccG, EAnio)[_ccI]
+    params.set('desde', per.desde); params.set('hasta', per.hasta)
+  }
+  CC = null
+  document.getElementById('eDash-ciclo').innerHTML = eCierreCiclo()
+  periodoSelectorSync('cc', _ccG, _ccI)
+  CC = await apiFetch('/v2/ejecutivo/cierre-ciclo?' + params.toString())
+  document.getElementById('eDash-ciclo').innerHTML = eCierreCiclo()
+  periodoSelectorSync('cc', _ccG, _ccI)
+}
+function ccSetG(g){ _ccG = g; _ccI = defaultPeriodoIdx(g, EAnio); ccCargar() }
+function ccStep(d){
+  const P = periodosDelAnio(_ccG, EAnio)
+  _ccI = Math.min(P.length - 1, Math.max(0, _ccI + d))
+  ccCargar()
+}
+function ccPick(i){ _ccI = +i; ccCargar() }
 
 function eRender(){
   const m=D.meta, P=ePer(EG), cur=P[EI], prev=EI>0?P[EI-1]:null
@@ -1373,6 +1487,11 @@ function eRender(){
   document.getElementById('eDash-ciclo').innerHTML = eCierreCiclo()
   renderMainCharts()
   initScatterZoom()
+  // eScatterCard()/eCierreCiclo() se regeneran completos en cada eRender() (también disparado
+  // por el toggle global de arriba) -- su selector propio de período necesita re-sincronizarse
+  // cada vez, si no siempre se ve "Año" resaltado aunque el estado real sea otro.
+  periodoSelectorSync('sc', _scG, _scI)
+  periodoSelectorSync('cc', _ccG, _ccI)
 
   // Sincronización de fecha entre pestañas (JC, 2026-09-23): el período que se ve
   // en Ejecutivo (EAnio/EG/EI) es la fuente única de verdad para Flujo del Proceso,
@@ -1395,7 +1514,7 @@ function eFinDePeriodo(anio, g, idx) {
   if (g === 'semanal') {
     // Aproximación de semana ISO (el backend usa YEARWEEK(...,3), modo ISO) -- domingo
     // de la semana idx+1. Pedidos numera semanas distinto (simple, no-ISO, ver
-    // pedPeriodos) por eso no se le pasa el índice exacto en este modo, solo año+agr.
+    // periodosDelAnio) por eso no se le pasa el índice exacto en este modo, solo año+agr.
     const simple = new Date(anio, 0, 1 + idx * 7)
     const dow = simple.getDay() || 7
     const monday = new Date(simple)
@@ -1581,13 +1700,14 @@ function eScatterSVG(parts, rateAnio) {
 async function initEjecutivo(anio){
   if(anio) EAnio = anio
   setHdrStatus('Cargando datos ' + EAnio + '…')
-  const [data, cc, ps] = await Promise.all([
-    apiFetch('/v2/ejecutivo/resumen-anual?anio=' + EAnio),
-    apiFetch('/v2/ejecutivo/cierre-ciclo?anio=' + EAnio),
-    apiFetch('/v2/ejecutivo/partes-scatter?anio=' + EAnio)
-  ])
-  CC = cc
-  PS = ps
+  // cierre-ciclo/partes-scatter se cargan por su cuenta (scCargar/ccCargar) -- cada uno tiene
+  // ahora su propio selector de período (JC, 2026-09-29) y se recarga también cuando el usuario
+  // cambia SOLO ese selector, no solo al cambiar de año. Aquí se resetean a "año completo" cada
+  // vez que cambia el año global, para no arrastrar un trimestre/mes del año anterior.
+  _scG = 'anual'; _scI = 0; PS = null
+  _ccG = 'anual'; _ccI = 0; CC = null
+  _tonG = 'anual'; _tonI = 0
+  const data = await apiFetch('/v2/ejecutivo/resumen-anual?anio=' + EAnio)
   if(data){
     Object.assign(D, data)
     const src = EAnio < new Date().getFullYear() ? 'Histórico ' : 'Datos reales '
@@ -1596,6 +1716,8 @@ async function initEjecutivo(anio){
     setHdrStatus('API no disponible')
   }
   eSetG(EG)
+  scCargar()
+  ccCargar()
   initPronostico()
   loadTonelaje()
 }
@@ -1617,6 +1739,24 @@ async function loadTonelaje(){
   renderTonelaje()
 }
 
+// Selector de período propio (Año/Trimestre/Mes) -- a diferencia de Scatter/Cierre de ciclo, no
+// dispara fetch: _tonData ya trae los 12 meses del año con desglose por horno en una sola
+// respuesta (ver /produccion/tonelaje-mensual), así que cambiar de período aquí es solo
+// reslicear lo ya cargado (ver renderTonelaje()).
+function tonSetG(g){ _tonG = g; _tonI = defaultPeriodoIdx(g, EAnio); renderTonelaje() }
+function tonStep(d){
+  const P = periodosDelAnio(_tonG, EAnio)
+  _tonI = Math.min(P.length - 1, Math.max(0, _tonI + d))
+  renderTonelaje()
+}
+function tonPick(i){ _tonI = +i; renderTonelaje() }
+function tonRangoMeses(){
+  if (_tonG === 'anual') return [1, 12]
+  const per = periodosDelAnio(_tonG, EAnio)[_tonI]
+  const mIni = +per.desde.slice(5,7), mFin = +per.hasta.slice(5,7)
+  return [mIni, mFin]
+}
+
 function mcNuevo(label,val,sub){
   return '<div class="mc" style="position:relative;background:var(--amber-bg);'
     +'border:1px dashed var(--amber);border-radius:8px;padding:8px 10px">'
@@ -1627,17 +1767,26 @@ function mcNuevo(label,val,sub){
     +(sub?'<p style="font-size:12px;color:var(--color-text-secondary);margin-top:2px">'+sub+'</p>':'')+'</div>'
 }
 
+function tonEtiquetaPeriodo(){
+  if (_tonG === 'anual') return String(EAnio)
+  return periodosDelAnio(_tonG, EAnio)[_tonI].label
+}
 function renderTonelaje(){
   const sub = document.getElementById('ton-sub')
   const kpisEl = document.getElementById('ton-kpis')
   const chartEl = document.getElementById('ton-chart')
   const hornoEl = document.getElementById('ton-horno')
 
+  document.getElementById('ton-periodo-sel').innerHTML = periodoSelectorHTML('ton')
+  periodoSelectorSync('ton', _tonG, _tonI)
+
+  const [mIni, mFin] = tonRangoMeses()
+
   // Costo de no-calidad: fuente/método distinto a _tonData (ver backend/routers/costo_calidad.py)
   // -- se cruza por (anio, mes), nunca se asume que coincide 1:1 con _tonData. A diferencia de
   // _tonData (solo 2025, cscmega_* congelada), esta serie SÍ llega a 2026 -- por eso se calcula
   // siempre, incluso cuando _tonData no tiene barras para el año seleccionado.
-  const nocMeses = (_costoNocData && _costoNocData.meses || []).filter(m => m.anio === EAnio)
+  const nocMeses = (_costoNocData && _costoNocData.meses || []).filter(m => m.anio === EAnio && m.mes >= mIni && m.mes <= mFin)
   const nocPorMes = {}
   nocMeses.forEach(m => { nocPorMes[m.mes] = m })
   const costoNocTotal = nocMeses.reduce((s,m) => s + m.costo_no_calidad_usd, 0)
@@ -1645,10 +1794,10 @@ function renderTonelaje(){
   const tonProdVerificada = nocMeses.length > 0 && nocMeses.every(m => m.ton_producidas != null)
   const tonProdVerificadaTotal = tonProdVerificada ? nocMeses.reduce((s,m) => s + m.ton_producidas, 0) : 0
 
-  const tieneBarras = !!(_tonData && _tonData.meses && _tonData.meses.some(m => m.anio === EAnio))
+  const tieneBarras = !!(_tonData && _tonData.meses && _tonData.meses.some(m => m.anio === EAnio && m.mes >= mIni && m.mes <= mFin))
 
   if(!tieneBarras && !nocMeses.length){
-    sub.textContent = _tonData ? 'Sin datos de tonelaje ni costo de calidad para ' + EAnio : 'API no disponible'
+    sub.textContent = _tonData ? 'Sin datos de tonelaje ni costo de calidad para ' + tonEtiquetaPeriodo() : 'API no disponible'
     kpisEl.innerHTML = ''; chartEl.innerHTML = ''; hornoEl.innerHTML = ''
     return
   }
@@ -1657,7 +1806,7 @@ function renderTonelaje(){
     // Ej. 2026: cscmega_* (producción total verificada) sigue congelada desde 2025-12-29, así que
     // no hay con qué dibujar las barras de tonelaje -- pero piso_ia.rechazo sí está vivo, así que
     // el costo de no-calidad se muestra solo (sin bars, sin tabla por horno).
-    sub.textContent = 'Producción total sin verificar para ' + EAnio + ' (cscmega_* congelada desde 2025-12-29) · mostrando solo costo de no-calidad'
+    sub.textContent = 'Producción total sin verificar para ' + tonEtiquetaPeriodo() + ' (cscmega_* congelada desde 2025-12-29) · mostrando solo costo de no-calidad'
     kpisEl.innerHTML = mcNuevo('Costo de no-calidad', '$'+Math.round(costoNocTotal).toLocaleString('es-MX'),
       nocMeses.length + ' mes(es) con dato · piso_ia.rechazo × costo/ton')
     chartEl.innerHTML = svgCostoNocSolo(nocMeses)
@@ -1665,11 +1814,18 @@ function renderTonelaje(){
     return
   }
 
-  const meses = _tonData.meses.filter(m => m.anio === EAnio)
-  const tot = _tonData.total_por_anio[EAnio] || {ton_brutos:0, ton_producto_ok:0, ton_rechazo:0}
+  const meses = _tonData.meses.filter(m => m.anio === EAnio && m.mes >= mIni && m.mes <= mFin)
+  // Suma cliente-side en vez de _tonData.total_por_anio[EAnio] (ese total siempre es del año
+  // completo) -- cada mes ya trae ton_brutos/ton_producto_ok/ton_rechazo propios, mismo criterio
+  // que ya se usaba para "Por horno" más abajo.
+  const tot = meses.reduce((s,m) => ({
+    ton_brutos:      round2(s.ton_brutos      + m.ton_brutos),
+    ton_producto_ok: round2(s.ton_producto_ok + m.ton_producto_ok),
+    ton_rechazo:     round2(s.ton_rechazo     + m.ton_rechazo),
+  }), {ton_brutos:0, ton_producto_ok:0, ton_rechazo:0})
   const pctRech = tot.ton_brutos ? Math.round(tot.ton_rechazo/tot.ton_brutos*1000)/10 : 0
 
-  sub.textContent = 'Peso real de colada (c_Kilos) repartido por pieza · ' + EAnio + ' · ' + meses.length + ' meses'
+  sub.textContent = 'Peso real de colada (c_Kilos) repartido por pieza · ' + tonEtiquetaPeriodo() + ' · ' + meses.length + ' meses'
 
   kpisEl.innerHTML =
     mc('Ton. brutas coladas', tot.ton_brutos.toLocaleString('es-MX')+' t', 'secondary', 'metal cargado al horno')
@@ -1704,7 +1860,7 @@ function renderTonelaje(){
       +'<td style="padding:6px 10px;font-size:12px;text-align:right">'+pct+'%</td>'
       +'</tr>'
   }).join('')
-  hornoEl.innerHTML = '<div style="font-size:11px;font-weight:600;color:var(--color-text-secondary);margin-bottom:6px">Por horno · '+EAnio+'</div>'
+  hornoEl.innerHTML = '<div style="font-size:11px;font-weight:600;color:var(--color-text-secondary);margin-bottom:6px">Por horno · '+tonEtiquetaPeriodo()+'</div>'
     +'<table style="border-collapse:collapse;width:100%">'
     +'<thead><tr style="border-bottom:1px solid var(--color-border-tertiary)">'
     +'<th style="padding:6px 10px;font-size:11px;text-align:left;color:var(--color-text-tertiary)">Horno</th>'
@@ -3676,7 +3832,7 @@ function pedTonSincronizar(){
   if (!_pedTonClientes || !_pedTonClientes.length) return
   const cliente = document.getElementById('ped-ton-cliente').value
   if (!cliente) return
-  const P = pedPeriodos(_pedAgr, _pedAnio)
+  const P = periodosDelAnio(_pedAgr, _pedAnio)
   const per = P[Math.min(_pedIdx, P.length-1)] || P[P.length-1]
   const bucket = (_pedAgr === 'mensual' || _pedAgr === 'semanal') ? 'semana' : 'mes'
   pedTonCargar(cliente, per.desde, per.hasta, bucket)
@@ -3761,7 +3917,7 @@ function svgClienteTonelaje(serie, bucket){
 // Índice por defecto: el período que contiene el dato más reciente real (no el último del año
 // calendario — fdbase puede estar congelada meses antes de terminar el año).
 function pedDefaultIdx(agr, anio){
-  const P = pedPeriodos(agr, anio)
+  const P = periodosDelAnio(agr, anio)
   if (_pedMaxFecha && _pedMaxFecha.slice(0,4) === String(anio)) {
     const idx = P.findIndex(p => _pedMaxFecha >= p.desde && _pedMaxFecha <= p.hasta)
     if (idx >= 0) return idx
@@ -3771,7 +3927,10 @@ function pedDefaultIdx(agr, anio){
 
 // Genera los períodos (label + desde/hasta) de un año según la agrupación,
 // igual a como el negocio corta el tiempo: año completo, trimestre, mes o semana.
-function pedPeriodos(agr, anio){
+// Compartida más allá de Pedidos (nombre neutro a propósito) -- reusada por los
+// selectores propios de Tonelaje/Scatter/Cierre de ciclo en Ejecutivo (JC, 2026-09-29)
+// para no triplicar esta aritmética de límites de trimestre/mes.
+function periodosDelAnio(agr, anio){
   if (agr === 'anual') return [{ label: String(anio), desde: anio+'-01-01', hasta: anio+'-12-31' }]
   if (agr === 'trimestral') {
     const Q = [['01-01','03-31'],['04-01','06-30'],['07-01','09-30'],['10-01','12-31']]
@@ -3815,7 +3974,7 @@ function pedSetAnio(anio){
   pedBuildNav()
 }
 function pedBuildNav(){
-  const P = pedPeriodos(_pedAgr, _pedAnio)
+  const P = periodosDelAnio(_pedAgr, _pedAnio)
   _pedIdx = Math.min(Math.max(_pedIdx,0), P.length-1)
   const nav = document.getElementById('ped-periodo-nav')
   if (_pedAgr === 'anual') {
@@ -3828,7 +3987,7 @@ function pedBuildNav(){
   pedCargarPeriodo()
 }
 function pedStep(delta){
-  const P = pedPeriodos(_pedAgr, _pedAnio)
+  const P = periodosDelAnio(_pedAgr, _pedAnio)
   _pedIdx = Math.min(P.length-1, Math.max(0, _pedIdx+delta))
   document.getElementById('ped-sel').value = _pedIdx
   pedCargarPeriodo()
@@ -3836,7 +3995,7 @@ function pedStep(delta){
 function pedPick(i){ _pedIdx = +i; pedCargarPeriodo() }
 
 function pedCargarPeriodo(){
-  const P = pedPeriodos(_pedAgr, _pedAnio)
+  const P = periodosDelAnio(_pedAgr, _pedAnio)
   const per = P[_pedIdx] || P[P.length-1]
   pedCargar(per.desde, per.hasta)
   pedTonSincronizar()
