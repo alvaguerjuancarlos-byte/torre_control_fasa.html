@@ -295,22 +295,28 @@ main{padding:16px 20px;max-width:1100px;margin:0 auto}
 <div id="tab-flujo" style="display:none">
 <main>
 
-  <!-- ── Alertas y Protocolos: franja Andon, siempre visible arriba del flujo ── -->
-  <div style="font-size:14px;font-weight:600;color:var(--color-text-primary);margin-bottom:8px">🔔 Alertas y Protocolos</div>
+  <!-- ── Ventana/Referencia: compartida entre Alertas y Protocolos y Flujo del Proceso ──
+       (JC, 2026-09-29: antes cada sección tenía su propio control -- coincidían solo por
+       accidente al cargar la página; en cuanto se tocaba el "Cargar" de uno solo se
+       desincronizaban, mostrando dos ventanas de tiempo distintas para la misma pestaña.
+       Un único control evita esa confusión: ambas secciones evalúan el mismo proceso.) -->
+  <div style="font-size:14px;font-weight:600;color:var(--color-text-primary);margin-bottom:8px">Control del Proceso · ventana de evaluación</div>
   <div class="controls">
     <span class="ctrl-label">Ventana</span>
-    <select id="al-sel-horas">
+    <select id="cp-sel-horas">
       <option value="8">8 h</option>
       <option value="24">24 h</option>
       <option value="48" selected>48 h</option>
       <option value="72">72 h</option>
     </select>
     <span class="ctrl-label">Referencia</span>
-    <input type="datetime-local" id="al-inp-ref" value="2025-12-19T08:00"/>
-    <button class="btn-load" onclick="cargarAlertas()">Cargar</button>
-    <span id="al-status" style="font-size:11px;color:var(--muted);margin-left:4px"></span>
+    <input type="datetime-local" id="cp-inp-ref" value="2025-12-19T08:00"/>
+    <button class="btn-load" onclick="cargarControlProceso()">Cargar</button>
+    <span id="cp-status" style="font-size:11px;color:var(--muted);margin-left:4px"></span>
   </div>
 
+  <!-- ── Alertas y Protocolos: franja Andon, siempre visible arriba del flujo ── -->
+  <div style="font-size:14px;font-weight:600;color:var(--color-text-primary);margin:20px 0 8px">🔔 Alertas y Protocolos</div>
   <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px">
     <button id="al-btn-alertas" class="al-toggle-btn" onclick="toggleAlertasPanel('alertas')">
       🔔 Alertas activas · <span id="al-count-alertas">—</span>
@@ -344,19 +350,8 @@ main{padding:16px 20px;max-width:1100px;margin:0 auto}
   <div style="margin:24px 0;border-top:1px solid var(--color-border-secondary)"></div>
 
   <!-- ── Flujo del Proceso: mapa por etapa + detalle de colada ── -->
-  <div style="font-size:14px;font-weight:600;color:var(--color-text-primary);margin-bottom:8px">Flujo del Proceso</div>
-  <div class="controls">
-    <span class="ctrl-label">Ventana</span>
-    <select id="fl-sel-horas">
-      <option value="8">8 h</option>
-      <option value="24">24 h</option>
-      <option value="48" selected>48 h</option>
-      <option value="72">72 h</option>
-    </select>
-    <span class="ctrl-label">Referencia</span>
-    <input type="datetime-local" id="fl-inp-ref" value="2025-12-19T08:00"/>
-    <button class="btn-load" onclick="cargarFlujo()">Cargar</button>
-    <span id="fl-status" style="font-size:11px;color:var(--muted);margin-left:4px"></span>
+  <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+    <div style="font-size:14px;font-weight:600;color:var(--color-text-primary)">Flujo del Proceso</div>
     <div style="margin-left:auto;display:flex;gap:3px;background:#F3F4F6;border-radius:6px;padding:3px">
       <button id="fl-modo-colada" class="pb active" onclick="flSetModo('colada')" style="font-size:11px;padding:4px 10px;border-radius:4px">Por Colada</button>
       <button id="fl-modo-parte" class="pb" onclick="flSetModo('parte')" style="font-size:11px;padding:4px 10px;border-radius:4px">Por No. Parte</button>
@@ -1166,7 +1161,7 @@ function switchTab(name) {
   if (!tabLoaded[name]) {
     tabLoaded[name] = true
     if (name === 'ejecutivo') initEjecutivo()
-    if (name === 'flujo') { cargarFlujo(); initAlertasPanel() }
+    if (name === 'flujo') cargarControlProceso()
     if (name === 'riesgo') rpSwitchSub('semana')
     if (name === 'pron') initPronPanel()
     if (name === 'pedidos') initPedidosPanel()
@@ -1515,19 +1510,24 @@ function eRender(){
   // cada vez, si no siempre se ve "Año" resaltado aunque el estado real sea otro.
   periodoSelectorSync('sc', _scG, _scI)
   periodoSelectorSync('cc', _ccG, _ccI)
-
-  // Sincronización de fecha entre pestañas (JC, 2026-09-23): el período que se ve
-  // en Ejecutivo (EAnio/EG/EI) es la fuente única de verdad para Flujo del Proceso,
-  // Alertas y Pedidos. eRender() es el punto de convergencia de las 4 formas de
-  // cambiar el período aquí (año, granularidad, flechas, selector) -- ver eStep/
-  // ePick/eSetG/eSetAnio. Se salta en el primer render (carga de página) para no
-  // pisar el default "ahora" de Flujo/Alertas ni el default "año con dato real" de
-  // Pedidos con el año 2025 hardcodeado de Ejecutivo -- solo sincroniza cuando el
-  // usuario cambia el período activamente.
-  if (_eInicializado) eSincronizarFechas()
-  _eInicializado = true
 }
-let _eInicializado = false
+
+// Sincronización de fecha entre pestañas (JC, 2026-09-23): el período que se ve en
+// Ejecutivo (EAnio/EG/EI) es la fuente única de verdad para Control del Proceso
+// (Flujo+Alertas, control unificado JC 2026-09-29) y Pedidos -- ver eStep/ePick/eSetG/
+// eSetAnio, las 4 formas de cambiar el período aquí, cada una llama a
+// eSincronizarFechas() explícitamente tras aplicar su cambio.
+//
+// Antes esto vivía al final de eRender(), disparado con un flag "_eInicializado" que
+// se ponía en true tras el primer render -- pero eRender() también se dispara desde
+// procesos automáticos de la carga de página (ej. scCargar() se renderiza una vez de
+// inmediato y otra vez cuando su fetch resuelve), así que para cuando esa 2a llamada
+// automática llegaba, el flag ya estaba en true y la sincronización se disparaba SIN
+// que el usuario hubiera tocado nada -- pisando el default "ahora" del control
+// unificado con el fin de año calculado de EAnio/EG/EI todavía en sus valores por
+// defecto (JC lo encontró al verificar la unificación: el control abría en 31-dic en
+// vez de "ahora"). Llamar a esta función solo desde los 4 puntos de entrada reales de
+// interacción del usuario evita el problema de raíz.
 
 // Fin del período seleccionado en Ejecutivo, para anclar ahí la ventana operacional
 // de Flujo del Proceso/Alertas (que trabajan con un punto en el tiempo, no un año).
@@ -1558,11 +1558,9 @@ let _pedSyncedFromEjecutivo = false
 
 function eSincronizarFechas() {
   const val = eFmtLocalInput(eFinDePeriodo(EAnio, EG, EI))
-  const flRef = document.getElementById('fl-inp-ref')
-  const alRef = document.getElementById('al-inp-ref')
-  if (flRef) flRef.value = val
-  if (alRef) alRef.value = val
-  if (tabLoaded['flujo']) { cargarFlujo(); cargarAlertas() }
+  const cpRef = document.getElementById('cp-inp-ref')
+  if (cpRef) cpRef.value = val
+  if (tabLoaded['flujo']) cargarControlProceso()
 
   // Pedidos usa la misma forma año+agrupación+índice que Ejecutivo para anual/
   // trimestral/mensual (calendario exacto, mapeo 1:1 seguro). Para 'semanal' se
@@ -1585,13 +1583,18 @@ function eNav(){
   document.getElementById('eLatest').textContent=(EI===P.length-1)?'● último con datos':''
 }
 function eBuild(){ document.getElementById('eSel').innerHTML=ePer(EG).map((p,i)=>'<option value="'+i+'">'+eOpt(EG,p)+'</option>').join('') }
-function ePick(i){ EI=i; eNav(); eRender() }
-function eStep(d){ const P=ePer(EG); EI=Math.min(P.length-1,Math.max(0,EI+d)); eNav(); eRender() }
-function eSetG(g){
+function ePick(i){ EI=i; eNav(); eRender(); eSincronizarFechas() }
+function eStep(d){ const P=ePer(EG); EI=Math.min(P.length-1,Math.max(0,EI+d)); eNav(); eRender(); eSincronizarFechas() }
+// fromUser=false: llamada automática (carga de página / cambio de año vía eSetAnio, que
+// ya sincroniza por su cuenta después de que EAnio quede fijo) -- no dispara
+// eSincronizarFechas() aquí para no pisar el default "ahora" del control unificado
+// de Flujo/Alertas antes de que el usuario haya tocado algo (ver eSincronizarFechas).
+function eSetG(g, fromUser){
   EG=g
   document.querySelectorAll('#tab-ejecutivo .pb[data-g]').forEach(b=>b.classList.toggle('active',b.dataset.g===g))
   document.getElementById('e-periodo-nav').style.display = g==='anual' ? 'none' : ''
   EI=eDef(g); eBuild(); eNav(); eRender()
+  if (fromUser !== false) eSincronizarFechas()
 }
 
 // Año por default = actual, acotado al rango de botones disponibles (2023-2026).
@@ -1748,7 +1751,7 @@ async function initEjecutivo(anio){
   } else {
     setHdrStatus('API no disponible')
   }
-  eSetG(EG)
+  eSetG(EG, false)
 }
 
 // ── Rendimiento Metálico · Tonelaje (kg reales por colada, Kilos / piezas) ──
@@ -2026,6 +2029,7 @@ function eSetAnio(anio){
   _updateVentanaBtns()
   renderTonelaje()   // sincrónico: refleja el año nuevo de inmediato (no depende del fetch de resumen-anual)
   initEjecutivo(anio)
+  eSincronizarFechas()   // EAnio ya quedó fijo arriba (síncrono) -- no hace falta esperar a initEjecutivo
 }
 
 // ════════════════════════════════════════════════════════════
@@ -2058,10 +2062,18 @@ function renderFlujo(){
   else renderFlujoMatriz(coladas)
 }
 
+// Ventana/Referencia únicas para toda la pestaña Control del Proceso (JC, 2026-09-29) --
+// dispara los dos fetches independientes (coladas para Flujo, alertas+protocolos+Beta
+// para Alertas) desde el único botón "Cargar" compartido.
+function cargarControlProceso(){
+  cargarFlujo()
+  cargarAlertas()
+}
+
 async function cargarFlujo(){
-  const horas=document.getElementById('fl-sel-horas').value
-  const ref=document.getElementById('fl-inp-ref').value
-  const status=document.getElementById('fl-status')
+  const horas=document.getElementById('cp-sel-horas').value
+  const ref=document.getElementById('cp-inp-ref').value
+  const status=document.getElementById('cp-status')
   const matriz=document.getElementById('fl-matriz')
   status.textContent='Cargando…'
   document.getElementById('fl-detalle').style.display='none'
@@ -2151,7 +2163,7 @@ async function verEnFlujo(noParte){
   const found=Object.values(_flColadas).some(c=>(c.skus||[]).some(s=>s.sku===noParte))
   _flParteAbierta=found?noParte:null
   renderFlujo()
-  const status=document.getElementById('fl-status')
+  const status=document.getElementById('cp-status')
   if(found){
     status.textContent=''
     const pid=flSafeId(noParte)
@@ -2392,10 +2404,6 @@ let _alData = null
 // comparte página con Flujo del Proceso, ya no es el único contenido de su propio tab.
 const _alPanelOpen = { alertas: false, protocolos: false, beta: false }
 
-function initAlertasPanel(){
-  cargarAlertas()
-}
-
 function toggleAlertasPanel(which){
   _alPanelOpen[which] = !_alPanelOpen[which]
   document.getElementById(`al-panel-${which}`).classList.toggle('collapsed', !_alPanelOpen[which])
@@ -2403,9 +2411,9 @@ function toggleAlertasPanel(which){
 }
 
 async function cargarAlertas(){
-  const horas = document.getElementById('al-sel-horas').value
-  const ref   = document.getElementById('al-inp-ref').value
-  const status = document.getElementById('al-status')
+  const horas = document.getElementById('cp-sel-horas').value
+  const ref   = document.getElementById('cp-inp-ref').value
+  const status = document.getElementById('cp-status')
   status.textContent = 'Cargando…'
   try{
     const url = `/v3/gestion/alertas?referencia=${encodeURIComponent(ref)}&horas=${horas}`
@@ -2536,19 +2544,17 @@ function renderBetaCriticas(data){
 // INIT
 // ════════════════════════════════════════════════════════════
 
-// Referencia por defecto de Flujo del Proceso/Alertas = ahora, no la fecha fija
-// 2025-12-19 que traía el HTML (ver backend/core.py::_evaluar_coladas_ventana,
-// migrado 2026-09-23 de cscmega_*/congeladas a betamega_*/vivas hasta hoy -- si
-// el input se queda en el valor viejo la ventana nunca sale de dic-2025 aunque
-// el backend ya sirva 2026). Se calcula una sola vez al cargar la página.
+// Referencia por defecto de Control del Proceso (Flujo + Alertas, control único desde
+// JC 2026-09-29) = ahora, no la fecha fija 2025-12-19 que traía el HTML (ver
+// backend/core.py::_evaluar_coladas_ventana, migrado 2026-09-23 de cscmega_*/congeladas
+// a betamega_*/vivas hasta hoy -- si el input se queda en el valor viejo la ventana nunca
+// sale de dic-2025 aunque el backend ya sirva 2026). Se calcula una sola vez al cargar la página.
 ;(function(){
   const now = new Date()
   const pad = n => String(n).padStart(2, '0')
   const localVal = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`
-  const flRef = document.getElementById('fl-inp-ref')
-  const alRef = document.getElementById('al-inp-ref')
-  if (flRef) flRef.value = localVal
-  if (alRef) alRef.value = localVal
+  const cpRef = document.getElementById('cp-inp-ref')
+  if (cpRef) cpRef.value = localVal
 })()
 
 // Marca el botón de año activo según el EAnio dinámico (ya no hay "active" fijo
