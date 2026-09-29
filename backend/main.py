@@ -1030,18 +1030,25 @@ def v2_pronostico(ventana: int = 12, periodos: int = 3, year: int = 0):
 @app.get("/v2/ejecutivo/cierre-ciclo")
 def v2_cierre_ciclo(anio: int = Query(default=2025), desde: str = Query(default=None), hasta: str = Query(default=None)):
     """
-    Distribución de coladas por tiempo de cierre de ciclo, para el año completo o para una
-    ventana acotada dentro de ese año (desde/hasta, YYYY-MM-DD) -- mismo patrón que
-    /v2/pedidos/lista, para que Ejecutivo pueda pedir esta gráfica por trimestre/mes en vez de
-    solo año completo (JC, 2026-09-29).
-    Grupos: cerradas (≤8h…>32h, según el histograma natural de ciclo_h), cuarentena (>144h sin
-    cerrar, en rojo), en_proceso (<144h sin cerrar), atipico (>30d). La referencia para 'abierto'
-    es el final de la ventana analizada (fin de año, o `hasta` si se pasó una ventana acotada).
+    Histograma de coladas por tiempo de cierre de ciclo, para el año completo o para una ventana
+    acotada dentro de ese año (desde/hasta, YYYY-MM-DD) -- mismo patrón que /v2/pedidos/lista,
+    para que Ejecutivo pueda pedir esta gráfica por trimestre/mes en vez de solo año completo
+    (JC, 2026-09-29).
 
-    Umbral de cuarentena movido de 120h a 144h (JC, 2026-09-28) -- ver historial de commits para
-    el intento previo (separar un bucket ">144h" dentro de las YA CERRADAS), que no era lo
-    pedido: el corte de 144h aplica a las coladas SIN cerrar (cuarentena), no a las cerradas --
-    esas se siguen dibujando con los bins originales del histograma (≤8h/16h/24h/32h/>32h).
+    Buckets de cerradas más finos (JC, 2026-09-29, al quitar la tarjeta de alerta de cuarentena y
+    pasar a un histograma real): ≤8h/8-16/16-24/24-32/32-48/48-72/72-96/96-120/120-144h, luego
+    144-720h y >720h (atípico) agrupados. cuarentena/en_proceso siguen siendo categorías de
+    ESTADO (sin cerrar), no bins de tiempo -- se calculan aparte y se dibujan como barras más en
+    el mismo histograma, ya no en una tarjeta de alerta separada.
+
+    Referencia para "sigue abierta" (JC, 2026-09-29): antes siempre el fin del año/ventana
+    pedida -- para el año en curso eso ancla contra el 31-dic, una fecha FUTURA respecto a hoy,
+    así que cualquier colada con aunque fuera 1 pieza sin cerrar contaba como si llevara meses
+    abierta (inflaba "cuarentena" artificialmente). Ahora es min(hoy, fin de la ventana): para un
+    año/trimestre/mes ya cerrado no cambia nada (hoy > esa fecha de todas formas), pero para el
+    año en curso ancla contra el momento real de la consulta.
+
+    Umbral de cuarentena: 144h sin cerrar (JC, 2026-09-28).
 
     MIGRACIÓN (2026-09-23): de cscmega_01rechazosbyidticket+cscmega_08ruta (ambas
     congeladas desde dic-2025) a betamega_03_coladasproceso+betamega_08_ticketrutacritica
@@ -1056,6 +1063,9 @@ def v2_cierre_ciclo(anio: int = Query(default=2025), desde: str = Query(default=
         d_ini = f"{anio}-01-01 00:00:00"
         d_fin = f"{anio}-12-31 23:59:59"
 
+    ahora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    ref = min(ahora, d_fin)
+
     rows = run("""
         SELECT
             CASE
@@ -1063,7 +1073,12 @@ def v2_cierre_ciclo(anio: int = Query(default=2025), desde: str = Query(default=
                 WHEN sub.n_limp >= sub.total AND sub.ciclo_h <=  16 THEN 'h16'
                 WHEN sub.n_limp >= sub.total AND sub.ciclo_h <=  24 THEN 'h24'
                 WHEN sub.n_limp >= sub.total AND sub.ciclo_h <=  32 THEN 'h32'
-                WHEN sub.n_limp >= sub.total AND sub.ciclo_h <= 720 THEN 'h32p'
+                WHEN sub.n_limp >= sub.total AND sub.ciclo_h <=  48 THEN 'h48'
+                WHEN sub.n_limp >= sub.total AND sub.ciclo_h <=  72 THEN 'h72'
+                WHEN sub.n_limp >= sub.total AND sub.ciclo_h <=  96 THEN 'h96'
+                WHEN sub.n_limp >= sub.total AND sub.ciclo_h <= 120 THEN 'h120'
+                WHEN sub.n_limp >= sub.total AND sub.ciclo_h <= 144 THEN 'h144'
+                WHEN sub.n_limp >= sub.total AND sub.ciclo_h <= 720 THEN 'h144p'
                 WHEN sub.n_limp >= sub.total                        THEN 'atipico'
                 WHEN TIMESTAMPDIFF(HOUR, sub.vaci_min, :ref) < 144  THEN 'en_proceso'
                 ELSE                                                     'cuarentena'
@@ -1088,18 +1103,24 @@ def v2_cierre_ciclo(anio: int = Query(default=2025), desde: str = Query(default=
             GROUP BY rb.Colada, rb.Horno
         ) sub
         GROUP BY bucket
-    """, {"d": d_ini, "h": d_fin, "ref": d_fin})
+    """, {"d": d_ini, "h": d_fin, "ref": ref})
 
-    ORDER  = ["h08", "h16", "h24", "h32", "h32p", "en_proceso", "cuarentena", "atipico"]
+    ORDER  = ["h08", "h16", "h24", "h32", "h48", "h72", "h96", "h120", "h144", "h144p",
+              "en_proceso", "cuarentena", "atipico"]
     LABELS = {
         "h08":       "≤ 8 h",
         "h16":       "8 – 16 h",
         "h24":       "16 – 24 h",
         "h32":       "24 – 32 h",
-        "h32p":      "> 32 h",
-        "en_proceso":"En proceso  (< 144 h)",
-        "cuarentena":"Cuarentena  (> 144 h sin cierre)",
-        "atipico":   "Atípico  (> 30 días)",
+        "h48":       "32 – 48 h",
+        "h72":       "48 – 72 h",
+        "h96":       "72 – 96 h",
+        "h120":      "96 – 120 h",
+        "h144":      "120 – 144 h",
+        "h144p":     "144 h – 30 d",
+        "en_proceso":"En proceso (< 144 h)",
+        "cuarentena":"Cuarentena (> 144 h sin cierre)",
+        "atipico":   "Atípico (> 30 días)",
     }
     idx   = {r["bucket"]: r for r in rows}
     total = sum(int(r["coladas"]) for r in rows)
@@ -1118,7 +1139,7 @@ def v2_cierre_ciclo(anio: int = Query(default=2025), desde: str = Query(default=
         })
 
     cerradas  = sum(d["n"] for d in distribucion
-                    if d["bucket"] in ("h08","h16","h24","h32","h32p"))
+                    if d["bucket"] in ("h08","h16","h24","h32","h48","h72","h96","h120","h144","h144p"))
     en_meta   = sum(d["n"] for d in distribucion
                     if d["bucket"] in ("h08","h16","h24"))
     cuarentena_n = idx.get("cuarentena", {}).get("coladas") or 0
@@ -1126,6 +1147,7 @@ def v2_cierre_ciclo(anio: int = Query(default=2025), desde: str = Query(default=
 
     return {
         "anio":            anio,
+        "referencia":      ref,
         "total_coladas":   total,
         "cerradas":        cerradas,
         "en_meta_24h":     en_meta,

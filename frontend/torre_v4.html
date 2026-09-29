@@ -1377,37 +1377,60 @@ function ccEtiquetaPeriodo(){
   if (_ccG === 'anual') return String(EAnio)
   return periodosDelAnio(_ccG, EAnio)[_ccI].label
 }
+function svgCierreCiclo(dist){
+  const VW=720, VH=196, PL=32, PR=12, PT=10, PB=52
+  const BW=VW-PL-PR, BH=VH-PT-PB
+  const maxN = Math.max(...dist.map(d=>d.n), 1) * 1.15
+  const slotW = BW/dist.length, barW = slotW*0.6, gap=(slotW-barW)/2
+  const Y = n => PT + BH - (n/maxN)*BH
+  const X = i => PL + i*slotW + gap
+  const COL = {
+    h08:'#1D9E75', h16:'#1D9E75', h24:'#1D9E75',
+    h32:'#B7791F', h48:'#B7791F', h72:'#B7791F', h96:'#B7791F', h120:'#B7791F', h144:'#B7791F',
+    h144p:'#A32D2D', atipico:'#A32D2D', cuarentena:'#A32D2D',
+    en_proceso:'#5c57b0'
+  }
+
+  let yax=''
+  for(let i=0;i<=3;i++){
+    const v = Math.round(maxN*i/3)
+    const y = Y(v)
+    yax += `<line x1="${PL}" y1="${y}" x2="${VW-PR}" y2="${y}" stroke="#F3F4F6" stroke-width="0.5"/>`
+    yax += `<text x="${PL-4}" y="${y+4}" text-anchor="end" font-size="9" fill="#9CA3AF">${v}</text>`
+  }
+
+  let bars=''
+  dist.forEach((d,i)=>{
+    const x=X(i), h=(d.n/maxN)*BH, y=Y(0)-h, cx=x+barW/2, ly=VH-PB+12
+    const col = COL[d.bucket] || '#9a9890'
+    bars += `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}" fill="${col}" rx="1.5"/>`
+    if(d.n>0) bars += `<text x="${cx.toFixed(1)}" y="${(y-4).toFixed(1)}" text-anchor="middle" font-size="8.5" fill="#6B7280">${d.n}</text>`
+    bars += `<text x="${cx.toFixed(1)}" y="${ly}" text-anchor="end" font-size="8" fill="#6B7280" transform="rotate(-42 ${cx.toFixed(1)} ${ly})">${d.labelCorto}</text>`
+  })
+
+  return `<svg width="100%" viewBox="0 0 ${VW} ${VH}" style="display:block;overflow:visible">
+    ${yax}${bars}
+    <line x1="${PL}" y1="${PT}" x2="${PL}" y2="${PT+BH}" stroke="#E5E7EB" stroke-width="0.5"/>
+    <line x1="${PL}" y1="${PT+BH}" x2="${VW-PR}" y2="${PT+BH}" stroke="#E5E7EB" stroke-width="0.5"/>
+  </svg>`
+}
+
 function eCierreCiclo(){
   if(!CC) return '<div class="card2" id="e-ciclo-card" style="margin-top:12px">'+periodoSelectorHTML('cc')+'<p style="font-size:12px;color:var(--color-text-tertiary)">Cargando…</p></div>'
-  const dist=CC.distribucion
-  const BCOL={h08:'#0F6E56',h16:'#1D9E75',h24:'#378ADD',h32:'#BA7517',h32p:'#854F0B',cuarentena:'#A32D2D',atipico:'#9a9890',en_proceso:'#5c57b0'}
-  const maxPct=Math.max(...dist.map(d=>d.pct))
-  let bars=''
-  dist.forEach(d=>{
-    if(!d.n) return
-    const w=maxPct>0?Math.round(d.pct/maxPct*100):0
-    const col=BCOL[d.bucket]||'#9a9890'
-    const extra=d.bucket==='cuarentena'?' · '+d.piezas_pendientes.toLocaleString('en-US')+' pzas sin veredicto':''
-    bars+='<div style="display:grid;grid-template-columns:160px 1fr 70px;align-items:center;gap:8px;margin-bottom:5px">'
-      +'<div style="font-size:11px;color:'+(d.bucket==='cuarentena'?'#A32D2D':'var(--color-text-secondary)')+';font-weight:'+(d.bucket==='cuarentena'?'600':'400')+'">'+d.label+'</div>'
-      +'<div style="background:var(--color-background-secondary);border-radius:3px;height:14px;overflow:hidden">'
-      +'<div style="width:'+w+'%;height:100%;background:'+col+';border-radius:3px"></div></div>'
-      +'<div style="font-size:11px;font-weight:600;color:'+col+';text-align:right">'+d.n+' col.</div>'
-      +'</div>'+(extra?'<div style="font-size:10px;color:#A32D2D;margin:-3px 0 6px 168px">'+extra+'</div>':'')
-  })
-  let alertHtml=''
-  if(CC.cuarentena>0){
-    alertHtml='<div style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:#FCEBEB;border-radius:8px;margin-bottom:14px;border-left:3px solid #A32D2D">'
-      +'<div style="flex:1"><div style="font-size:13px;font-weight:600;color:#A32D2D">'+CC.cuarentena.toLocaleString('en-US')+' coladas en cuarentena</div>'
-      +'<div style="font-size:11px;color:#A32D2D;margin-top:2px">'+CC.cuarentena_piezas.toLocaleString('en-US')+' piezas sin veredicto · más de 144 h sin cierre</div></div>'
-      +'<div style="text-align:right;flex-shrink:0"><div style="font-size:22px;font-weight:700;color:#A32D2D">'+CC.pct_en_meta+'%</div>'
-      +'<div style="font-size:10px;color:#A32D2D">en meta ≤ 24 h</div></div></div>'
-  }
+  const LBL_CORTO={h08:'≤8h',h16:'8-16h',h24:'16-24h',h32:'24-32h',h48:'32-48h',h72:'48-72h',h96:'72-96h',h120:'96-120h',h144:'120-144h',h144p:'144h-30d',en_proceso:'En proceso',cuarentena:'Cuarentena',atipico:'Atípico'}
+  const dist = CC.distribucion.map(d=>({...d, labelCorto: LBL_CORTO[d.bucket]||d.bucket}))
+  const legend = '<div style="display:flex;gap:16px;flex-wrap:wrap;margin:6px 0 2px;font-size:10px;color:var(--color-text-tertiary)">'
+    +'<span><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:#1D9E75;margin-right:4px"></span>Cerró ≤ 24 h</span>'
+    +'<span><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:#B7791F;margin-right:4px"></span>Cerró 24 – 144 h</span>'
+    +'<span><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:#A32D2D;margin-right:4px"></span>Cerró > 144 h / cuarentena / atípico</span>'
+    +'<span><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:#5c57b0;margin-right:4px"></span>En proceso (< 144 h)</span>'
+    +'</div>'
   return '<div class="card2" id="e-ciclo-card" style="margin-top:12px">'
     +'<p style="font-size:14px;font-weight:500;margin:0 0 10px">Cierre de ciclo de coladas · '+ccEtiquetaPeriodo()+'</p>'
     +periodoSelectorHTML('cc')
-    +alertHtml+bars
-    +'<p style="font-size:11px;color:var(--color-text-tertiary);margin:10px 0 0">Meta: cerrar el ciclo en ≤ 24 h · Cuarentena (en rojo): > 144 h sin cerrar · Atípico: > 30 días</p>'
+    +svgCierreCiclo(dist)
+    +legend
+    +'<p style="font-size:11px;color:var(--color-text-tertiary);margin:6px 0 0">Meta: cerrar el ciclo en ≤ 24 h · '+CC.pct_en_meta+'% en meta · Cuarentena: '+CC.cuarentena.toLocaleString('en-US')+' coladas ('+CC.cuarentena_piezas.toLocaleString('en-US')+' piezas sin veredicto), > 144 h sin cerrar</p>'
     +'</div>'
 }
 
