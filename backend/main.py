@@ -1050,6 +1050,20 @@ def v2_cierre_ciclo(anio: int = Query(default=2025), desde: str = Query(default=
 
     Umbral de cuarentena: 144h sin cerrar (JC, 2026-09-28).
 
+    Cuarentena partida en dos (JC, 2026-09-29, tras investigar por qué el número salía
+    tan alto -- ver hallazgo): una colada cuenta como "sin cerrar" si le falta bLIMP=1
+    en AUNQUE SEA UNA de sus ~26 piezas en promedio, sin importar cuántas de las demás
+    sí cerraron -- así que casi cualquier colada con una sola pieza suelta cae aquí para
+    siempre. De esas piezas sueltas, ~41% ya tienen veredicto de rechazo (bRechazo=1,
+    con nomDefecto real) -- una pieza rechazada sale del flujo normal hacia scrap/
+    retrabajo y es válido que nunca llegue a limpieza, así que esa colada NO es
+    backlog real, solo no encaja en la definición estricta de "cerrada". El resto
+    (~59%) no tiene veredicto en absoluto (bRechazo=0/NULL, bLIMP=0) -- ese sí podría
+    ser atraso genuino o un hueco de captura. 'cuarentena_sv' (sin veredicto) es la
+    categoría que de verdad amerita atención; 'cuarentena_rc' (ya rechazada) está aquí
+    solo por la definición estricta de cierre, no por falta real de avance. Una colada
+    con piezas pendientes de ambos tipos cae en 'cuarentena_sv' (el caso más exigente).
+
     MIGRACIÓN (2026-09-23): de cscmega_01rechazosbyidticket+cscmega_08ruta (ambas
     congeladas desde dic-2025) a betamega_03_coladasproceso+betamega_08_ticketrutacritica
     (vivas hasta hoy) -- mismo par de tablas/join ya validado en
@@ -1081,7 +1095,8 @@ def v2_cierre_ciclo(anio: int = Query(default=2025), desde: str = Query(default=
                 WHEN sub.n_limp >= sub.total AND sub.ciclo_h <= 720 THEN 'h144p'
                 WHEN sub.n_limp >= sub.total                        THEN 'atipico'
                 WHEN TIMESTAMPDIFF(HOUR, sub.vaci_min, :ref) < 144  THEN 'en_proceso'
-                ELSE                                                     'cuarentena'
+                WHEN sub.n_pend_sin_veredicto > 0                   THEN 'cuarentena_sv'
+                ELSE                                                     'cuarentena_rc'
             END AS bucket,
             COUNT(*)   AS coladas,
             ROUND(AVG(CASE
@@ -1095,7 +1110,9 @@ def v2_cierre_ciclo(anio: int = Query(default=2025), desde: str = Query(default=
                 SUM(r.bLIMP)    AS n_limp,
                 MIN(r.FHrVACI)  AS vaci_min,
                 ROUND(TIMESTAMPDIFF(MINUTE,
-                    MIN(r.FHrVACI), MAX(r.FHrLIMP)) / 60.0, 1) AS ciclo_h
+                    MIN(r.FHrVACI), MAX(r.FHrLIMP)) / 60.0, 1) AS ciclo_h,
+                SUM(CASE WHEN r.bLIMP=0 AND (r.bRechazo=0 OR r.bRechazo IS NULL)
+                    THEN 1 ELSE 0 END)             AS n_pend_sin_veredicto
             FROM betamega_03_coladasproceso rb
             JOIN betamega_08_ticketrutacritica r ON r.idTicket = rb.idTicket
             WHERE rb.FHrVaciado BETWEEN :d AND :h
@@ -1106,7 +1123,7 @@ def v2_cierre_ciclo(anio: int = Query(default=2025), desde: str = Query(default=
     """, {"d": d_ini, "h": d_fin, "ref": ref})
 
     ORDER  = ["h08", "h16", "h24", "h32", "h48", "h72", "h96", "h120", "h144", "h144p",
-              "en_proceso", "cuarentena", "atipico"]
+              "en_proceso", "cuarentena_sv", "cuarentena_rc", "atipico"]
     LABELS = {
         "h08":       "≤ 8 h",
         "h16":       "8 – 16 h",
@@ -1118,9 +1135,10 @@ def v2_cierre_ciclo(anio: int = Query(default=2025), desde: str = Query(default=
         "h120":      "96 – 120 h",
         "h144":      "120 – 144 h",
         "h144p":     "144 h – 30 d",
-        "en_proceso":"En proceso (< 144 h)",
-        "cuarentena":"Cuarentena (> 144 h sin cierre)",
-        "atipico":   "Atípico (> 30 días)",
+        "en_proceso":    "En proceso (< 144 h)",
+        "cuarentena_sv": "Cuarentena · sin veredicto (> 144 h)",
+        "cuarentena_rc": "Cuarentena · ya rechazada, sin limpiar (> 144 h)",
+        "atipico":       "Atípico (> 30 días)",
     }
     idx   = {r["bucket"]: r for r in rows}
     total = sum(int(r["coladas"]) for r in rows)
@@ -1142,8 +1160,10 @@ def v2_cierre_ciclo(anio: int = Query(default=2025), desde: str = Query(default=
                     if d["bucket"] in ("h08","h16","h24","h32","h48","h72","h96","h120","h144","h144p"))
     en_meta   = sum(d["n"] for d in distribucion
                     if d["bucket"] in ("h08","h16","h24"))
-    cuarentena_n = idx.get("cuarentena", {}).get("coladas") or 0
-    cuarentena_pz = idx.get("cuarentena", {}).get("piezas_pendientes") or 0
+    cuarentena_sv_n  = idx.get("cuarentena_sv", {}).get("coladas") or 0
+    cuarentena_sv_pz = idx.get("cuarentena_sv", {}).get("piezas_pendientes") or 0
+    cuarentena_rc_n  = idx.get("cuarentena_rc", {}).get("coladas") or 0
+    cuarentena_rc_pz = idx.get("cuarentena_rc", {}).get("piezas_pendientes") or 0
 
     return {
         "anio":            anio,
@@ -1152,8 +1172,12 @@ def v2_cierre_ciclo(anio: int = Query(default=2025), desde: str = Query(default=
         "cerradas":        cerradas,
         "en_meta_24h":     en_meta,
         "pct_en_meta":     round(en_meta / cerradas * 100, 1) if cerradas else 0,
-        "cuarentena":      int(cuarentena_n),
-        "cuarentena_piezas": int(cuarentena_pz),
+        "cuarentena":         int(cuarentena_sv_n + cuarentena_rc_n),
+        "cuarentena_piezas":  int(cuarentena_sv_pz + cuarentena_rc_pz),
+        "cuarentena_sv":      int(cuarentena_sv_n),
+        "cuarentena_sv_piezas": int(cuarentena_sv_pz),
+        "cuarentena_rc":      int(cuarentena_rc_n),
+        "cuarentena_rc_piezas": int(cuarentena_rc_pz),
         "distribucion":    distribucion,
     }
 

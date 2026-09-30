@@ -1382,7 +1382,8 @@ function svgCierreCiclo(dist){
   const COL = {
     h08:'#1D9E75', h16:'#1D9E75', h24:'#1D9E75',
     h32:'#B7791F', h48:'#B7791F', h72:'#B7791F', h96:'#B7791F', h120:'#B7791F', h144:'#B7791F',
-    h144p:'#A32D2D', atipico:'#A32D2D', cuarentena:'#A32D2D',
+    h144p:'#A32D2D', atipico:'#A32D2D', cuarentena_sv:'#A32D2D',
+    cuarentena_rc:'#D28C7D',
     en_proceso:'#5c57b0'
   }
 
@@ -1412,12 +1413,13 @@ function svgCierreCiclo(dist){
 
 function eCierreCiclo(){
   if(!CC) return '<div class="card2" id="e-ciclo-card" style="margin-top:12px">'+periodoSelectorHTML('cc')+'<p style="font-size:12px;color:var(--color-text-tertiary)">Cargando…</p></div>'
-  const LBL_CORTO={h08:'≤8h',h16:'8-16h',h24:'16-24h',h32:'24-32h',h48:'32-48h',h72:'48-72h',h96:'72-96h',h120:'96-120h',h144:'120-144h',h144p:'144h-30d',en_proceso:'En proceso',cuarentena:'Cuarentena',atipico:'Atípico'}
+  const LBL_CORTO={h08:'≤8h',h16:'8-16h',h24:'16-24h',h32:'24-32h',h48:'32-48h',h72:'48-72h',h96:'72-96h',h120:'96-120h',h144:'120-144h',h144p:'144h-30d',en_proceso:'En proceso',cuarentena_sv:'Cuar. sin veredicto',cuarentena_rc:'Cuar. ya rechazada',atipico:'Atípico'}
   const dist = CC.distribucion.map(d=>({...d, labelCorto: LBL_CORTO[d.bucket]||d.bucket}))
   const legend = '<div style="display:flex;gap:16px;flex-wrap:wrap;margin:6px 0 2px;font-size:10px;color:var(--color-text-tertiary)">'
     +'<span><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:#1D9E75;margin-right:4px"></span>Cerró ≤ 24 h</span>'
     +'<span><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:#B7791F;margin-right:4px"></span>Cerró 24 – 144 h</span>'
-    +'<span><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:#A32D2D;margin-right:4px"></span>Cerró > 144 h / cuarentena / atípico</span>'
+    +'<span><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:#A32D2D;margin-right:4px"></span>Cerró > 144 h / atípico / cuarentena sin veredicto</span>'
+    +'<span><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:#D28C7D;margin-right:4px"></span>Cuarentena · ya rechazada (no es backlog real)</span>'
     +'<span><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:#5c57b0;margin-right:4px"></span>En proceso (< 144 h)</span>'
     +'</div>'
   return '<div class="card2" id="e-ciclo-card" style="margin-top:12px">'
@@ -1425,7 +1427,9 @@ function eCierreCiclo(){
     +periodoSelectorHTML('cc')
     +svgCierreCiclo(dist)
     +legend
-    +'<p style="font-size:11px;color:var(--color-text-tertiary);margin:6px 0 0">Meta: cerrar el ciclo en ≤ 24 h · '+CC.pct_en_meta+'% en meta · Cuarentena: '+CC.cuarentena.toLocaleString('en-US')+' coladas ('+CC.cuarentena_piezas.toLocaleString('en-US')+' piezas sin veredicto), > 144 h sin cerrar</p>'
+    +'<p style="font-size:11px;color:var(--color-text-tertiary);margin:6px 0 0">Meta: cerrar el ciclo en ≤ 24 h · '+CC.pct_en_meta+'% en meta · Cuarentena: '+CC.cuarentena.toLocaleString('en-US')+' coladas, > 144 h sin cerrar — '
+    +CC.cuarentena_sv.toLocaleString('en-US')+' sin veredicto (posible atraso real) y '
+    +CC.cuarentena_rc.toLocaleString('en-US')+' ya rechazadas y sin pasar por limpieza (no es backlog: la pieza rechazada sale del flujo normal)</p>'
     +'</div>'
 }
 
