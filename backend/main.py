@@ -2350,22 +2350,54 @@ def piso_gates_colada(u_colada: int, horno: int,
 
 
 @app.get("/piso/colada/{u_colada}/{horno}/diagnostico")
-def piso_diagnostico(u_colada: int, horno: int):
-    """4 chips de diagnóstico por colada: fusión/hold, defecto top, distribución, benchmark horno."""
+def piso_diagnostico(u_colada: int, horno: int, id_colada: Optional[int] = Query(default=None)):
+    """
+    4 chips de diagnóstico por colada: fusión/hold, defecto top, distribución, benchmark horno.
 
-    # 1. Fusión, hold y carga metálica
+    MIGRACIÓN (2026-09-29, auditoría "qué falta migrar a betamega"): con `id_colada` (que
+    Flujo del Proceso en /v4 ya manda desde 2026-09-29) los chips 2-4 (defecto/distribución/
+    benchmark) y la carga en kg se leen de betamega_03_coladasproceso (viva hasta hoy) en
+    vez de cscmega_* (congelada desde 2025-12-29), y quedan indexados por c_IdColada real en
+    vez de u_Colada (un consecutivo que se recicla). Sin `id_colada` se mantiene el
+    comportamiento viejo por u_colada+horno sobre cscmega_*, para no romper /piso (dashboard
+    legado, ver frontend/piso.html) que todavía llama así.
+
+    El chip 1 (fusión/hold) SIGUE sobre cscmega_03coladacargametalica siempre: no hay
+    reemplazo limpio en betamega_03 -- su columna más parecida (MinutosTiempoHorno) resultó
+    ser fusión+hold ya sumados (verificado cruzando contra cscmega para el mismo c_IdColada
+    en el período donde ambas existen), no separable sin trabajo de ETL/IT. Por eso sale
+    "sin_dato" para cualquier colada posterior a 2025-12-29 en vez de adivinar el reparto --
+    con `id_colada` se valida además que la fila de cscmega encontrada por u_colada+horno
+    (un número que se recicla) tenga fecha cercana a la fecha real de esta colada; si no,
+    se descarta como el match de OTRA colada vieja con el mismo número (mismo problema que
+    ya se encontró y corrigió para la química en /v3/gestion/colada/{id}/carriles).
+    """
+    vivo = id_colada is not None
+
+    fecha_real_colada = None
+    if vivo:
+        fr = run("SELECT MIN(FHrVaciado) AS f FROM betamega_03_coladasproceso WHERE c_IdColada = :id",
+                 {"id": id_colada})
+        fecha_real_colada = fr[0]["f"] if fr else None
+
+    # 1. Fusión, hold y carga metálica -- ver docstring: sin reemplazo vivo, se queda en
+    # cscmega_03 siempre (sale sin_dato para coladas 2026, en vez de un número adivinado).
     proc = run("""
         SELECT c_TiempoFundicion AS fusion_min,
                TIMESTAMPDIFF(MINUTE, c_FechaFinal, c_FechaLiberado) AS hold_min,
-               c_Kilos AS kg_carga
+               c_Kilos AS kg_carga, c_FechaInicial
         FROM cscmega_03coladacargametalica
         WHERE u_Colada = :col AND u_Horno = :horn
         ORDER BY c_FechaInicial DESC LIMIT 1
     """, {"col": u_colada, "horn": horno})
     p = proc[0] if proc else {}
-    fusion   = float(p["fusion_min"]) if p.get("fusion_min") else None
-    hold     = float(p["hold_min"])   if p.get("hold_min") is not None else None
-    kg_carga = float(p["kg_carga"])   if p.get("kg_carga") else None
+    match_confiable = (not vivo) or bool(
+        p.get("c_FechaInicial") and fecha_real_colada and
+        abs((p["c_FechaInicial"] - fecha_real_colada).days) <= 3
+    )
+    fusion   = float(p["fusion_min"]) if match_confiable and p.get("fusion_min") else None
+    hold     = float(p["hold_min"])   if match_confiable and p.get("hold_min") is not None else None
+    kg_carga = float(p["kg_carga"])   if match_confiable and p.get("kg_carga") else None
 
     fusion_estado = (
         "ok"    if fusion and 25 <= fusion <= 35 else
@@ -2380,92 +2412,176 @@ def piso_diagnostico(u_colada: int, horno: int):
         "sin_dato"
     )
 
-    # 2. Defecto dominante (top 3)
-    def_raw = run("""
-        SELECT t.nomDefecto, COUNT(*) AS n
-        FROM cscmega_01rechazosbyidticket rb
-        JOIN cscmega_01resultadoidticket t ON t.idTicket = rb.idTicket
-        WHERE rb.u_Colada = :col AND rb.u_Horno = :horn
-          AND rb.bRechazo = 1 AND t.nomDefecto IS NOT NULL
-        GROUP BY t.nomDefecto ORDER BY n DESC LIMIT 3
-    """, {"col": u_colada, "horn": horno})
-    total_def = sum(d["n"] for d in def_raw) or 1
-    defectos = [{"nombre": d["nomDefecto"],
-                 "n": int(d["n"]),
-                 "pct": round(d["n"] / total_def * 100, 1)} for d in def_raw]
+    if vivo:
+        # kg_carga vivo (betamega_03) -- reemplaza el de cscmega_03 (arriba) para las
+        # métricas en kg de la sección 5, que sí tienen reemplazo limpio.
+        kg_raw = run("SELECT MAX(Kilos) AS kg FROM betamega_03_coladasproceso WHERE c_IdColada = :id",
+                     {"id": id_colada})
+        kg_carga = float(kg_raw[0]["kg"]) if kg_raw and kg_raw[0]["kg"] else None
 
-    # 3. Distribución rechazo por SKU
-    dist_raw = run("""
-        SELECT t.No_Parte AS sku,
-               COUNT(*) AS total,
-               SUM(rb.bRechazo) AS rechazos
-        FROM cscmega_01rechazosbyidticket rb
-        JOIN cscmega_01resultadoidticket t ON t.idTicket = rb.idTicket
-        WHERE rb.u_Colada = :col AND rb.u_Horno = :horn
-        GROUP BY t.No_Parte HAVING total >= 2
-        ORDER BY rechazos DESC
-    """, {"col": u_colada, "horn": horno})
-    total_rech_dist = sum(int(d["rechazos"] or 0) for d in dist_raw) or 1
-    top_sku = dist_raw[0] if dist_raw else {}
-    top_pct  = round(int(top_sku.get("rechazos") or 0) / total_rech_dist * 100, 1) if dist_raw else 0
-    concentrado = top_pct >= 70 and len(dist_raw) > 1
+        # 2. Defecto dominante (top 3)
+        def_raw = run("""
+            SELECT nomDefecto, COUNT(*) AS n
+            FROM betamega_03_coladasproceso
+            WHERE c_IdColada = :id AND bRechazo = 1 AND nomDefecto IS NOT NULL
+            GROUP BY nomDefecto ORDER BY n DESC LIMIT 3
+        """, {"id": id_colada})
+        total_def = sum(d["n"] for d in def_raw) or 1
+        defectos = [{"nombre": d["nomDefecto"],
+                     "n": int(d["n"]),
+                     "pct": round(d["n"] / total_def * 100, 1)} for d in def_raw]
 
-    # 4. Benchmark: últimas 5 coladas del mismo horno (excluye la actual)
-    bench_raw = run("""
-        SELECT ROUND(AVG(bRechazo)*100, 1) AS pct
-        FROM cscmega_01rechazosbyidticket
-        WHERE u_Horno = :horn AND u_Colada != :col
-          AND u_Fecha >= (
-            SELECT DATE_SUB(MAX(u_Fecha), INTERVAL 30 DAY)
-            FROM cscmega_01rechazosbyidticket WHERE u_Horno = :horn
-          )
-        GROUP BY u_Colada
-        ORDER BY MAX(u_Fecha) DESC LIMIT 5
-    """, {"col": u_colada, "horn": horno})
-    bench_rates = [float(r["pct"]) for r in bench_raw if r["pct"] is not None]
-    bench_avg   = round(sum(bench_rates) / len(bench_rates), 1) if bench_rates else None
+        # 3. Distribución rechazo por SKU
+        dist_raw = run("""
+            SELECT No_Parte AS sku, COUNT(*) AS total, SUM(bRechazo) AS rechazos
+            FROM betamega_03_coladasproceso
+            WHERE c_IdColada = :id
+            GROUP BY No_Parte HAVING total >= 2
+            ORDER BY rechazos DESC
+        """, {"id": id_colada})
+        total_rech_dist = sum(int(d["rechazos"] or 0) for d in dist_raw) or 1
+        top_sku = dist_raw[0] if dist_raw else {}
+        top_pct  = round(int(top_sku.get("rechazos") or 0) / total_rech_dist * 100, 1) if dist_raw else 0
+        concentrado = top_pct >= 70 and len(dist_raw) > 1
 
-    current_pct_raw = run("""
-        SELECT ROUND(AVG(bRechazo)*100, 1) AS pct
-        FROM cscmega_01rechazosbyidticket
-        WHERE u_Colada = :col AND u_Horno = :horn
-    """, {"col": u_colada, "horn": horno})
-    current_pct = float(current_pct_raw[0]["pct"]) if current_pct_raw and current_pct_raw[0]["pct"] is not None else None
-    delta = round(current_pct - bench_avg, 1) if current_pct is not None and bench_avg is not None else None
+        # 4. Benchmark: últimas 5 coladas del mismo horno (excluye la actual)
+        bench_raw = run("""
+            SELECT ROUND(AVG(bRechazo)*100, 1) AS pct
+            FROM betamega_03_coladasproceso
+            WHERE Horno = :horn AND c_IdColada != :id
+              AND FHrVaciado >= (
+                SELECT DATE_SUB(MAX(FHrVaciado), INTERVAL 30 DAY)
+                FROM betamega_03_coladasproceso WHERE Horno = :horn
+              )
+            GROUP BY c_IdColada
+            ORDER BY MAX(FHrVaciado) DESC LIMIT 5
+        """, {"id": id_colada, "horn": horno})
+        bench_rates = [float(r["pct"]) for r in bench_raw if r["pct"] is not None]
+        bench_avg   = round(sum(bench_rates) / len(bench_rates), 1) if bench_rates else None
 
-    # 5. Métricas en kg  (peso_pieza = c_Kilos / total_piezas)
-    totales_raw = run("""
-        SELECT COUNT(*) AS total, SUM(bRechazo) AS rech
-        FROM cscmega_01rechazosbyidticket
-        WHERE u_Colada = :col AND u_Horno = :horn
-    """, {"col": u_colada, "horn": horno})
-    tot = totales_raw[0] if totales_raw else {}
-    total_piezas = int(tot.get("total") or 0)
-    piezas_rech  = int(tot.get("rech")  or 0)
-    piezas_ok    = total_piezas - piezas_rech
+        current_pct_raw = run("""
+            SELECT ROUND(AVG(bRechazo)*100, 1) AS pct
+            FROM betamega_03_coladasproceso WHERE c_IdColada = :id
+        """, {"id": id_colada})
+        current_pct = float(current_pct_raw[0]["pct"]) if current_pct_raw and current_pct_raw[0]["pct"] is not None else None
+        delta = round(current_pct - bench_avg, 1) if current_pct is not None and bench_avg is not None else None
 
-    peso_pieza_est = round(kg_carga / total_piezas, 2) if kg_carga and total_piezas > 0 else None
-    kg_ok_est      = round(piezas_ok   * peso_pieza_est, 1) if peso_pieza_est else None
-    kg_rech_est    = round(piezas_rech * peso_pieza_est, 1) if peso_pieza_est else None
-    pct_rech_kg    = round(kg_rech_est / kg_carga * 100, 1) if kg_rech_est and kg_carga else None
+        # 5. Métricas en kg  (peso_pieza = kg_carga / total_piezas)
+        totales_raw = run("""
+            SELECT COUNT(*) AS total, SUM(bRechazo) AS rech
+            FROM betamega_03_coladasproceso WHERE c_IdColada = :id
+        """, {"id": id_colada})
+        tot = totales_raw[0] if totales_raw else {}
+        total_piezas = int(tot.get("total") or 0)
+        piezas_rech  = int(tot.get("rech")  or 0)
+        piezas_ok    = total_piezas - piezas_rech
 
-    # delta kg vs benchmark (últimas 5 coladas del mismo horno por kg%)
-    bench_kg_raw = run("""
-        SELECT cc.u_Colada,
-               cc.c_Kilos,
-               COUNT(rb.idTicket)  AS total_p,
-               SUM(rb.bRechazo)    AS rech_p
-        FROM cscmega_03coladacargametalica cc
-        JOIN cscmega_01rechazosbyidticket rb
-             ON rb.u_Colada = cc.u_Colada AND rb.u_Horno = cc.u_Horno
-        WHERE cc.u_Horno = :horn AND cc.u_Colada != :col
-          AND cc.c_Kilos > 0 AND cc.c_FechaInicial >= (
-              SELECT DATE_SUB(MAX(c_FechaInicial), INTERVAL 30 DAY)
-              FROM cscmega_03coladacargametalica WHERE u_Horno = :horn
-          )
-        GROUP BY cc.u_Colada, cc.c_Kilos
-        ORDER BY MAX(rb.u_Fecha) DESC LIMIT 5
-    """, {"col": u_colada, "horn": horno})
+        peso_pieza_est = round(kg_carga / total_piezas, 2) if kg_carga and total_piezas > 0 else None
+        kg_ok_est      = round(piezas_ok   * peso_pieza_est, 1) if peso_pieza_est else None
+        kg_rech_est    = round(piezas_rech * peso_pieza_est, 1) if peso_pieza_est else None
+        pct_rech_kg    = round(kg_rech_est / kg_carga * 100, 1) if kg_rech_est and kg_carga else None
+
+        # delta kg vs benchmark (últimas 5 coladas del mismo horno por kg%)
+        bench_kg_raw = run("""
+            SELECT c_IdColada, MAX(Kilos) AS kilos,
+                   COUNT(*) AS total_p, SUM(bRechazo) AS rech_p
+            FROM betamega_03_coladasproceso
+            WHERE Horno = :horn AND c_IdColada != :id
+              AND FHrVaciado >= (
+                  SELECT DATE_SUB(MAX(FHrVaciado), INTERVAL 30 DAY)
+                  FROM betamega_03_coladasproceso WHERE Horno = :horn
+              )
+            GROUP BY c_IdColada HAVING kilos > 0
+            ORDER BY MAX(FHrVaciado) DESC LIMIT 5
+        """, {"id": id_colada, "horn": horno})
+    else:
+        # 2. Defecto dominante (top 3)
+        def_raw = run("""
+            SELECT t.nomDefecto, COUNT(*) AS n
+            FROM cscmega_01rechazosbyidticket rb
+            JOIN cscmega_01resultadoidticket t ON t.idTicket = rb.idTicket
+            WHERE rb.u_Colada = :col AND rb.u_Horno = :horn
+              AND rb.bRechazo = 1 AND t.nomDefecto IS NOT NULL
+            GROUP BY t.nomDefecto ORDER BY n DESC LIMIT 3
+        """, {"col": u_colada, "horn": horno})
+        total_def = sum(d["n"] for d in def_raw) or 1
+        defectos = [{"nombre": d["nomDefecto"],
+                     "n": int(d["n"]),
+                     "pct": round(d["n"] / total_def * 100, 1)} for d in def_raw]
+
+        # 3. Distribución rechazo por SKU
+        dist_raw = run("""
+            SELECT t.No_Parte AS sku,
+                   COUNT(*) AS total,
+                   SUM(rb.bRechazo) AS rechazos
+            FROM cscmega_01rechazosbyidticket rb
+            JOIN cscmega_01resultadoidticket t ON t.idTicket = rb.idTicket
+            WHERE rb.u_Colada = :col AND rb.u_Horno = :horn
+            GROUP BY t.No_Parte HAVING total >= 2
+            ORDER BY rechazos DESC
+        """, {"col": u_colada, "horn": horno})
+        total_rech_dist = sum(int(d["rechazos"] or 0) for d in dist_raw) or 1
+        top_sku = dist_raw[0] if dist_raw else {}
+        top_pct  = round(int(top_sku.get("rechazos") or 0) / total_rech_dist * 100, 1) if dist_raw else 0
+        concentrado = top_pct >= 70 and len(dist_raw) > 1
+
+        # 4. Benchmark: últimas 5 coladas del mismo horno (excluye la actual)
+        bench_raw = run("""
+            SELECT ROUND(AVG(bRechazo)*100, 1) AS pct
+            FROM cscmega_01rechazosbyidticket
+            WHERE u_Horno = :horn AND u_Colada != :col
+              AND u_Fecha >= (
+                SELECT DATE_SUB(MAX(u_Fecha), INTERVAL 30 DAY)
+                FROM cscmega_01rechazosbyidticket WHERE u_Horno = :horn
+              )
+            GROUP BY u_Colada
+            ORDER BY MAX(u_Fecha) DESC LIMIT 5
+        """, {"col": u_colada, "horn": horno})
+        bench_rates = [float(r["pct"]) for r in bench_raw if r["pct"] is not None]
+        bench_avg   = round(sum(bench_rates) / len(bench_rates), 1) if bench_rates else None
+
+        current_pct_raw = run("""
+            SELECT ROUND(AVG(bRechazo)*100, 1) AS pct
+            FROM cscmega_01rechazosbyidticket
+            WHERE u_Colada = :col AND u_Horno = :horn
+        """, {"col": u_colada, "horn": horno})
+        current_pct = float(current_pct_raw[0]["pct"]) if current_pct_raw and current_pct_raw[0]["pct"] is not None else None
+        delta = round(current_pct - bench_avg, 1) if current_pct is not None and bench_avg is not None else None
+
+        # 5. Métricas en kg  (peso_pieza = c_Kilos / total_piezas)
+        totales_raw = run("""
+            SELECT COUNT(*) AS total, SUM(bRechazo) AS rech
+            FROM cscmega_01rechazosbyidticket
+            WHERE u_Colada = :col AND u_Horno = :horn
+        """, {"col": u_colada, "horn": horno})
+        tot = totales_raw[0] if totales_raw else {}
+        total_piezas = int(tot.get("total") or 0)
+        piezas_rech  = int(tot.get("rech")  or 0)
+        piezas_ok    = total_piezas - piezas_rech
+
+        peso_pieza_est = round(kg_carga / total_piezas, 2) if kg_carga and total_piezas > 0 else None
+        kg_ok_est      = round(piezas_ok   * peso_pieza_est, 1) if peso_pieza_est else None
+        kg_rech_est    = round(piezas_rech * peso_pieza_est, 1) if peso_pieza_est else None
+        pct_rech_kg    = round(kg_rech_est / kg_carga * 100, 1) if kg_rech_est and kg_carga else None
+
+        # delta kg vs benchmark (últimas 5 coladas del mismo horno por kg%)
+        bench_kg_raw = run("""
+            SELECT cc.u_Colada,
+                   cc.c_Kilos,
+                   COUNT(rb.idTicket)  AS total_p,
+                   SUM(rb.bRechazo)    AS rech_p
+            FROM cscmega_03coladacargametalica cc
+            JOIN cscmega_01rechazosbyidticket rb
+                 ON rb.u_Colada = cc.u_Colada AND rb.u_Horno = cc.u_Horno
+            WHERE cc.u_Horno = :horn AND cc.u_Colada != :col
+              AND cc.c_Kilos > 0 AND cc.c_FechaInicial >= (
+                  SELECT DATE_SUB(MAX(c_FechaInicial), INTERVAL 30 DAY)
+                  FROM cscmega_03coladacargametalica WHERE u_Horno = :horn
+              )
+            GROUP BY cc.u_Colada, cc.c_Kilos
+            ORDER BY MAX(rb.u_Fecha) DESC LIMIT 5
+        """, {"col": u_colada, "horn": horno})
+
     bench_kg_rates = [
         round(float(r["rech_p"]) / float(r["total_p"]) * 100, 1)
         for r in bench_kg_raw if r["total_p"] and float(r["total_p"]) > 0
@@ -2531,35 +2647,71 @@ def piso_diagnostico(u_colada: int, horno: int):
 
 @app.get("/piso/colada/{u_colada}/{horno}/piezas")
 def piso_piezas_colada(u_colada: int, horno: int,
+                       id_colada: Optional[int] = Query(default=None),
                        desde: str = Query(default=None),
                        hasta: str = Query(default=None)):
-    """Piezas individuales de una colada con su etapa actual y SKU."""
+    """
+    Piezas individuales de una colada con su etapa actual y SKU.
+
+    MIGRACIÓN (2026-09-29): con `id_colada` (que Flujo del Proceso en /v4 ya manda desde
+    2026-09-29) se lee de betamega_03_coladasproceso+betamega_08_ticketrutacritica (vivas
+    hasta hoy) en vez de cscmega_* (congelada desde 2025-12-29). Sin `id_colada` se
+    mantiene el comportamiento viejo por u_colada+horno sobre cscmega_*, para no romper
+    /piso (dashboard legado, ver frontend/piso.html) que todavía llama así.
+    """
     d, h = rango(desde, hasta)
-    rows = run("""
-        SELECT
-            t.idTicket,
-            t.No_Parte          AS sku,
-            t.bRechazo,
-            t.nomDefecto        AS defecto,
-            r.bMOLD, r.bVACI, r.bDESM, r.bLIMP,
-            r.FhrVACI           AS ts_vaci,
-            r.FHrLIMP           AS ts_limp,
-            CASE
-              WHEN r.bLIMP = 1  THEN 'Terminada'
-              WHEN r.bDESM = 1  THEN 'En limpieza'
-              WHEN r.bVACI = 1  THEN 'En desmoldeo'
-              WHEN r.bMOLD = 1  THEN 'En vaciado'
-              ELSE 'Sin inicio'
-            END                 AS etapa
-        FROM cscmega_01resultadoidticket t
-        JOIN cscmega_08ruta r ON r.u_idTicket = t.idTicket
-        JOIN cscmega_01rechazosbyidticket rb ON rb.idTicket = t.idTicket
-        WHERE rb.u_Colada = :col AND rb.u_Horno = :horn
-          AND r.FhrVACI BETWEEN :d AND :h
-          AND r.FhrVACI IS NOT NULL
-        ORDER BY r.FhrVACI
-        LIMIT 200
-    """, {"col": u_colada, "horn": horno, "d": d, "h": h})
+
+    if id_colada is not None:
+        rows = run("""
+            SELECT
+                rb.idTicket,
+                rb.No_Parte        AS sku,
+                rb.bRechazo,
+                rb.nomDefecto      AS defecto,
+                r.bMOLD, r.bVACI, r.bDESM, r.bLIMP,
+                r.FHrVACI          AS ts_vaci,
+                r.FHrLIMP          AS ts_limp,
+                CASE
+                  WHEN r.bLIMP = 1  THEN 'Terminada'
+                  WHEN r.bDESM = 1  THEN 'En limpieza'
+                  WHEN r.bVACI = 1  THEN 'En desmoldeo'
+                  WHEN r.bMOLD = 1  THEN 'En vaciado'
+                  ELSE 'Sin inicio'
+                END                 AS etapa
+            FROM betamega_03_coladasproceso rb
+            JOIN betamega_08_ticketrutacritica r ON r.idTicket = rb.idTicket
+            WHERE rb.c_IdColada = :id
+              AND r.FHrVACI BETWEEN :d AND :h
+              AND r.FHrVACI IS NOT NULL
+            ORDER BY r.FHrVACI
+            LIMIT 200
+        """, {"id": id_colada, "d": d, "h": h})
+    else:
+        rows = run("""
+            SELECT
+                t.idTicket,
+                t.No_Parte          AS sku,
+                t.bRechazo,
+                t.nomDefecto        AS defecto,
+                r.bMOLD, r.bVACI, r.bDESM, r.bLIMP,
+                r.FhrVACI           AS ts_vaci,
+                r.FHrLIMP           AS ts_limp,
+                CASE
+                  WHEN r.bLIMP = 1  THEN 'Terminada'
+                  WHEN r.bDESM = 1  THEN 'En limpieza'
+                  WHEN r.bVACI = 1  THEN 'En desmoldeo'
+                  WHEN r.bMOLD = 1  THEN 'En vaciado'
+                  ELSE 'Sin inicio'
+                END                 AS etapa
+            FROM cscmega_01resultadoidticket t
+            JOIN cscmega_08ruta r ON r.u_idTicket = t.idTicket
+            JOIN cscmega_01rechazosbyidticket rb ON rb.idTicket = t.idTicket
+            WHERE rb.u_Colada = :col AND rb.u_Horno = :horn
+              AND r.FhrVACI BETWEEN :d AND :h
+              AND r.FhrVACI IS NOT NULL
+            ORDER BY r.FhrVACI
+            LIMIT 200
+        """, {"col": u_colada, "horn": horno, "d": d, "h": h})
 
     # Agrupar por SKU
     skus = {}
@@ -2926,41 +3078,69 @@ def v3_gestion_coladas(
 
 @app.get("/v3/gestion/colada/{id_colada}/carriles")
 def v3_carriles_colada(id_colada: int):
-    """Evalúa los 7 carriles del contrato de visibilidad para una colada."""
+    """
+    Evalúa los 7 carriles del contrato de visibilidad para una colada.
+
+    MIGRACIÓN (2026-09-29, auditoría "qué falta migrar a betamega"): esta función leía
+    100% de cscmega_03coladacargametalica/cscmega_01rechazosbyidticket/cscmega_08ruta/
+    alfamega_06_vaciado, TODAS congeladas desde dic-2025 -- confirmado en vivo que
+    devolvía 404 para cualquier colada de 2026 real (la cabecera ya no existe en
+    cscmega_03). PC-5/PC-6/PC-7 se mueven a betamega_03_coladasproceso+
+    betamega_08_ticketrutacritica (mismo patrón ya validado en _evaluar_coladas_ventana
+    y /v2/ejecutivo/cierre-ciclo) y PC-4 a betamega_06_vaciado, que resultó ser el
+    equivalente vivo de alfamega_06_vaciado (mismas columnas, viva hasta hoy) sin que
+    ningún endpoint la usara todavía.
+
+    PC-2 (química, cscmega_05aquimicoscumplimiento) se queda en la fuente congelada --
+    no existe contraparte betamega_* para análisis SpectroMAX en todo el universo de
+    tablas de la BD (buscado por nombre de columna, no solo de tabla). Como esa tabla
+    solo tiene u_Colada/u_Horno como llave (un consecutivo que SE RECICLA -- distinto de
+    c_IdColada, el identificador real), un acierto de "match" para una colada 2026 podía
+    devolver en silencio la química de una colada vieja de 2025 con el mismo número. Se
+    agrega una validación: solo se acepta el análisis si su fecha cae cerca de la fecha
+    real de vaciado de ESTA colada (m['fecha_inicial'], ya resuelta por c_IdColada);
+    si no, PC-2 sale gris "sin dato" en vez de mostrar química de otra colada.
+    """
     meta = run("""
-        SELECT u_Colada, u_Horno, c_Kilos, c_FechaInicial, c_FechaFinal
-        FROM cscmega_03coladacargametalica
-        WHERE c_IdColada = :id LIMIT 1
+        SELECT
+            MAX(Colada) AS u_colada,
+            MAX(Horno)  AS u_horno,
+            MAX(Kilos)  AS kilos,
+            COALESCE(MIN(FechaInicial), MIN(FHrVaciado))  AS fecha_inicial,
+            COALESCE(MAX(FechaLiberado), MAX(FHrVaciado)) AS fecha_final
+        FROM betamega_03_coladasproceso
+        WHERE c_IdColada = :id
+        GROUP BY c_IdColada
     """, {"id": id_colada})
     if not meta:
         raise HTTPException(404, f"Colada {id_colada} no encontrada")
-    m   = meta[0]
-    uid = m["u_Colada"]
+    m     = meta[0]
+    uid   = m["u_colada"]
+    horno = int(m["u_horno"])
 
     rec = run("""
         SELECT COUNT(*) AS total, SUM(bRechazo) AS rechazos,
                ROUND(AVG(bRechazo)*100, 1) AS pct_rechazo,
-               MAX(u_Fecha) AS ts_ultimo
-        FROM cscmega_01rechazosbyidticket WHERE u_Colada = :col
-    """, {"col": uid})
+               MAX(FHrVaciado) AS ts_ultimo
+        FROM betamega_03_coladasproceso WHERE c_IdColada = :id
+    """, {"id": id_colada})
     r = rec[0] if rec else {}
 
     top_def = run("""
-        SELECT t.nomDefecto, t.No_Parte, COUNT(*) AS n
-        FROM cscmega_01rechazosbyidticket rb
-        JOIN cscmega_01resultadoidticket t ON t.idTicket = rb.idTicket
-        WHERE rb.u_Colada = :col AND rb.bRechazo = 1 AND t.nomDefecto IS NOT NULL
-        GROUP BY t.nomDefecto, t.No_Parte ORDER BY n DESC LIMIT 1
-    """, {"col": uid})
+        SELECT nomDefecto, No_Parte, COUNT(*) AS n
+        FROM betamega_03_coladasproceso
+        WHERE c_IdColada = :id AND bRechazo = 1 AND nomDefecto IS NOT NULL
+        GROUP BY nomDefecto, No_Parte ORDER BY n DESC LIMIT 1
+    """, {"id": id_colada})
 
     cierre = run("""
         SELECT COUNT(*) AS total, SUM(r.bLIMP) AS terminadas,
                ROUND(SUM(r.bLIMP)/COUNT(*)*100, 1) AS pct_cierre,
                MAX(r.FHrLIMP) AS ts_ultimo_limp
-        FROM cscmega_01rechazosbyidticket rb
-        JOIN cscmega_08ruta r ON r.u_idTicket = rb.idTicket
-        WHERE rb.u_Colada = :col
-    """, {"col": uid})
+        FROM betamega_03_coladasproceso rb
+        JOIN betamega_08_ticketrutacritica r ON r.idTicket = rb.idTicket
+        WHERE rb.c_IdColada = :id
+    """, {"id": id_colada})
     ci = cierre[0] if cierre else {}
 
     pct_rec = float(r["pct_rechazo"])  if r.get("total") else None
@@ -2972,11 +3152,11 @@ def v3_carriles_colada(id_colada: int):
             COUNT(*) AS total,
             SUM(CASE WHEN r.FHrMOLD IS NOT NULL AND r.FHrDESM IS NOT NULL THEN 1 ELSE 0 END) AS con_dato,
             SUM(CASE WHEN r.FHrMOLD IS NOT NULL AND r.FHrDESM IS NOT NULL
-                     AND m.TiempoDesmoldeo > 0
+                     AND m2.TiempoDesmoldeo > 0
                 THEN 1 ELSE 0 END) AS con_umbral,
             SUM(CASE WHEN r.FHrMOLD IS NOT NULL AND r.FHrDESM IS NOT NULL
-                     AND m.TiempoDesmoldeo > 0
-                     AND TIMESTAMPDIFF(MINUTE, r.FHrMOLD, r.FHrDESM) / 60.0 >= m.TiempoDesmoldeo
+                     AND m2.TiempoDesmoldeo > 0
+                     AND TIMESTAMPDIFF(MINUTE, r.FHrMOLD, r.FHrDESM) / 60.0 >= m2.TiempoDesmoldeo
                 THEN 1 ELSE 0 END) AS cumple,
             ROUND(AVG(CASE WHEN r.FHrMOLD IS NOT NULL AND r.FHrDESM IS NOT NULL
                            THEN TIMESTAMPDIFF(MINUTE, r.FHrMOLD, r.FHrDESM) / 60.0 END), 2) AS avg_h,
@@ -2984,25 +3164,26 @@ def v3_carriles_colada(id_colada: int):
                            THEN TIMESTAMPDIFF(MINUTE, r.FHrMOLD, r.FHrDESM) END) / 60.0, 2) AS min_h,
             ROUND(MAX(CASE WHEN r.FHrMOLD IS NOT NULL AND r.FHrDESM IS NOT NULL
                            THEN TIMESTAMPDIFF(MINUTE, r.FHrMOLD, r.FHrDESM) END) / 60.0, 2) AS max_h
-        FROM cscmega_01rechazosbyidticket rb
-        JOIN cscmega_08ruta r ON r.u_idTicket = rb.idTicket
+        FROM betamega_03_coladasproceso rb
+        JOIN betamega_08_ticketrutacritica r ON r.idTicket = rb.idTicket
         LEFT JOIN (
             SELECT NoParte, MAX(IdModelo) AS IdModelo
             FROM corex_test.modelos WHERE TiempoDesmoldeo > 0 GROUP BY NoParte
-        ) best ON best.NoParte = r.u_NoParte
-        LEFT JOIN corex_test.modelos m ON m.IdModelo = best.IdModelo
-        WHERE rb.u_Colada = :col
+        ) best ON best.NoParte = r.No_Parte
+        LEFT JOIN corex_test.modelos m2 ON m2.IdModelo = best.IdModelo
+        WHERE rb.c_IdColada = :id
           AND (r.FHrMOLD IS NULL OR r.FHrDESM IS NULL
                OR TIMESTAMPDIFF(HOUR, r.FHrMOLD, r.FHrDESM) BETWEEN 0 AND 72)
-    """, {"col": uid})
+    """, {"id": id_colada})
     mo = molde_raw[0] if molde_raw else {}
     avg_molde_h = float(mo["avg_h"]) if mo.get("avg_h") is not None else None
     con_umbral_mo = int(mo.get("con_umbral") or 0)
     cumple_mo     = int(mo.get("cumple") or 0)
     pct_cumple_mo = round(cumple_mo / con_umbral_mo * 100.0, 1) if con_umbral_mo else None
 
-    # PC-2: último análisis SpectroMAX BASE por u_Colada + u_Horno
-    # bC_F IS NOT NULL filtra a filas SpectroMAX; filas copa/ITACA tienen todos los flags NULL
+    # PC-2: último análisis SpectroMAX BASE por u_Colada + u_Horno (sin equivalente
+    # betamega_* -- ver docstring de la función). bC_F IS NOT NULL filtra a filas
+    # SpectroMAX; filas copa/ITACA tienen todos los flags NULL.
     # NOTA: análisis BASE (pre-inoculación). Mg siempre FAIL en BASE → excluido del score.
     #       Pendiente: usar análisis FINAL cuando haya cobertura suficiente de aB_Calidad='FINAL'.
     quim_raw = run("""
@@ -3011,8 +3192,15 @@ def v3_carriles_colada(id_colada: int):
         WHERE u_Colada = :col AND u_Horno = :horno
           AND bC_F IS NOT NULL
         ORDER BY u_Fecha DESC LIMIT 1
-    """, {"col": uid, "horno": int(m["u_Horno"])})
+    """, {"col": uid, "horno": horno})
     q = quim_raw[0] if quim_raw else {}
+
+    # u_Colada se recicla -- solo aceptar el análisis si su fecha cae dentro de +/-3 días
+    # de la fecha real de esta colada (resuelta por c_IdColada); si no, es casi seguro el
+    # análisis de OTRA colada vieja con el mismo número, no de esta.
+    fecha_colada = m.get("fecha_inicial")
+    quim_disponible = bool(q.get("u_Fecha") and fecha_colada and
+                            abs((q["u_Fecha"] - fecha_colada).days) <= 3)
 
     def _flag_status(v):
         if v is None: return None
@@ -3029,13 +3217,15 @@ def v3_carriles_colada(id_colada: int):
         "S":  _flag_status(q.get("bS_F")),
         "P":  _flag_status(q.get("bP_F")),
         "Mn": _flag_status(q.get("bMn_F")),
-    }
+    } if quim_disponible else {}
     _SCORE_KEYS = ["C", "Si", "S", "P", "Mn"]  # Mg excluido del score (BASE pre-inoculación)
     _qk_total = sum(1 for k in _SCORE_KEYS if quim_elem.get(k) is not None)
     _qk_pass  = sum(1 for k in _SCORE_KEYS if quim_elem.get(k) == "PASS")
     pct_quim  = round(_qk_pass / _qk_total * 100.0, 1) if _qk_total else None
 
-    # PC-4: temperatura de vaciado desde alfamega_06_vaciado (c_IdColada como llave)
+    # PC-4: temperatura de vaciado desde betamega_06_vaciado -- equivalente vivo de
+    # alfamega_06_vaciado (congelada dic-2025), encontrado en la auditoría 2026-09-29:
+    # mismas columnas, viva hasta hoy, ningún endpoint la usaba todavía.
     temp_raw = run("""
         SELECT COUNT(*) AS n_tickets,
                SUM(bCumplimientoTemperaturaOk) AS n_ok,
@@ -3044,7 +3234,7 @@ def v3_carriles_colada(id_colada: int):
                MIN(m_tmin) AS tmin,
                MAX(m_tmax) AS tmax,
                MIN(FHrVaciado) AS ts_primer_vaci
-        FROM alfamega_06_vaciado
+        FROM betamega_06_vaciado
         WHERE c_IdColada = :id
           AND vt_TemperaturaVaciado IS NOT NULL
           AND vt_TemperaturaVaciado > 0
@@ -3057,9 +3247,15 @@ def v3_carriles_colada(id_colada: int):
     carriles_out = []
     for c in CARRILES:
         if c.id_pc == "PC-2":
-            ev = evaluar_carril(c, pct_quim, q.get("u_Fecha"), id_colada)
+            ev = evaluar_carril(c, pct_quim, q.get("u_Fecha") if quim_disponible else None, id_colada)
             ev["detalle"] = {
-                "fecha_analisis": str(q["u_Fecha"]) if q.get("u_Fecha") else None,
+                "disponible": quim_disponible,
+                "motivo": None if quim_disponible else
+                    "Sin análisis químico confiable para esta colada: cscmega_05aquimicoscumplimiento "
+                    "está congelada desde 2025-12-29 y sin equivalente en betamega_* todavía; el único "
+                    "registro encontrado para este número de colada/horno no coincide en fecha con esta "
+                    "colada (el número de colada se recicla).",
+                "fecha_analisis": str(q["u_Fecha"]) if quim_disponible and q.get("u_Fecha") else None,
                 "elementos": quim_elem,
                 "fuera_de_spec": [k for k, v in quim_elem.items() if v == "FAIL" and k != "Mg"],
                 "en_limite":     [k for k, v in quim_elem.items() if v == "LÍMITE"],
@@ -3103,14 +3299,14 @@ def v3_carriles_colada(id_colada: int):
                 "protocolos":   protocolos,
             }
         elif c.id_pc == "PC-7":
-            ev = evaluar_pc7(pct_ci, m.get("c_FechaInicial"), id_colada)
+            ev = evaluar_pc7(pct_ci, m.get("fecha_inicial"), id_colada)
             ev["detalle"] = {
                 "total_piezas":    int(ci.get("total") or 0),
                 "terminadas":      int(ci.get("terminadas") or 0),
-                "kg_vaciados":     float(m.get("c_Kilos") or 0),
+                "kg_vaciados":     float(m.get("kilos") or 0),
                 "pct_limp":        pct_ci,
-                "dias_transcurridos": round((datetime.utcnow() - m["c_FechaInicial"]).total_seconds() / 86400, 1)
-                                       if isinstance(m.get("c_FechaInicial"), datetime) else None,
+                "dias_transcurridos": round((datetime.utcnow() - m["fecha_inicial"]).total_seconds() / 86400, 1)
+                                       if isinstance(m.get("fecha_inicial"), datetime) else None,
             }
         else:
             ev = evaluar_carril(c, None, None, id_colada)
@@ -3119,9 +3315,9 @@ def v3_carriles_colada(id_colada: int):
     return {
         "id_colada":     id_colada,
         "u_colada":      uid,
-        "horno":         m["u_Horno"],
-        "kilos":         float(m.get("c_Kilos") or 0),
-        "inicio_fusion": str(m.get("c_FechaInicial") or ""),
+        "horno":         horno,
+        "kilos":         float(m.get("kilos") or 0),
+        "inicio_fusion": str(m.get("fecha_inicial") or ""),
         "carriles":      carriles_out,
     }
 

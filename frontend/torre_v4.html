@@ -2257,8 +2257,8 @@ async function abrirDetalleFlujo(idColada){
   const {desde, hasta}=flVentanaPiezas(col)
   const [carriles, piezas, diag]=await Promise.all([
     fetch(`/v3/gestion/colada/${idColada}/carriles`).then(r=>r.json()).catch(()=>null),
-    fetch(`/piso/colada/${col.u_colada}/${col.horno}/piezas?desde=${encodeURIComponent(desde)}&hasta=${encodeURIComponent(hasta)}`).then(r=>r.json()).catch(()=>null),
-    fetch(`/piso/colada/${col.u_colada}/${col.horno}/diagnostico`).then(r=>r.json()).catch(()=>null),
+    fetch(`/piso/colada/${col.u_colada}/${col.horno}/piezas?id_colada=${idColada}&desde=${encodeURIComponent(desde)}&hasta=${encodeURIComponent(hasta)}`).then(r=>r.json()).catch(()=>null),
+    fetch(`/piso/colada/${col.u_colada}/${col.horno}/diagnostico?id_colada=${idColada}`).then(r=>r.json()).catch(()=>null),
   ])
   panel.innerHTML=renderFlujoDetalle(col, carriles, piezas, diag)
   flPintarRiesgoBeta(piezas)

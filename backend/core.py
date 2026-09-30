@@ -155,7 +155,7 @@ CARRILES: List[CarrilControl] = [
     ),
     CarrilControl(
         "PC-4", "temperatura de vaciado (% tickets en rango)",
-        "ia_fasa.alfamega_06_vaciado.vt_TemperaturaVaciado + bCumplimientoTemperaturaOk",
+        "ia_fasa.betamega_06_vaciado.vt_TemperaturaVaciado + bCumplimientoTemperaturaOk",
         VentanaControl("completitud", 95.0, 80.0, "pct"),
         "inicio_vaciado",
         "% tickets con bCumplimientoTemperaturaOk = 1 ≥ 95 % → VERDE ; ≥ 80 % → ÁMBAR ; < 80 % → ROJO",
@@ -163,7 +163,7 @@ CARRILES: List[CarrilControl] = [
     ),
     CarrilControl(
         "PC-5", "desmoldeo oportuno (% piezas >= umbral por parte)",
-        "cscmega_08ruta.FHrMOLD + FHrDESM x corex_test.modelos.TiempoDesmoldeo",
+        "betamega_08_ticketrutacritica.FHrMOLD + FHrDESM x corex_test.modelos.TiempoDesmoldeo",
         VentanaControl("completitud", 95.0, 80.0, "pct"),
         "fin_vaciado",
         "% piezas con tiempo_molde >= TiempoDesmoldeo por NoParte ; ≥95%→VERDE ; ≥80%→ÁMBAR ; <80%→ROJO",
@@ -171,14 +171,14 @@ CARRILES: List[CarrilControl] = [
     ),
     CarrilControl(
         "PC-6", "% rechazo del lote (qué, no causa metalúrgica)",
-        "ia_fasa.cscmega_01rechazosbyidticket.bRechazo",
+        "ia_fasa.betamega_03_coladasproceso.bRechazo",
         VentanaControl("porcentaje_max", 7.0, None, "pct"),
         "fin_vaciado",
         "pct_rechazo < 7 % → VERDE ; ≥ 7 % → ROJO", "P-06", 60, "activo",
     ),
     CarrilControl(
         "PC-7", "cierre de colada — piezas con limpieza registrada",
-        "ia_fasa.cscmega_08ruta.bLIMP — ventana: ≥95% piezas O ≤5 días desde vaciado",
+        "ia_fasa.betamega_08_ticketrutacritica.bLIMP — ventana: ≥95% piezas O ≤5 días desde vaciado",
         VentanaControl("completitud", 95.0, None, "pct"),
         "fin_vaciado",
         "pct_limp ≥ 95% → VERDE ; <95% y ≤3 días → GRIS ; <95% y 3–5 días → ÁMBAR ; <95% y >5 días → ROJO",
