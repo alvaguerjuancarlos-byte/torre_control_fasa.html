@@ -195,6 +195,7 @@ main{padding:16px 20px;max-width:1100px;margin:0 auto}
   <div class="tab" data-tab="pron" onclick="switchTab('pron')">Plan de Producción</div>
   <div class="tab" data-tab="pedidos" onclick="switchTab('pedidos')">Clientes · Pedidos · Partes</div>
   <div class="tab" data-tab="riesgoplan" onclick="switchTab('riesgoplan')">Riesgo del Plan</div>
+  <div class="tab" data-tab="plancontrol" onclick="switchTab('plancontrol')">Plan de Control</div>
   <div class="tab" data-tab="beta" onclick="switchTab('beta')">🤖 Agente Beta</div>
   <div class="tab" data-tab="alfa" onclick="switchTab('alfa')">🤖 Agente Alfa</div>
 </div>
@@ -1150,7 +1151,7 @@ async function initPronostico() {
 // ════════════════════════════════════════════════════════════
 // TAB SYSTEM
 // ════════════════════════════════════════════════════════════
-const TABS = ['ejecutivo','flujo','riesgo','pron','pedidos','riesgoplan','beta','alfa']
+const TABS = ['ejecutivo','flujo','riesgo','pron','pedidos','riesgoplan','plancontrol','beta','alfa']
 const tabLoaded = {}
 
 function switchTab(name) {
@@ -1166,6 +1167,7 @@ function switchTab(name) {
     if (name === 'pron') initPronPanel()
     if (name === 'pedidos') initPedidosPanel()
     if (name === 'riesgoplan') initRiesgoPlanPanel()
+    if (name === 'plancontrol') initPlanControlPanel()
     if (name === 'beta') window.initBetaPanel()
     if (name === 'alfa') window.initAlfaPanel()
   }
@@ -3695,6 +3697,143 @@ function rgpVerProtocolos(idx){
     + ' (defecto dominante: ' + (f.defecto_dominante || '—') + ')</div><ul>' + items + '</ul>'
   box.style.display = ''
   box.scrollIntoView({behavior:'smooth', block:'nearest'})
+}
+</script>
+
+<!-- ════════════════════════════════════════════════════
+     PLAN DE CONTROL  —  HTML, estilos y lógica
+════════════════════════════════════════════════════ -->
+
+<div id="tab-plancontrol" style="display:none">
+<main>
+<section id="p-plancontrol">
+
+  <div class="plc-eyebrow">Plan de Control · variables, estándares y ventana de decisión por proceso</div>
+
+  <div class="plc-bar">
+    <div id="plc-procesos" class="plc-procesos"></div>
+    <span id="plc-msg" class="plc-msg"></span>
+  </div>
+
+  <div id="plc-content"></div>
+
+  <div class="plc-foot">
+    <b>Fuente:</b> Excel <code>Var Proceso &lt;Área&gt;.xlsx</code> que CSC actualiza y comparte por correo
+    (ver <i>Minuta Torre de Control</i>, compromiso del 30-sep-2026) — <b>no es una tabla de base de datos</b>:
+    esta vista siempre refleja el archivo más reciente en disco, sin caché, igual que el Plan de Producción
+    Mensual. Se investigó si existe una tabla viva equivalente en Corex (<code>variablesProcesoMedidas</code>
+    y familia) — la que se encontró está congelada desde 2026-03-11; pendiente que Jasso confirme cuál tabla
+    es la correcta antes de cruzar esto con mediciones en vivo.
+  </div>
+
+</section>
+</main>
+</div>
+
+<style>
+#p-plancontrol{color:var(--txt); font-family:var(--font-sans); font-size:13px; line-height:1.45}
+#p-plancontrol *{box-sizing:border-box}
+#p-plancontrol .plc-eyebrow{font-size:10px;letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin:24px 0 14px;font-weight:700}
+#p-plancontrol .plc-bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:18px}
+#p-plancontrol .plc-procesos{display:flex;gap:6px;flex-wrap:wrap}
+#p-plancontrol .plc-msg{font-size:12px;color:var(--muted)}
+#p-plancontrol .plc-area{background:#fff;border:0.5px solid var(--color-border-tertiary);border-radius:10px;
+  padding:14px 16px;margin-bottom:12px}
+#p-plancontrol .plc-area-title{font-size:13px;font-weight:700;color:var(--txt);margin-bottom:10px;
+  padding-bottom:8px;border-bottom:1px solid var(--border)}
+#p-plancontrol .plc-var{display:grid;grid-template-columns:110px 1.4fr 1fr 0.9fr;gap:10px 16px;
+  padding:9px 0;border-bottom:1px dashed var(--border);align-items:start}
+#p-plancontrol .plc-var:last-child{border-bottom:none}
+#p-plancontrol .plc-var-id{font-family:var(--font-mono);font-size:10.5px;color:var(--muted)}
+#p-plancontrol .plc-var-desc{font-size:12.5px;color:var(--txt);font-weight:600;margin-bottom:4px}
+#p-plancontrol .plc-var-meta{font-size:11px;color:var(--muted);line-height:1.6}
+#p-plancontrol .plc-var-meta b{color:var(--txt);font-weight:600}
+#p-plancontrol .plc-estandar{background:var(--color-background-secondary);border-radius:6px;padding:6px 10px;
+  font-size:11.5px;color:var(--txt)}
+#p-plancontrol .plc-ventana{font-size:11px;color:var(--green);font-weight:600}
+#p-plancontrol .plc-head-row{display:grid;grid-template-columns:110px 1.4fr 1fr 0.9fr;gap:10px 16px;
+  font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.03em;
+  padding-bottom:6px;margin-bottom:4px}
+#p-plancontrol .plc-foot{font-size:11px;color:var(--muted);line-height:1.7;border-top:1px solid var(--border);
+  padding-top:14px;margin-top:24px}
+#p-plancontrol .plc-foot b{color:var(--txt)}
+#p-plancontrol .plc-empty{font-size:13px;color:var(--muted);padding:24px;text-align:center;background:#fff;
+  border:0.5px solid var(--color-border-tertiary);border-radius:10px}
+@media (max-width:700px){
+  #p-plancontrol .plc-var, #p-plancontrol .plc-head-row{grid-template-columns:1fr}
+  #p-plancontrol .plc-head-row{display:none}
+}
+</style>
+
+<script>
+// ════════════════════════════════════════════════════════════
+// PLAN DE CONTROL — variables/estándares por proceso, Excel en vivo
+// (/api/plan-control, backend/routers/plan_control.py)
+// ════════════════════════════════════════════════════════════
+let PLC_LOADED = false
+let _plcData = null
+let _plcProceso = null
+
+function initPlanControlPanel(){
+  if (PLC_LOADED) return
+  PLC_LOADED = true
+  plcCargar()
+}
+
+async function plcCargar(){
+  const msg = document.getElementById('plc-msg')
+  msg.textContent = 'Cargando…'
+  const d = await apiFetch('/api/plan-control')
+  msg.textContent = ''
+  if (!d || !d.procesos || !d.procesos.length) {
+    document.getElementById('plc-content').innerHTML =
+      '<div class="plc-empty">Sin archivos de Plan de Control en la carpeta — revisa que los Excel "Var Proceso &lt;Área&gt;.xlsx" sigan ahí.</div>'
+    return
+  }
+  _plcData = d
+  _plcProceso = d.procesos[0]
+  plcRenderSelector()
+  plcRenderContenido()
+}
+
+function plcRenderSelector(){
+  document.getElementById('plc-procesos').innerHTML = _plcData.procesos.map(function(p){
+    return '<button class="pb' + (p === _plcProceso ? ' active' : '') + '" onclick="plcSetProceso(\'' + p.replace(/'/g, "\\'") + '\')">' + p + '</button>'
+  }).join('')
+}
+
+function plcSetProceso(p){
+  _plcProceso = p
+  plcRenderSelector()
+  plcRenderContenido()
+}
+
+function plcRenderContenido(){
+  const vars = (_plcData.variables || []).filter(function(v){ return v.proceso === _plcProceso })
+  const porArea = {}
+  const orden = []
+  vars.forEach(function(v){
+    const a = v.area_control || 'Sin área'
+    if (!porArea[a]) { porArea[a] = []; orden.push(a) }
+    porArea[a].push(v)
+  })
+
+  const head = '<div class="plc-head-row"><span>ID</span><span>Variable · responsables</span><span>Estándar</span><span>Ventana de decisión</span></div>'
+
+  document.getElementById('plc-content').innerHTML = orden.map(function(area){
+    const filas = porArea[area].map(function(v){
+      return '<div class="plc-var">'
+        + '<span class="plc-var-id">' + (v.variable_id || '—') + '</span>'
+        + '<span><div class="plc-var-desc">' + (v.variable || '—') + '</div>'
+          + '<div class="plc-var-meta">Mide: <b>' + (v.responsable_medir || '—') + '</b> · Controla: <b>' + (v.responsable_controlar || '—') + '</b><br>'
+          + 'Frecuencia: ' + (v.frecuencia_medicion || '—') + ' · Equipo: ' + (v.equipo_medicion || '—') + '</div></span>'
+        + '<span><div class="plc-estandar">' + (v.estandar || '—') + '</div></span>'
+        + '<span class="plc-ventana">' + (v.ventana_decision || '—') + '</span>'
+        + '</div>'
+    }).join('')
+    return '<div class="plc-area"><div class="plc-area-title">' + area + ' <span style="font-weight:400;color:var(--muted)">(' + porArea[area].length + ')</span></div>'
+      + head + filas + '</div>'
+  }).join('')
 }
 </script>
 

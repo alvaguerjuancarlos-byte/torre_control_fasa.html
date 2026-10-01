@@ -38,11 +38,13 @@ from backend.routers import alfa as _alfa_router_module
 from backend.routers import chat as _chat_router_module
 from backend.routers import costo_calidad as _costo_calidad_router_module
 from backend.routers import riesgo_plan as _riesgo_plan_router_module
+from backend.routers import plan_control as _plan_control_router_module
 app.include_router(_beta_router_module.router)
 app.include_router(_alfa_router_module.router)
 app.include_router(_chat_router_module.router)
 app.include_router(_costo_calidad_router_module.router)
 app.include_router(_riesgo_plan_router_module.router)
+app.include_router(_plan_control_router_module.router)
 
 
 # ── Modelo ML v2 (RF + calibrador Platt + lookup de partes) ──────────────────

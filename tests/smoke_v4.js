@@ -13,7 +13,7 @@
 const { chromium } = require('playwright')
 
 const BASE = 'http://127.0.0.1:8000'
-const TABS = ['ejecutivo', 'flujo', 'riesgo', 'pron', 'pedidos', 'riesgoplan', 'beta', 'alfa']
+const TABS = ['ejecutivo', 'flujo', 'riesgo', 'pron', 'pedidos', 'riesgoplan', 'plancontrol', 'beta', 'alfa']
 
 // pron y riesgoplan (Riesgo del Plan) dependen del Excel del Plan de Producción del mes en
 // curso -- si nadie lo ha subido todavía, el endpoint da 404 con gracia y la pestaña lo maneja
