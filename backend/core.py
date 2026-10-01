@@ -141,7 +141,7 @@ CARRILES: List[CarrilControl] = [
     ),
     CarrilControl(
         "PC-2", "análisis químico — elementos clave en especificación",
-        "ia_fasa.cscmega_05aquimicoscumplimiento — flags _F via u_Colada + u_Horno",
+        "corex_test.vistaanalisisquimicoparaitaca vía betamega_02_pks_idticketsidmuestras, spec de corex_test.clases",
         VentanaControl("completitud", 100.0, 80.0, "pct"),
         "fin_fusion",
         "% elementos clave (C,Si,Mg,S,P,Mn) con flag _F = pass ; 100%→VERDE ; ≥80%→ÁMBAR ; <80%→ROJO",

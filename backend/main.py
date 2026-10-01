@@ -3093,15 +3093,29 @@ def v3_carriles_colada(id_colada: int):
     equivalente vivo de alfamega_06_vaciado (mismas columnas, viva hasta hoy) sin que
     ningún endpoint la usara todavía.
 
-    PC-2 (química, cscmega_05aquimicoscumplimiento) se queda en la fuente congelada --
-    no existe contraparte betamega_* para análisis SpectroMAX en todo el universo de
-    tablas de la BD (buscado por nombre de columna, no solo de tabla). Como esa tabla
-    solo tiene u_Colada/u_Horno como llave (un consecutivo que SE RECICLA -- distinto de
-    c_IdColada, el identificador real), un acierto de "match" para una colada 2026 podía
-    devolver en silencio la química de una colada vieja de 2025 con el mismo número. Se
-    agrega una validación: solo se acepta el análisis si su fecha cae cerca de la fecha
-    real de vaciado de ESTA colada (m['fecha_inicial'], ya resuelta por c_IdColada);
-    si no, PC-2 sale gris "sin dato" en vez de mostrar química de otra colada.
+    PC-2 (química) MIGRADO a fuente viva el 2026-10-01: Jasso liberó
+    betamega_02_pks_idticketsidmuestras (tabla puente prometida en la minuta de
+    30-sep-2026, compromiso #4 -- aunque la fecha prometida era 2-oct, ya estaba viva el
+    1-oct), que liga idTicket -> IdAnalisisQuimico, resuelto contra
+    corex_test.vistaanalisisquimicoparaitaca (valores reales SpectroMAX: C/Si/Mg/S/P/Mn,
+    viva hasta hoy). El spec (centro ± tolerancia) sale de corex_test.clases, indexada
+    por cm_idClase (ya presente en betamega_03_coladasproceso) -- <Elem>_Fx='S' marca si
+    ese elemento aplica para esa clase de hierro (ej. Carbono no se evalúa para nodular
+    100-70-03, donde el control pasa por otro parámetro). Ya NO se excluye Mg a fuerzas
+    como en la versión anterior -- esa exclusión era una limitación de la fuente vieja
+    (análisis BASE pre-inoculación, donde Mg da FAIL siempre), no de la clase en sí.
+
+    Validación (no pudo ser contra el histórico real: la liga idTicket->IdAnalisisQuimico
+    no está poblada para tickets anteriores a 2026, 0/17286 en una muestra de
+    cscmega_05aquimicoscumplimiento): se comparó el valor medido real de Si contra la
+    ventana F±Fl calculada para ~40 tickets reales de septiembre 2026 -- cayó dentro en
+    el 100% de los casos, lo cual es la señal esperada si la interpretación es correcta
+    (un valor de proceso sano debería caer dentro de su propio spec casi siempre).
+
+    Como ahora se liga por idTicket real (no por u_Colada/u_Horno, que se recicla), el
+    riesgo de mostrar en silencio la química de OTRA colada queda eliminado por diseño --
+    ya no hace falta la validación de fecha que sí sigue aplicando al chip de fusión/hold
+    de /piso/colada/.../diagnostico (ese no tiene reemplazo vivo todavía).
     """
     meta = run("""
         SELECT
@@ -3183,46 +3197,45 @@ def v3_carriles_colada(id_colada: int):
     cumple_mo     = int(mo.get("cumple") or 0)
     pct_cumple_mo = round(cumple_mo / con_umbral_mo * 100.0, 1) if con_umbral_mo else None
 
-    # PC-2: último análisis SpectroMAX BASE por u_Colada + u_Horno (sin equivalente
-    # betamega_* -- ver docstring de la función). bC_F IS NOT NULL filtra a filas
-    # SpectroMAX; filas copa/ITACA tienen todos los flags NULL.
-    # NOTA: análisis BASE (pre-inoculación). Mg siempre FAIL en BASE → excluido del score.
-    #       Pendiente: usar análisis FINAL cuando haya cobertura suficiente de aB_Calidad='FINAL'.
+    # PC-2: análisis SpectroMAX real vía la tabla puente de Jasso -- ver docstring de la
+    # función para la cadena completa idTicket -> IdAnalisisQuimico -> valores -> spec.
     quim_raw = run("""
-        SELECT bC_F, bSi_F, bMg_F, bS_F, bP_F, bMn_F, u_Fecha
-        FROM cscmega_05aquimicoscumplimiento
-        WHERE u_Colada = :col AND u_Horno = :horno
-          AND bC_F IS NOT NULL
-        ORDER BY u_Fecha DESC LIMIT 1
-    """, {"col": uid, "horno": horno})
+        SELECT v.C, v.Si, v.Mg, v.S, v.P, v.Mn,
+               STR_TO_DATE(v.AnalysisTime, '%Y%m%d %H:%i:%s') AS AnalysisTime,
+               cl.Clave AS clase,
+               cl.Ct_F, cl.Ct_Fl, cl.Ct_Fx,
+               cl.Si_F, cl.Si_Fl, cl.Si_Fx,
+               cl.Mg_F, cl.Mg_Fl, cl.Mg_Fx,
+               cl.S_F,  cl.S_Fl,  cl.S_Fx,
+               cl.P_F,  cl.P_Fl,  cl.P_Fx,
+               cl.Mn_F, cl.Mn_Fl, cl.Mn_Fx
+        FROM betamega_03_coladasproceso rb
+        JOIN betamega_02_pks_idticketsidmuestras pm ON pm.IdTicket = rb.idTicket
+        JOIN corex_test.vistaanalisisquimicoparaitaca v ON v.AnalysisNum = pm.IdAnalisisQuimico
+        JOIN corex_test.clases cl ON cl.IdClase = rb.cm_idClase
+        WHERE rb.c_IdColada = :id AND pm.IdAnalisisQuimico IS NOT NULL
+        ORDER BY v.AnalysisTime DESC LIMIT 1
+    """, {"id": id_colada})
     q = quim_raw[0] if quim_raw else {}
+    quim_disponible = bool(q)
 
-    # u_Colada se recicla -- solo aceptar el análisis si su fecha cae dentro de +/-3 días
-    # de la fecha real de esta colada (resuelta por c_IdColada); si no, es casi seguro el
-    # análisis de OTRA colada vieja con el mismo número, no de esta.
-    fecha_colada = m.get("fecha_inicial")
-    quim_disponible = bool(q.get("u_Fecha") and fecha_colada and
-                            abs((q["u_Fecha"] - fecha_colada).days) <= 3)
-
-    def _flag_status(v):
-        if v is None: return None
-        s = str(v)
-        if s.endswith(")1"):  return "PASS"
-        if s.endswith("-1"):  return "FAIL"
-        if s.endswith(")0"):  return "LÍMITE"
-        return None
+    def _eval_elem(valor, centro, tolerancia, aplica):
+        if aplica != "S" or valor is None or centro is None:
+            return None
+        lo, hi = float(centro) - float(tolerancia), float(centro) + float(tolerancia)
+        return "PASS" if lo <= float(valor) <= hi else "FAIL"
 
     quim_elem = {
-        "C":  _flag_status(q.get("bC_F")),
-        "Si": _flag_status(q.get("bSi_F")),
-        "Mg": _flag_status(q.get("bMg_F")),
-        "S":  _flag_status(q.get("bS_F")),
-        "P":  _flag_status(q.get("bP_F")),
-        "Mn": _flag_status(q.get("bMn_F")),
+        "C":  _eval_elem(q.get("C"),  q.get("Ct_F"), q.get("Ct_Fl"), q.get("Ct_Fx")),
+        "Si": _eval_elem(q.get("Si"), q.get("Si_F"), q.get("Si_Fl"), q.get("Si_Fx")),
+        "Mg": _eval_elem(q.get("Mg"), q.get("Mg_F"), q.get("Mg_Fl"), q.get("Mg_Fx")),
+        "S":  _eval_elem(q.get("S"),  q.get("S_F"),  q.get("S_Fl"),  q.get("S_Fx")),
+        "P":  _eval_elem(q.get("P"),  q.get("P_F"),  q.get("P_Fl"),  q.get("P_Fx")),
+        "Mn": _eval_elem(q.get("Mn"), q.get("Mn_F"), q.get("Mn_Fl"), q.get("Mn_Fx")),
     } if quim_disponible else {}
-    _SCORE_KEYS = ["C", "Si", "S", "P", "Mn"]  # Mg excluido del score (BASE pre-inoculación)
-    _qk_total = sum(1 for k in _SCORE_KEYS if quim_elem.get(k) is not None)
-    _qk_pass  = sum(1 for k in _SCORE_KEYS if quim_elem.get(k) == "PASS")
+    _SCORE_KEYS = [k for k in quim_elem if quim_elem.get(k) is not None]  # ya no se excluye Mg a fuerzas
+    _qk_total = len(_SCORE_KEYS)
+    _qk_pass  = sum(1 for k in _SCORE_KEYS if quim_elem[k] == "PASS")
     pct_quim  = round(_qk_pass / _qk_total * 100.0, 1) if _qk_total else None
 
     # PC-4: temperatura de vaciado desde betamega_06_vaciado -- equivalente vivo de
@@ -3249,19 +3262,18 @@ def v3_carriles_colada(id_colada: int):
     carriles_out = []
     for c in CARRILES:
         if c.id_pc == "PC-2":
-            ev = evaluar_carril(c, pct_quim, q.get("u_Fecha") if quim_disponible else None, id_colada)
+            ev = evaluar_carril(c, pct_quim, q.get("AnalysisTime") if quim_disponible else None, id_colada)
             ev["detalle"] = {
                 "disponible": quim_disponible,
                 "motivo": None if quim_disponible else
-                    "Sin análisis químico confiable para esta colada: cscmega_05aquimicoscumplimiento "
-                    "está congelada desde 2025-12-29 y sin equivalente en betamega_* todavía; el único "
-                    "registro encontrado para este número de colada/horno no coincide en fecha con esta "
-                    "colada (el número de colada se recicla).",
-                "fecha_analisis": str(q["u_Fecha"]) if quim_disponible and q.get("u_Fecha") else None,
-                "elementos": quim_elem,
-                "fuera_de_spec": [k for k, v in quim_elem.items() if v == "FAIL" and k != "Mg"],
-                "en_limite":     [k for k, v in quim_elem.items() if v == "LÍMITE"],
-                "nota_mg": "Mg = análisis BASE pre-inoculación — no incluido en % score. Pendiente: cambiar a FINAL cuando haya cobertura.",
+                    "Sin análisis químico ligado a esta colada todavía -- la tabla puente "
+                    "(betamega_02_pks_idticketsidmuestras) no tiene IdAnalisisQuimico para ninguno "
+                    "de sus tickets (cobertura parcial: ver nota de la función).",
+                "clase":          q.get("clase"),
+                "fecha_analisis": str(q["AnalysisTime"]) if quim_disponible and q.get("AnalysisTime") else None,
+                "elementos":      quim_elem,
+                "valores":        {k: float(q[k]) for k in ("C","Si","Mg","S","P","Mn") if quim_disponible and q.get(k) is not None},
+                "fuera_de_spec":  [k for k, v in quim_elem.items() if v == "FAIL"],
             }
         elif c.id_pc == "PC-4":
             ev = evaluar_carril(c, pct_temp_ok, tr.get("ts_primer_vaci"), id_colada)
