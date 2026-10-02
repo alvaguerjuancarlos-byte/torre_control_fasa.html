@@ -68,6 +68,9 @@ def partes_de_cliente(cliente: str, dias: int = 14) -> str:
 def riesgo_calidad_parte(no_parte: str) -> str:
     """Criticidad histórica de rechazo y disponibilidad de compuerta química para una
     parte (Agente Beta) -- útil si preguntan por qué una parte tiene problemas de calidad.
+    El resultado trae un campo "periodo" (dentro de compuerta_criticidad) que dice
+    exactamente qué años cubre -- siempre repítelo literal, no digas solo "histórico"
+    o "sin corte de período" sin más, el usuario quiere saber qué años son.
 
     Args:
         no_parte: Número de parte exacto.
@@ -78,6 +81,9 @@ def riesgo_calidad_parte(no_parte: str) -> str:
 @beta_tool
 def partes_riesgo_alto(limit: int = 20) -> str:
     """Lista de partes con criticidad histórica de rechazo alta (Agente Beta).
+    El resultado trae un campo "periodo" que dice exactamente qué años cubre --
+    siempre repítelo literal, no digas solo "histórico" o "sin corte de período"
+    sin más, el usuario quiere saber qué años son.
 
     Args:
         limit: máximo de partes a devolver.

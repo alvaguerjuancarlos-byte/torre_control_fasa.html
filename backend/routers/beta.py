@@ -26,6 +26,16 @@ router = APIRouter(prefix="/api/beta", tags=["beta"])
 QUIMICA_UMBRAL_DIAS = 7  # dato más viejo que esto => compuerta no disponible
 UMBRAL_PIEZAS_MES_CONFIABLE = 200  # muestra mínima para considerar evaluable el rechazo de un mes
 
+# Verificado 2026-10-02: nPzasTotal = nPzas2023 + nPzas2025 EXACTO en las 1,381 filas de
+# gamamega_01_riesgodefectoparte -- "histórico acumulado"/PrcRchzTotal es la suma de 2023+2025
+# específicamente, 2024 NO está incluido (tabulación manual de Carlos Cruz, no una ventana móvil).
+# JC preguntó explícitamente "¿es 2026? ¿últimos 6 meses? ¿último año?" -- ninguna de esas, se
+# declara literal en la respuesta del tool para que el chat lo diga con precisión en vez de un
+# genérico "sin corte de período".
+PERIODO_CRITICIDAD = ("Compara 2023 y 2025 únicamente (2024 no está incluido) -- 'total'/"
+                       "'histórico acumulado' es la suma de esos dos años, no es ventana móvil "
+                       "ni el año más reciente. Tabulación manual (Carlos Cruz), no se actualiza sola.")
+
 
 def _riesgo_label(flag) -> str:
     """-1 y NULL se reportan igual como 'sin info' (v1, decisión de JC
@@ -78,7 +88,8 @@ def beta_evaluar(no_parte: str = Query(...)):
     if not rows:
         return {
             "no_parte": no_parte,
-            "compuerta_criticidad": {"disponible": False, "motivo": "sin historial en la tabulación"},
+            "compuerta_criticidad": {"disponible": False, "motivo": "sin historial en la tabulación",
+                                      "periodo": PERIODO_CRITICIDAD},
             "compuerta_quimica": quimica,
             "recomendacion": "Sin datos históricos suficientes para evaluar esta parte.",
         }
@@ -91,6 +102,7 @@ def beta_evaluar(no_parte: str = Query(...)):
         "no_parte": no_parte,
         "compuerta_criticidad": {
             "disponible": True,
+            "periodo": PERIODO_CRITICIDAD,
             "defecto_dominante": defecto,
             "pct_rchz_total": round(float(top["PrcRchzTotal"] or 0), 4),
             "z_defecto_parte": round(float(top["zDefectoParte"] or 0), 2),
@@ -114,6 +126,7 @@ def beta_riesgo_alto(limit: int = Query(default=20, le=200)):
     """, {})
 
     return {
+        "periodo": PERIODO_CRITICIDAD,
         "partes": [
             {
                 "no_parte": r["no_parte"],
