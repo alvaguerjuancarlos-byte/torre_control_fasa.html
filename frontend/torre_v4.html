@@ -5258,7 +5258,7 @@ function crearChatAgente(cfg){
     loadingDiv.className = 'af-chat-msg assistant'
     loadingDiv.textContent = 'Pensando…'
     log.appendChild(loadingDiv)
-    log.scrollTop = log.scrollHeight
+    userDiv.scrollIntoView({block: 'start', behavior: 'smooth'})
 
     let resp = null
     try {
@@ -5292,7 +5292,7 @@ function crearChatAgente(cfg){
       historial.push({rol: 'assistant', texto: resp.respuesta || ''})
     }
 
-    log.scrollTop = log.scrollHeight
+    userDiv.scrollIntoView({block: 'start', behavior: 'smooth'})
     input.disabled = false
     btn.disabled = false
     if (faqsBox) faqsBox.querySelectorAll('.af-chat-faq-chip').forEach(function(c){ c.disabled = false })

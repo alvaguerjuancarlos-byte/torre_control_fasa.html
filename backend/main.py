@@ -13,7 +13,7 @@ from dataclasses import dataclass
 import numpy as np
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from sqlalchemy import text
 
 from backend.core import (
@@ -164,16 +164,14 @@ def ml_score_batch(no_partes: list) -> dict:
 
 
 # ── UI ───────────────────────────────────────────────────────────────────────
+# "/" y "/v2" apuntaban a frontend/torre_control.html y frontend/torre_v2.html,
+# archivos que ya no existen (dashboard activo es /v4, ver CLAUDE.md) -- daban
+# 500 en vez de servir algo. Redirigen a /v4 en vez de reintroducir el archivo
+# viejo (encontrado 2026-10-02, JC reportó arrancar.bat abriendo una pagina rota).
 
-FRONTEND = Path(__file__).parent.parent / "frontend" / "torre_control.html"
-
-@app.get("/", response_class=FileResponse)
+@app.get("/")
 def serve_ui():
-    return FileResponse(
-        FRONTEND,
-        media_type="text/html",
-        headers={"Cache-Control": "no-cache, no-store, must-revalidate"}
-    )
+    return RedirectResponse(url="/v4")
 
 
 # ── Health + rango disponible ────────────────────────────────────────────────
@@ -382,14 +380,9 @@ def tickets_de_colada(id_colada: int):
 # TORRE DE CONTROL V2 — endpoints unificados
 # ══════════════════════════════════════════════════════════════════════════════
 
-V2_FRONTEND = Path(__file__).parent.parent / "frontend" / "torre_v2.html"
-
-@app.get("/v2", response_class=FileResponse)
+@app.get("/v2")
 def serve_v2():
-    return FileResponse(
-        V2_FRONTEND, media_type="text/html",
-        headers={"Cache-Control": "no-cache, no-store, must-revalidate"}
-    )
+    return RedirectResponse(url="/v4")
 
 
 def _tons_mensuales(d_ini: str, d_fin: str) -> Dict[str, dict]:

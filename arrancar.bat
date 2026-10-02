@@ -6,7 +6,7 @@ for /f "tokens=5" %%a in ('netstat -aon ^| findstr ":8000 " ^| findstr "LISTENIN
 timeout /t 1 >nul
 
 echo Abriendo navegador...
-start "" "http://127.0.0.1:8000/v2"
+start "" "http://127.0.0.1:8000/v4"
 timeout /t 2 >nul
 
 echo Levantando servidor...
