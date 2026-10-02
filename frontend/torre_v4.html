@@ -4851,6 +4851,7 @@ function pronRenderCombos(md) {
   <div id="bt-result" style="display:none"></div>
 
   <div class="cr-eyebrow" style="margin-top:24px">Partes en riesgo alto · clic para evaluar</div>
+  <div class="af-periodo-nota">Histórico acumulado (tabulación de criticidad) — sin corte de año/trimestre/mes, no cambia con el período</div>
   <div id="bt-lista"><div class="loading-msg">Cargando…</div></div>
 
   <div class="cr-foot" style="margin-top:24px">
@@ -4933,7 +4934,7 @@ function btRenderResultado(d){
     : 'Sin datos'
 
   const gate1 = '<div class="bt-gate' + (c.disponible ? '' : ' off') + '">'
-    + '<div class="bt-gate-title">① Criticidad histórica</div>'
+    + '<div class="bt-gate-title">① Criticidad histórica <span class="af-periodo-chip">histórico acumulado, sin corte de período</span></div>'
     + (c.disponible
         ? '<div class="bt-gate-row"><span>Defecto dominante</span><b>' + c.defecto_dominante + '</b></div>'
           + '<div class="bt-gate-row"><span>% rechazo histórico</span><b>' + (c.pct_rchz_total * 100).toFixed(2) + '%</b></div>'
@@ -4945,8 +4946,8 @@ function btRenderResultado(d){
     + '<div class="bt-gate-title">② Química en vivo</div>'
     + (q.disponible
         ? '<div class="bt-gate-row"><span>Estado</span><b>Disponible</b></div>'
-        : '<div class="bt-gate-row"><span>' + q.motivo + '</span></div>'
-          + '<div class="bt-gate-row"><span>Últ. actualización</span><b>' + (q.ultima_actualizacion || '—') + '</b></div>')
+        : '<div class="bt-gate-row"><span>' + q.motivo + '</span></div>')
+    + '<div class="bt-gate-row"><span>Últ. actualización</span><b>' + (q.ultima_actualizacion || '—') + '</b></div>'
     + '</div>'
 
   return '<div class="bt-card">'
@@ -5047,7 +5048,8 @@ async function flPintarRiesgoBeta(piezas){
 
   <div id="af-result" style="display:none"></div>
 
-  <div class="cr-eyebrow" style="margin-top:24px">Cuello de botella · últimos 14 días vs. las 8 semanas previas</div>
+  <div class="cr-eyebrow" style="margin-top:24px" id="af-cuellos-titulo">Cuello de botella · últimos 14 días vs. las 8 semanas previas</div>
+  <div class="af-periodo-nota" id="af-cuellos-periodo"></div>
   <div id="af-cuellos"><div class="loading-msg">Cargando…</div></div>
 
   <div class="cr-foot" style="margin-top:24px">
@@ -5067,6 +5069,9 @@ async function flPintarRiesgoBeta(piezas){
 
 <style>
 /* Chat de agentes conversacionales -- compartido por Alfa (#af-*) y Beta (#bt-*) */
+.af-periodo-nota{font-size:11px;color:var(--color-text-tertiary);font-style:italic;margin:-4px 0 8px}
+.af-periodo-chip{display:inline-block;font-size:10px;font-weight:400;font-style:italic;
+  color:var(--color-text-tertiary);margin-left:8px;vertical-align:middle}
 .af-chat-topbar{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
 .af-chat-reset-btn{font-size:11.5px;padding:4px 10px;border-radius:14px;cursor:pointer;
   border:0.5px solid var(--color-border-secondary);background:var(--color-background-primary);
@@ -5342,13 +5347,16 @@ async function afCargarPartesCliente(){
     wrap.innerHTML = '<div class="loading-msg">Sin partes con actividad reciente para este cliente.</div>'
     return
   }
-  const head = '<div class="af-row head"><span>No. Parte</span><span>Proceso</span><span>Piezas (14d)</span><span>Piezas/día</span></div>'
+  const nota = d.referencia
+    ? '<div class="af-periodo-nota">Ventana: hasta ' + fmtDt(d.referencia) + ' (último día con volumen real, no necesariamente "hoy")</div>'
+    : ''
+  const head = '<div class="af-row head"><span>No. Parte</span><span>Proceso</span><span>Piezas (' + d.dias + 'd)</span><span>Piezas/día</span></div>'
   const rows = d.partes.map(function(p){
     return '<div class="af-row click" data-np="' + p.no_parte.replace(/"/g,'&quot;') + '">'
       + '<span class="af-parte-mono">' + p.no_parte + '</span><span>' + (p.proceso || '—') + '</span>'
       + '<span>' + p.piezas + '</span><span>' + p.ritmo_diario_prom + '</span></div>'
   }).join('')
-  wrap.innerHTML = head + rows
+  wrap.innerHTML = nota + head + rows
   wrap.querySelectorAll('.af-row.click[data-np]').forEach(function(row){
     row.addEventListener('click', function(){
       document.getElementById('af-input').value = row.getAttribute('data-np')
@@ -5412,6 +5420,7 @@ function afRenderResultado(d){
     + '<div class="af-head"><span class="af-parte">' + d.no_parte + '</span>' + procBadge + '</div>'
     + '<div class="af-meta">' + clienteTxt + '</div>'
     + '<div class="af-section-title">Ritmo real · ' + d.ritmo.ritmo_diario_prom + ' piezas/día en promedio (' + d.ritmo.total_terminadas + ' en ' + d.ritmo.dias + ' días)</div>'
+    + '<div class="af-periodo-nota">Ventana: hasta ' + fmtDt(d.ritmo.referencia) + ' (último día con volumen real, no necesariamente "hoy")</div>'
     + barsHtml
     + '<div class="af-section-title">Tiempo de ciclo real por etapa</div>'
     + statsHtml
@@ -5423,6 +5432,17 @@ function afRenderResultado(d){
 async function afCargarCuellos(){
   const wrap = document.getElementById('af-cuellos')
   const d = await apiFetch('/api/alfa/cuello-botella?dias=14')
+  if (d && d.referencia) {
+    const ref = new Date(d.referencia)
+    const desdeReciente = new Date(ref.getTime() - d.dias * 86400000)
+    const desdeBaseline = new Date(desdeReciente.getTime() - d.ventana_baseline_dias * 86400000)
+    document.getElementById('af-cuellos-titulo').textContent =
+      'Cuello de botella · últimos ' + d.dias + ' días vs. los ' + d.ventana_baseline_dias + ' previos'
+    document.getElementById('af-cuellos-periodo').textContent =
+      'Reciente: ' + fmtDt(desdeReciente) + ' – ' + fmtDt(ref)
+      + ' · Baseline: ' + fmtDt(desdeBaseline) + ' – ' + fmtDt(desdeReciente)
+      + ' (ancla en el último día con volumen real, no necesariamente "hoy")'
+  }
   if (!d || !d.cuellos_de_botella || !d.cuellos_de_botella.length) {
     wrap.innerHTML = '<div class="loading-msg">Sin cuellos de botella detectados (ningún proceso/etapa ≥ ' + (d ? d.umbral_ratio : 1.3) + '× su baseline).</div>'
     return

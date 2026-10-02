@@ -61,7 +61,7 @@ def alfa_clientes():
         GROUP BY c.Cliente
         ORDER BY piezas DESC
     """, {"d": desde_dt, "h": ref_dt})
-    return {"clientes": [r["cliente"] for r in rows]}
+    return {"clientes": [r["cliente"] for r in rows], "referencia": referencia, "dias": 90}
 
 
 @router.get("/api/alfa/partes-cliente")
@@ -83,6 +83,7 @@ def alfa_partes_cliente(cliente: str = Query(...), dias: int = Query(default=14,
     return {
         "cliente": cliente,
         "dias": dias,
+        "referencia": referencia,
         "partes": [
             {
                 "no_parte": r["no_parte"],
