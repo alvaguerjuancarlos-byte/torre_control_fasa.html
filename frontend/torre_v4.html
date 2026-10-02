@@ -4831,6 +4831,7 @@ function pronRenderCombos(md) {
 
   <div class="af-chat-box">
     <div id="bt-chat-log" class="af-chat-log"><div class="af-chat-hint">Pregúntale a Beta — ej. "¿qué tan crítica es la parte X?", "¿qué partes están en riesgo alto?"</div></div>
+    <div id="bt-chat-faqs" class="af-chat-faqs"></div>
     <div class="af-chat-input-row">
       <input id="bt-chat-input" type="text" placeholder="Escribe tu pregunta…" />
       <button id="bt-chat-btn">Preguntar →</button>
@@ -5018,6 +5019,7 @@ async function flPintarRiesgoBeta(piezas){
 
   <div class="af-chat-box">
     <div id="af-chat-log" class="af-chat-log"><div class="af-chat-hint">Pregúntale a Alfa — ej. "¿cómo va la parte X?", "¿qué partes de [cliente] van más lento?", "¿hay algún cuello de botella?"</div></div>
+    <div id="af-chat-faqs" class="af-chat-faqs"></div>
     <div class="af-chat-input-row">
       <input id="af-chat-input" type="text" placeholder="Escribe tu pregunta…" />
       <button id="af-chat-btn">Preguntar →</button>
@@ -5069,6 +5071,13 @@ async function flPintarRiesgoBeta(piezas){
 .af-chat-msg.assistant table{border-collapse:collapse;margin:6px 0;font-size:12px}
 .af-chat-msg.assistant th,.af-chat-msg.assistant td{border:0.5px solid var(--color-border-tertiary);padding:3px 8px;text-align:left}
 .af-chat-tools{font-size:10px;color:var(--muted);margin-top:4px}
+.af-chat-faqs{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
+.af-chat-faqs:empty{display:none}
+.af-chat-faq-chip{font-size:11.5px;padding:5px 11px;border-radius:14px;cursor:pointer;
+  border:0.5px solid var(--color-border-secondary);background:var(--color-background-secondary);
+  color:var(--color-text-secondary);transition:.1s}
+.af-chat-faq-chip:hover{border-color:var(--color-border-info);color:var(--color-text-info);background:var(--color-background-info)}
+.af-chat-faq-chip:disabled{opacity:.5;cursor:default}
 .af-chat-input-row{display:flex;gap:8px}
 .af-chat-input-row input{flex:1;padding:8px 12px;font-size:13px;
   border:0.5px solid var(--color-border-secondary);border-radius:var(--border-radius-md);
@@ -5167,12 +5176,26 @@ function afChatFormatear(texto){
 }
 
 function crearChatAgente(cfg){
-  // cfg: {logId, inputId, btnId, endpoint}
+  // cfg: {logId, inputId, btnId, endpoint, faqsId, faqs}
   let historial = []
 
   function init(){
     document.getElementById(cfg.btnId).addEventListener('click', enviar)
     document.getElementById(cfg.inputId).addEventListener('keydown', function(e){ if (e.key === 'Enter') enviar() })
+    if (cfg.faqsId && cfg.faqs && cfg.faqs.length) {
+      const box = document.getElementById(cfg.faqsId)
+      box.innerHTML = cfg.faqs.map(function(q, i){
+        return '<button type="button" class="af-chat-faq-chip" data-faq="' + i + '">' + q + '</button>'
+      }).join('')
+      box.querySelectorAll('.af-chat-faq-chip').forEach(function(btn){
+        btn.addEventListener('click', function(){ preguntar(cfg.faqs[+btn.dataset.faq]) })
+      })
+    }
+  }
+
+  function preguntar(texto){
+    document.getElementById(cfg.inputId).value = texto
+    enviar()
   }
 
   async function enviar(){
@@ -5193,6 +5216,8 @@ function crearChatAgente(cfg){
     input.value = ''
     input.disabled = true
     btn.disabled = true
+    const faqsBox = cfg.faqsId ? document.getElementById(cfg.faqsId) : null
+    if (faqsBox) faqsBox.querySelectorAll('.af-chat-faq-chip').forEach(function(c){ c.disabled = true })
 
     const loadingDiv = document.createElement('div')
     loadingDiv.className = 'af-chat-msg assistant'
@@ -5235,14 +5260,35 @@ function crearChatAgente(cfg){
     log.scrollTop = log.scrollHeight
     input.disabled = false
     btn.disabled = false
+    if (faqsBox) faqsBox.querySelectorAll('.af-chat-faq-chip').forEach(function(c){ c.disabled = false })
     input.focus()
   }
 
   return {init: init}
 }
 
-const ALFA_CHAT = crearChatAgente({logId: 'af-chat-log', inputId: 'af-chat-input', btnId: 'af-chat-btn', endpoint: '/api/alfa/chat'})
-const BETA_CHAT = crearChatAgente({logId: 'bt-chat-log', inputId: 'bt-chat-input', btnId: 'bt-chat-btn', endpoint: '/api/beta/chat'})
+const ALFA_CHAT = crearChatAgente({
+  logId: 'af-chat-log', inputId: 'af-chat-input', btnId: 'af-chat-btn', endpoint: '/api/alfa/chat',
+  faqsId: 'af-chat-faqs',
+  faqs: [
+    '¿Hay algún cuello de botella en el flujo ahorita?',
+    '¿Qué clientes tienen actividad reciente?',
+    '¿Cómo va el plan de producción de este mes?',
+    '¿Qué proceso (AF1/AF2/AF3) está más retrasado esta semana?',
+    '¿Vamos a cumplir el saldo pendiente de este mes?',
+  ],
+})
+const BETA_CHAT = crearChatAgente({
+  logId: 'bt-chat-log', inputId: 'bt-chat-input', btnId: 'bt-chat-btn', endpoint: '/api/beta/chat',
+  faqsId: 'bt-chat-faqs',
+  faqs: [
+    '¿Qué partes tienen riesgo de rechazo alto ahora mismo?',
+    '¿Qué parte tiene la mayor tendencia de rechazo este mes?',
+    '¿Qué parte empeoró más el mes pasado contra su promedio histórico?',
+    '¿Cuál es el defecto que más se repite en las partes críticas?',
+    '¿Está disponible la compuerta de química hoy?',
+  ],
+})
 
 async function afCargarClientes(){
   const sel = document.getElementById('af-cliente')
