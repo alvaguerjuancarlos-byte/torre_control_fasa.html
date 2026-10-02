@@ -15,7 +15,7 @@ from pydantic import BaseModel
 from backend.routers.alfa import (
     alfa_evaluar, alfa_cuello_botella, alfa_clientes, alfa_partes_cliente, programa_mensual,
 )
-from backend.routers.beta import beta_evaluar, beta_riesgo_alto
+from backend.routers.beta import beta_evaluar, beta_riesgo_alto, tendencia_rechazo_mensual
 
 router = APIRouter(tags=["chat"])
 
@@ -86,6 +86,26 @@ def partes_riesgo_alto(limit: int = 20) -> str:
 
 
 @beta_tool
+def tendencia_mensual_rechazo(mes: str, meses_baseline: int = 3) -> str:
+    """Compara la tasa de rechazo de cada parte en un mes contra su promedio de los
+    meses anteriores, para encontrar qué parte empeoró más ese mes (mayor tendencia de
+    rechazo) -- úsala cuando pregunten por tendencia/evolución mensual, no para
+    criticidad histórica general (para eso usa riesgo_calidad_parte/partes_riesgo_alto).
+
+    Puede devolver "confiable": false (con "partes" vacío) si el mes evaluado o el
+    período de comparación no tienen veredicto de rechazo confiable en la base de
+    datos -- en ese caso usa el "motivo" que trae la respuesta tal cual para explicarle
+    al usuario por qué, NUNCA reportes 0% como si fuera un buen resultado ni inventes
+    un número para rellenar.
+
+    Args:
+        mes: formato YYYY-MM, ej. "2026-09".
+        meses_baseline: cuántos meses anteriores usar como referencia (default 3).
+    """
+    return json.dumps(tendencia_rechazo_mensual(mes=mes, meses_baseline=meses_baseline), default=str)
+
+
+@beta_tool
 def plan_produccion_mes(mes: str) -> str:
     """Plan de producción mensual: ritmos objetivo por proceso y saldo pendiente por
     parte -- el saldo NO es una fuente autoritativa, acláralo si lo usas en tu respuesta.
@@ -105,6 +125,7 @@ def plan_produccion_mes(mes: str) -> str:
 _TORRE_CHAT_TOOLS = [
     evaluar_parte, cuello_de_botella, listar_clientes_con_actividad,
     partes_de_cliente, riesgo_calidad_parte, partes_riesgo_alto, plan_produccion_mes,
+    tendencia_mensual_rechazo,
 ]
 
 _REGLAS_GROUNDING = """

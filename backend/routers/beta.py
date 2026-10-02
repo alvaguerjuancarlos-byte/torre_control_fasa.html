@@ -14,6 +14,7 @@ Dos compuertas de datos, nunca mezcladas:
      cuando falta.
 """
 
+import calendar
 from datetime import datetime
 from typing import Optional
 from fastapi import APIRouter, Query
@@ -23,6 +24,7 @@ from backend.core import run, _evaluar_coladas_ventana, _buscar_protocolos, _RED
 router = APIRouter(prefix="/api/beta", tags=["beta"])
 
 QUIMICA_UMBRAL_DIAS = 7  # dato más viejo que esto => compuerta no disponible
+UMBRAL_PIEZAS_MES_CONFIABLE = 200  # muestra mínima para considerar evaluable el rechazo de un mes
 
 
 def _riesgo_label(flag) -> str:
@@ -244,3 +246,136 @@ def beta_criticas(
 
     criticas.sort(key=lambda x: x["horas_transcurridas"] or 0, reverse=True)
     return {"referencia": referencia, "horas": horas, "n_criticas": len(criticas), "criticas": criticas}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TENDENCIA MENSUAL DE RECHAZO POR PARTE (2026-10-02)
+# ══════════════════════════════════════════════════════════════════════════════
+# JC preguntó al Agente Beta "qué parte tiene mayor tendencia de rechazo este mes
+# (septiembre)" -- el agente dijo que no tenía serie temporal/corte mensual, correcto
+# hasta ahora (ni beta_evaluar ni beta_riesgo_alto traen nada por mes, solo criticidad
+# histórica acumulada de gamamega_01_riesgodefectoparte). Esta sección agrega esa
+# serie mensual real sobre betamega_03_coladasproceso.bRechazo -- PERO esa misma
+# columna depende de un pipeline (betamega_02_pks_ticketcorrida) detenido desde
+# 2026-07-09 10:09:02 (ver auditoría "Estado real de los 7 Puntos de Control",
+# 2026-10-01): desde entonces TODA pieza sale con bRechazo=0, sea cual sea la calidad
+# real -- confirmado también en betamega_01_rechazosbyidticket (mismo patrón exacto).
+# Por eso _mes_confiable() es el primer paso, no un detalle: un mes con muestra grande
+# y CERO rechazos es estadísticamente imposible (meses sanos traen 7-22%), así que se
+# marca "sin dato confiable" en vez de devolver un 0% que se leería como buena noticia
+# falsa. El chequeo es dinámico (agregado en vivo, no una fecha hardcodeada) -- en
+# cuanto IT reactive el pipeline, el mes vuelve a evaluarse solo sin tocar este código.
+
+def _rango_mes(mes: str) -> tuple:
+    anio, m = (int(x) for x in mes.split("-"))
+    ultimo_dia = calendar.monthrange(anio, m)[1]
+    return f"{anio}-{m:02d}-01 00:00:00", f"{anio}-{m:02d}-{ultimo_dia:02d} 23:59:59"
+
+
+def _mes_desplazado(mes: str, n: int) -> str:
+    """mes='2026-09', n=3 -> '2026-06' (n meses antes)."""
+    anio, m = (int(x) for x in mes.split("-"))
+    m -= n
+    while m <= 0:
+        m += 12
+        anio -= 1
+    return f"{anio}-{m:02d}"
+
+
+def _mes_confiable(d_ini: str, d_fin: str) -> dict:
+    row = run("""
+        SELECT COUNT(*) AS total, SUM(bRechazo) AS n_rechazo
+        FROM betamega_03_coladasproceso
+        WHERE FHrVaciado BETWEEN :d AND :h
+    """, {"d": d_ini, "h": d_fin})
+    r = row[0] if row else {}
+    total = int(r.get("total") or 0)
+    n_rechazo = int(r.get("n_rechazo") or 0)
+    return {
+        "confiable": total >= UMBRAL_PIEZAS_MES_CONFIABLE and n_rechazo > 0,
+        "total_piezas": total,
+        "n_rechazo": n_rechazo,
+    }
+
+
+def tendencia_rechazo_mensual(mes: str, meses_baseline: int = 3, min_piezas_mes: int = 5, limit: int = 15) -> dict:
+    """Compara la tasa de rechazo de cada No_Parte en `mes` contra su promedio de los
+    `meses_baseline` meses anteriores -- la parte con mayor delta positivo es la de
+    "mayor tendencia de rechazo" ese mes. Devuelve `confiable: False` (sin lista de
+    partes) si el mes evaluado o la ventana de comparación no tienen veredicto de
+    rechazo confiable -- ver docstring de sección arriba."""
+    d_ini, d_fin = _rango_mes(mes)
+    chk_mes = _mes_confiable(d_ini, d_fin)
+    if not chk_mes["confiable"]:
+        motivo = (
+            f"{chk_mes['n_rechazo']} rechazos de {chk_mes['total_piezas']} piezas en {mes} -- "
+            "bRechazo depende de un pipeline (betamega_02_pks_ticketcorrida) detenido desde "
+            "2026-07-09; no hay veredicto de calidad confiable para este mes todavía."
+            if chk_mes["total_piezas"] >= UMBRAL_PIEZAS_MES_CONFIABLE else
+            f"Muestra insuficiente para {mes}: solo {chk_mes['total_piezas']} piezas registradas."
+        )
+        return {"mes": mes, "confiable": False, "motivo": motivo, "baseline": None, "partes": []}
+
+    mes_base_ini = _mes_desplazado(mes, meses_baseline)
+    mes_base_fin = _mes_desplazado(mes, 1)
+    base_d_ini, _ = _rango_mes(mes_base_ini)
+    _, base_d_fin = _rango_mes(mes_base_fin)
+    chk_base = _mes_confiable(base_d_ini, base_d_fin)
+    if not chk_base["confiable"]:
+        motivo = (
+            f"El mes evaluado ({mes}) sí tiene dato confiable, pero la ventana de comparación "
+            f"({mes_base_ini} a {mes_base_fin}) no -- {chk_base['n_rechazo']} rechazos de "
+            f"{chk_base['total_piezas']} piezas, mismo pipeline detenido. No se puede calcular una "
+            "tendencia sin una base confiable para comparar."
+        )
+        return {"mes": mes, "confiable": False, "motivo": motivo,
+                "baseline": f"{mes_base_ini} a {mes_base_fin}", "partes": []}
+
+    rows_mes = run("""
+        SELECT No_Parte AS no_parte, COUNT(*) AS total, SUM(bRechazo) AS rechazos
+        FROM betamega_03_coladasproceso
+        WHERE FHrVaciado BETWEEN :d AND :h AND No_Parte IS NOT NULL
+        GROUP BY No_Parte HAVING total >= :minp
+    """, {"d": d_ini, "h": d_fin, "minp": min_piezas_mes})
+    rows_base = run("""
+        SELECT No_Parte AS no_parte, COUNT(*) AS total, SUM(bRechazo) AS rechazos
+        FROM betamega_03_coladasproceso
+        WHERE FHrVaciado BETWEEN :d AND :h AND No_Parte IS NOT NULL
+        GROUP BY No_Parte HAVING total >= :minp
+    """, {"d": base_d_ini, "h": base_d_fin, "minp": min_piezas_mes})
+    base_idx = {r["no_parte"]: r for r in rows_base}
+
+    partes = []
+    for r in rows_mes:
+        base = base_idx.get(r["no_parte"])
+        if not base:
+            continue  # sin piezas suficientes en el baseline -- no se puede medir tendencia
+        tasa_mes  = float(r["rechazos"]) / float(r["total"]) * 100
+        tasa_base = float(base["rechazos"]) / float(base["total"]) * 100
+        partes.append({
+            "no_parte":          r["no_parte"],
+            "piezas_mes":        int(r["total"]),
+            "rechazos_mes":      int(r["rechazos"]),
+            "tasa_mes_pct":      round(tasa_mes, 1),
+            "piezas_baseline":   int(base["total"]),
+            "tasa_baseline_pct": round(tasa_base, 1),
+            "delta_pct":         round(tasa_mes - tasa_base, 1),
+        })
+    partes.sort(key=lambda x: x["delta_pct"], reverse=True)
+
+    return {
+        "mes": mes,
+        "confiable": True,
+        "baseline": f"{mes_base_ini} a {mes_base_fin}",
+        "partes": partes[:limit],
+    }
+
+
+@router.get("/tendencia-mensual")
+def beta_tendencia_mensual(
+    mes: str = Query(..., description="YYYY-MM, mes a evaluar, ej. 2026-09"),
+    meses_baseline: int = Query(default=3, ge=1, le=12),
+    min_piezas_mes: int = Query(default=5, ge=1),
+    limit: int = Query(default=15, le=100),
+):
+    return tendencia_rechazo_mensual(mes, meses_baseline, min_piezas_mes, limit)
