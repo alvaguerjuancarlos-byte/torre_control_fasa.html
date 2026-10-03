@@ -15,16 +15,17 @@ Dos compuertas de datos, nunca mezcladas:
 """
 
 import calendar
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional
 from fastapi import APIRouter, Query
 
-from backend.core import run, _evaluar_coladas_ventana, _buscar_protocolos, _REDISENO_COMBOS
+from backend.core import run, _evaluar_coladas_ventana, _buscar_protocolos, _REDISENO_COMBOS, _referencia_actual_flujo
 
 router = APIRouter(prefix="/api/beta", tags=["beta"])
 
 QUIMICA_UMBRAL_DIAS = 7  # dato más viejo que esto => compuerta no disponible
 UMBRAL_PIEZAS_MES_CONFIABLE = 200  # muestra mínima para considerar evaluable el rechazo de un mes
+UMBRAL_PARTES_ACTIVAS_CONFIABLE = 5  # mínimo de partes con actividad real para no sugerir ampliar
 
 # Verificado 2026-10-02: nPzasTotal = nPzas2023 + nPzas2025 EXACTO en las 1,381 filas de
 # gamamega_01_riesgodefectoparte -- "histórico acumulado"/PrcRchzTotal es la suma de 2023+2025
@@ -115,17 +116,45 @@ def beta_evaluar(no_parte: str = Query(...)):
 
 
 @router.get("/riesgo-alto")
-def beta_riesgo_alto(limit: int = Query(default=20, le=200)):
+def beta_riesgo_alto(limit: int = Query(default=20, le=200), dias: Optional[int] = Query(default=None, le=365)):
+    """Partes con criticidad histórica alta (2023+2025, fija -- ver PERIODO_CRITICIDAD).
+    Sin `dias`: las más críticas de TODA la historia, sin importar si siguen en producción.
+    Con `dias`: la misma tasa histórica, pero la LISTA se acota a partes con producción real
+    en los últimos `dias` días (mismo criterio/tabla que usa Alfa para ritmo,
+    betamega_08_ticketrutacritica.FHrLIMP) -- JC pidió esto 2026-10-03: el % de rechazo no
+    puede ser "del trimestre" (no existe esa granularidad en la fuente), pero SÍ tiene sentido
+    que la lista solo muestre partes que de verdad se están fabricando ahora, no piezas
+    descontinuadas que siguen apareciendo por su historial viejo."""
+    params = {"limit": int(limit)}
+    filtro_actividad = ""
+    n_partes_activas = None
+    referencia = None
+    if dias:
+        referencia = _referencia_actual_flujo()
+        ref_dt = datetime.fromisoformat(referencia)
+        desde_dt = ref_dt - timedelta(days=dias)
+        activas_row = run("""
+            SELECT COUNT(DISTINCT No_Parte) AS n FROM betamega_08_ticketrutacritica
+            WHERE FHrLIMP BETWEEN :d AND :h
+        """, {"d": desde_dt, "h": ref_dt})
+        n_partes_activas = int(activas_row[0]["n"]) if activas_row else 0
+        filtro_actividad = """AND No_Parte IN (
+            SELECT DISTINCT No_Parte FROM betamega_08_ticketrutacritica
+            WHERE FHrLIMP BETWEEN :d AND :h
+        )"""
+        params["d"] = desde_dt
+        params["h"] = ref_dt
+
     rows = run(f"""
         SELECT No_Parte AS no_parte, nomDefecto AS defecto_dominante,
                PrcRchzTotal AS pct_rchz_total, zDefectoParte AS z_defecto_parte
         FROM gamamega_01_riesgodefectoparte
-        WHERE FlagCriticidadDefectoParte = 1
+        WHERE FlagCriticidadDefectoParte = 1 {filtro_actividad}
         ORDER BY zDefectoParte DESC
         LIMIT {int(limit)}
-    """, {})
+    """, params)
 
-    return {
+    out = {
         "periodo": PERIODO_CRITICIDAD,
         "partes": [
             {
@@ -137,6 +166,17 @@ def beta_riesgo_alto(limit: int = Query(default=20, le=200)):
             for r in rows
         ]
     }
+    if dias:
+        out["filtro_actividad"] = {
+            "dias": dias,
+            "referencia": referencia,
+            "n_partes_activas_total": n_partes_activas,
+            "muestra_suficiente": n_partes_activas >= UMBRAL_PARTES_ACTIVAS_CONFIABLE,
+            "nota": ("Lista acotada a partes con producción real en los últimos "
+                     f"{dias} días ({n_partes_activas} partes activas en total en esa ventana) -- "
+                     "el % de rechazo que se muestra sigue siendo histórico 2023+2025, fijo."),
+        }
+    return out
 
 
 def _riesgo_lote_partes(no_partes: list) -> dict:

@@ -4839,7 +4839,7 @@ function pronRenderCombos(md) {
     <button type="button" class="pb" data-per="semestre" onclick="btSetPeriodo('semestre')">Semestre</button>
     <button type="button" class="pb" data-per="anio" onclick="btSetPeriodo('anio')">Año</button>
   </div>
-  <div class="af-periodo-nota">Este horizonte solo afecta preguntas de tendencia mensual en el chat — Criticidad histórica (2023+2025, fija) y disponibilidad de compuerta química (chequeo de frescura) no cambian con el período.</div>
+  <div class="af-periodo-nota">Acota qué partes aparecen en "Partes en riesgo alto" (por producción real reciente) y las preguntas de tendencia mensual en el chat. El % de rechazo que se muestra siempre es histórico (2023+2025, fijo) — el horizonte nunca cambia esa tasa, solo qué partes salen en la lista. Disponibilidad de compuerta química no cambia con el período.</div>
 
   <div class="af-chat-box">
     <div id="bt-chat-log" class="af-chat-log"><div class="af-chat-hint">Pregúntale a Beta — ej. "¿qué tan crítica es la parte X?", "¿qué partes están en riesgo alto?"</div></div>
@@ -4929,6 +4929,7 @@ function _marcarPeriodoActivo(prefix, p){
 function btSetPeriodo(p){
   BT_PERIODO = p
   _marcarPeriodoActivo('beta', p)
+  btCargarLista()
 }
 
 function afDias(tope){
@@ -5005,9 +5006,11 @@ function btRenderResultado(d){
 
 async function btCargarLista(){
   const wrap = document.getElementById('bt-lista')
-  const d = await apiFetch('/api/beta/riesgo-alto?limit=20')
+  const dias = PERIODOS_JS[BT_PERIODO].dias
+  const d = await apiFetch('/api/beta/riesgo-alto?limit=20&dias=' + dias)
+  const nota = (d && d.filtro_actividad) ? '<div class="af-periodo-nota">' + d.filtro_actividad.nota + '</div>' : ''
   if (!d || !d.partes || !d.partes.length) {
-    wrap.innerHTML = '<div class="loading-msg">Sin partes en riesgo alto.</div>'
+    wrap.innerHTML = '<div class="loading-msg">Sin partes en riesgo alto con actividad en este horizonte.</div>' + nota
     return
   }
   const head = '<div class="bt-row head"><span>No. Parte</span><span>Defecto dominante</span><span>% rechazo</span><span>z</span></div>'
@@ -5016,7 +5019,7 @@ async function btCargarLista(){
       + '<span class="bt-parte-mono">' + p.no_parte + '</span><span>' + p.defecto_dominante + '</span>'
       + '<span>' + (p.pct_rchz_total * 100).toFixed(1) + '%</span><span>' + p.z_defecto_parte + '</span></div>'
   }).join('')
-  wrap.innerHTML = head + rows
+  wrap.innerHTML = head + rows + nota
   wrap.querySelectorAll('.bt-row[data-np]').forEach(function(row){
     row.addEventListener('click', function(){ btDesdeLista(row.getAttribute('data-np')) })
   })

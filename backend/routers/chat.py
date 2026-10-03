@@ -107,16 +107,26 @@ def riesgo_calidad_parte(no_parte: str) -> str:
 
 
 @beta_tool
-def partes_riesgo_alto(limit: int = 20) -> str:
+def partes_riesgo_alto(limit: int = 20, dias: Optional[int] = None) -> str:
     """Lista de partes con criticidad histórica de rechazo alta (Agente Beta).
-    El resultado trae un campo "periodo" que dice exactamente qué años cubre --
-    siempre repítelo literal, no digas solo "histórico" o "sin corte de período"
-    sin más, el usuario quiere saber qué años son.
+    El resultado trae un campo "periodo" que dice exactamente qué años cubre el % de
+    rechazo (2023+2025, fijo) -- siempre repítelo literal, no digas solo "histórico" o
+    "sin corte de período" sin más.
+
+    El % de rechazo SIEMPRE es histórico (no se puede acotar a un trimestre/mes, esa
+    granularidad no existe en la fuente) -- pero pasa `dias` (el horizonte seleccionado
+    por el usuario) para acotar la LISTA a partes con producción real reciente, así no
+    salen piezas descontinuadas que ya no se fabrican. Cuando la pregunta es del tipo
+    "qué se está fabricando ahora" / "riesgo actual", usa `dias`; si piden explícitamente
+    el histórico completo sin filtrar, omite `dias`. El resultado trae
+    "filtro_actividad.nota" cuando se usó `dias` -- repítela, y si
+    "filtro_actividad.muestra_suficiente" es false, dilo y recomienda ampliar horizonte.
 
     Args:
         limit: máximo de partes a devolver.
+        dias: si se da, acota la lista a partes con actividad real en esos días.
     """
-    return json.dumps(beta_riesgo_alto(limit=limit), default=str)
+    return json.dumps(beta_riesgo_alto(limit=limit, dias=dias), default=str)
 
 
 @beta_tool
@@ -218,10 +228,16 @@ las herramientas que los acepten, salvo que la pregunta pida otra cosa explícit
 pasado" o un No_Parte puntual con su propio horizonte implícito en la pregunta). Si una
 herramienta tiene un tope técnico menor al horizonte pedido (cuello_de_botella: 30 días;
 evaluar_parte/partes_de_cliente/listar_clientes_con_actividad: 90 días), usa ese tope y
-acláralo -- no finjas que aplicaste el horizonte completo. Criticidad histórica
-(riesgo_calidad_parte/partes_riesgo_alto) y disponibilidad de compuerta química NO se ven
-afectadas por este selector bajo ninguna circunstancia -- si preguntan algo de esas dos con un
-horizonte seleccionado, acláralo también en vez de ignorar la pregunta sobre el horizonte."""
+acláralo -- no finjas que aplicaste el horizonte completo.
+
+Criticidad histórica tiene una distinción fina, no la pases por alto: el % de rechazo de
+riesgo_calidad_parte/partes_riesgo_alto SIEMPRE es histórico (2023+2025, fijo) y el horizonte
+NUNCA cambia esa tasa -- pero partes_riesgo_alto sí acepta `dias` para acotar qué PARTES aparecen
+en la lista a las que tienen producción real reciente (evita mostrar piezas descontinuadas). Pasa
+`dias` ahí cuando la pregunta sea del tipo "qué se fabrica ahora"/"riesgo actual"; si piden
+explícitamente el histórico completo sin filtrar, omítelo. riesgo_calidad_parte (una parte
+puntual) y disponibilidad de compuerta química no tienen ningún parámetro de horizonte --
+acláralo si preguntan algo de esas con un horizonte seleccionado."""
 
 
 def _correr_chat(system: str, req: ChatRequest) -> dict:
