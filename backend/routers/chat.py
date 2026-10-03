@@ -7,6 +7,7 @@ AGENTE ALFA/BETA — chat conversacional (tool-use), 2026-08-05
 # Regla dura del system prompt: solo puede afirmar lo que vino de un tool result.
 
 import json
+from typing import Optional
 import anthropic
 from anthropic import beta_tool
 from fastapi import APIRouter, HTTPException
@@ -19,15 +20,33 @@ from backend.routers.beta import beta_evaluar, beta_riesgo_alto, tendencia_recha
 
 router = APIRouter(tags=["chat"])
 
+# Selector de horizonte de análisis (2026-10-03, JC): un botón único en cada pestaña
+# (Mes actual/Trimestre/Semestre/Año) que el frontend manda como ChatRequest.periodo.
+# Única fuente de verdad del mapeo horizonte -> parámetros de herramienta; el frontend
+# (frontend/torre_v4.html, const PERIODOS_JS) replica el mismo literal -- no hay paso de
+# build en este proyecto para compartirlo de verdad, así que si se cambia uno hay que
+# cambiar el otro a mano.
+HORIZONTES = {
+    "mes":       {"label": "mes actual", "dias": 30,  "meses_baseline": 1},
+    "trimestre": {"label": "trimestre",  "dias": 90,  "meses_baseline": 3},
+    "semestre":  {"label": "semestre",   "dias": 180, "meses_baseline": 6},
+    "anio":      {"label": "año",        "dias": 365, "meses_baseline": 12},
+}
+
 
 @beta_tool
 def evaluar_parte(no_parte: str, dias: int = 14) -> str:
     """Ritmo real, ciclo por etapa, proceso/cliente y proyección de entrega para una parte.
+    Trae "muestra_suficiente" (bool) -- si viene false, la pieza/ventana tiene muy pocas
+    piezas terminadas para ser representativa: dilo y recomienda ampliar el horizonte
+    (mes->trimestre->semestre->año), y si el horizonte pedido no era ya el máximo, considera
+    volver a llamar esta misma tool con un `dias` mayor en el mismo turno. TOPE TÉCNICO: 90
+    días -- si el horizonte seleccionado pide más (semestre/año), usa dias=90 y acláralo.
 
     Args:
         no_parte: Número de parte exacto (ej. "2C-2473-000"). Si no lo conoces, usa
             listar_clientes_con_actividad + partes_de_cliente para encontrarlo primero.
-        dias: Ventana de días hacia atrás para calcular el ritmo real.
+        dias: Ventana de días hacia atrás para calcular el ritmo real (máximo 90).
     """
     return json.dumps(alfa_evaluar(no_parte=no_parte, dias=dias), default=str)
 
@@ -37,29 +56,38 @@ def cuello_de_botella(dias: int = 14) -> str:
     """Detecta si algún proceso (AF1/AF2/AF3) está más lento de lo normal en alguna etapa
     (Molde→Vaciado, Vaciado→Desmoldeo, Desmoldeo→Limpieza), comparando los últimos `dias`
     contra un baseline de las 4 ventanas anteriores. Lista vacía = sin cuello de botella.
+    Trae "procesos_sin_dato" (lista, ej. ["AF2"]) -- un proceso ahí NO significa que esté
+    sano, significa que no hay datos suficientes en la ventana para evaluarlo: dilo
+    explícito, no lo omitas en silencio. TOPE TÉCNICO: 30 días -- si el horizonte
+    seleccionado pide más, usa dias=30 y acláralo, no finjas una ventana mayor.
 
     Args:
-        dias: tamaño de la ventana reciente en días.
+        dias: tamaño de la ventana reciente en días (máximo 30).
     """
     return json.dumps(alfa_cuello_botella(dias=dias), default=str)
 
 
 @beta_tool
-def listar_clientes_con_actividad() -> str:
-    """Lista de clientes con actividad de producción real en los últimos 90 días,
+def listar_clientes_con_actividad(dias: int = 90) -> str:
+    """Lista de clientes con actividad de producción real en los últimos `dias` días,
     ordenados por piezas. Úsalo para encontrar el nombre exacto de un cliente antes
-    de llamar a partes_de_cliente."""
-    return json.dumps(alfa_clientes(), default=str)
+    de llamar a partes_de_cliente. TOPE TÉCNICO: 90 días.
+
+    Args:
+        dias: ventana en días (máximo 90).
+    """
+    return json.dumps(alfa_clientes(dias=dias), default=str)
 
 
 @beta_tool
 def partes_de_cliente(cliente: str, dias: int = 14) -> str:
     """Partes con actividad reciente de un cliente específico, con ritmo (piezas/día)
     y proceso. Úsalo para encontrar el No_Parte exacto de las partes de un cliente.
+    TOPE TÉCNICO: 90 días.
 
     Args:
         cliente: Nombre exacto del cliente (usar listar_clientes_con_actividad para verlo).
-        dias: ventana en días.
+        dias: ventana en días (máximo 90).
     """
     return json.dumps(alfa_partes_cliente(cliente=cliente, dias=dias), default=str)
 
@@ -102,7 +130,10 @@ def tendencia_mensual_rechazo(mes: str, meses_baseline: int = 3) -> str:
     período de comparación no tienen veredicto de rechazo confiable en la base de
     datos -- en ese caso usa el "motivo" que trae la respuesta tal cual para explicarle
     al usuario por qué, NUNCA reportes 0% como si fuera un buen resultado ni inventes
-    un número para rellenar.
+    un número para rellenar. Recomienda ampliar `meses_baseline` (siguiente horizonte:
+    mes->trimestre->semestre->año) y, si el horizonte pedido no era ya el máximo (año =
+    meses_baseline 12), considera volver a llamar esta misma tool con un baseline mayor
+    en el mismo turno en vez de solo sugerirlo.
 
     Args:
         mes: formato YYYY-MM, ej. "2026-09".
@@ -147,6 +178,11 @@ Reglas estrictas:
   tiene forma de saber a qué corte corresponde un número si tú no se lo dices. Dilo en una
   frase corta y natural, no como nota aparte (ej. "con datos hasta el 9 de marzo" o "información
   histórica acumulada, sin corte de fecha" si la herramienta no filtra por período).
+- Si una herramienta devuelve que la muestra es insuficiente para el horizonte actual
+  (`muestra_suficiente: false`, `confiable: false`, o un proceso en `procesos_sin_dato`), dilo
+  y recomienda ampliar al siguiente horizonte (mes→trimestre→semestre→año) -- si el horizonte
+  seleccionado no era ya el máximo (año), puedes volver a llamar la misma herramienta con el
+  siguiente horizonte en el mismo turno para dar la respuesta directa en vez de solo sugerirla.
 - Responde en español, breve y directo, como si hablaras con un supervisor de piso -- sin
   relleno, sin repetir los datos crudos, solo la conclusión y el número que la respalda."""
 
@@ -167,10 +203,30 @@ a ritmo de producción, cuello de botella o entrega.
 class ChatRequest(BaseModel):
     pregunta: str
     historial: list = []  # [{"rol": "user"|"assistant", "texto": "..."}], opcional
+    periodo: Optional[str] = None  # clave de HORIZONTES ("mes"/"trimestre"/"semestre"/"anio")
+
+
+def _system_con_horizonte(system: str, periodo: Optional[str]) -> str:
+    h = HORIZONTES.get(periodo)
+    if not h:
+        return system
+    return system + f"""
+
+Horizonte de análisis seleccionado por el usuario: {h['label']} (~{h['dias']} días / últimos
+{h['meses_baseline']} meses). Úsalo como default en los parámetros `dias`/`meses_baseline` de
+las herramientas que los acepten, salvo que la pregunta pida otra cosa explícita (ej. "el mes
+pasado" o un No_Parte puntual con su propio horizonte implícito en la pregunta). Si una
+herramienta tiene un tope técnico menor al horizonte pedido (cuello_de_botella: 30 días;
+evaluar_parte/partes_de_cliente/listar_clientes_con_actividad: 90 días), usa ese tope y
+acláralo -- no finjas que aplicaste el horizonte completo. Criticidad histórica
+(riesgo_calidad_parte/partes_riesgo_alto) y disponibilidad de compuerta química NO se ven
+afectadas por este selector bajo ninguna circunstancia -- si preguntan algo de esas dos con un
+horizonte seleccionado, acláralo también en vez de ignorar la pregunta sobre el horizonte."""
 
 
 def _correr_chat(system: str, req: ChatRequest) -> dict:
     client = anthropic.Anthropic()
+    system = _system_con_horizonte(system, req.periodo)
 
     messages = [{"role": t["rol"], "content": t["texto"]} for t in req.historial]
     messages.append({"role": "user", "content": req.pregunta})

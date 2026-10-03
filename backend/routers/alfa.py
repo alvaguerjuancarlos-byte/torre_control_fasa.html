@@ -27,6 +27,12 @@ from backend import plan_lector
 
 router = APIRouter(tags=["alfa"])
 
+# 2026-10-03: selector de horizonte de análisis (Alfa/Beta) -- ver backend/routers/chat.py
+# HORIZONTES. Un ritmo calculado sobre muy pocas piezas no es representativo y antes se
+# devolvía igual, sin aviso (ej. ritmo_diario_prom=0.4 por 1 pieza en 14 días se leía como
+# "va lento" cuando en realidad es "casi sin muestra").
+UMBRAL_PIEZAS_RITMO_CONFIABLE = 5
+
 
 def _resolver_proceso_cliente(no_partes: list) -> dict:
     """No_Parte -> {proceso (AF1/AF2/AF3, de corex_test.modelos.area), cliente}.
@@ -45,13 +51,14 @@ def _resolver_proceso_cliente(no_partes: list) -> dict:
 
 
 @router.get("/api/alfa/clientes")
-def alfa_clientes():
+def alfa_clientes(dias: int = Query(default=90, le=90)):
     """Clientes con actividad de flujo real (betamega_08_ticketrutacritica) en los
-    últimos 90 días, ordenados por piezas -- para el selector de descubrimiento del
-    tab Alfa (JC señaló que escribir el No_Parte a ciegas no era usable)."""
+    últimos `dias` días (default 90), ordenados por piezas -- para el selector de
+    descubrimiento del tab Alfa (JC señaló que escribir el No_Parte a ciegas no era
+    usable). Tope de 90 días, mismo criterio que partes_de_cliente/evaluar."""
     referencia = _referencia_actual_flujo()
     ref_dt = datetime.fromisoformat(referencia)
-    desde_dt = ref_dt - timedelta(days=90)
+    desde_dt = ref_dt - timedelta(days=dias)
     rows = run("""
         SELECT c.Cliente AS cliente, COUNT(*) AS piezas
         FROM betamega_08_ticketrutacritica r
@@ -61,7 +68,7 @@ def alfa_clientes():
         GROUP BY c.Cliente
         ORDER BY piezas DESC
     """, {"d": desde_dt, "h": ref_dt})
-    return {"clientes": [r["cliente"] for r in rows], "referencia": referencia, "dias": 90}
+    return {"clientes": [r["cliente"] for r in rows], "referencia": referencia, "dias": dias}
 
 
 @router.get("/api/alfa/partes-cliente")
@@ -130,6 +137,7 @@ def _ritmo_parte(no_parte: str, dias: int, referencia: str) -> dict:
         "dias": dias,
         "serie_terminadas": [{"dia": str(r["dia"]), "piezas": int(r["piezas"])} for r in serie],
         "total_terminadas": total,
+        "muestra_suficiente": total >= UMBRAL_PIEZAS_RITMO_CONFIABLE,
         "ritmo_diario_prom": round(total / dias, 2) if dias else None,
         "ciclo_horas": {
             "molde_a_vaciado":     float(c["h_molde_vaciado"])     if c.get("h_molde_vaciado")     is not None else None,
@@ -229,9 +237,11 @@ def alfa_cuello_botella(dias: int = Query(default=7, le=30)):
               ("vaciado_a_desmoldeo", "h_vaciado_desmoldeo"),
               ("desmoldeo_a_limpieza", "h_desmoldeo_limpieza")]
     cuellos = []
+    procesos_sin_dato = []
     for proceso in ("AF1", "AF2", "AF3"):
         r, b = reciente.get(proceso), baseline.get(proceso)
         if not r or not b or not r.get("n"):
+            procesos_sin_dato.append(proceso)
             continue
         for etapa_label, col in etapas:
             hr, hb = r.get(col), b.get(col)
@@ -252,6 +262,7 @@ def alfa_cuello_botella(dias: int = Query(default=7, le=30)):
         "ventana_baseline_dias": dias * 4,
         "umbral_ratio": _CUELLO_UMBRAL_RATIO,
         "cuellos_de_botella": cuellos,
+        "procesos_sin_dato": procesos_sin_dato,
     }
 
 

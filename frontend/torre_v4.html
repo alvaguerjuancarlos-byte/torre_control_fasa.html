@@ -4832,6 +4832,15 @@ function pronRenderCombos(md) {
     <button type="button" id="bt-chat-reset" class="af-chat-reset-btn" title="Borra la conversación y vuelve al inicio">↺ Nueva conversación</button>
   </div>
 
+  <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:8px 0 2px">
+    <span style="font-size:12px;color:var(--color-text-secondary)">Horizonte de análisis:</span>
+    <button type="button" class="pb" data-per="mes" onclick="btSetPeriodo('mes')">Mes actual</button>
+    <button type="button" class="pb active" data-per="trimestre" onclick="btSetPeriodo('trimestre')">Trimestre</button>
+    <button type="button" class="pb" data-per="semestre" onclick="btSetPeriodo('semestre')">Semestre</button>
+    <button type="button" class="pb" data-per="anio" onclick="btSetPeriodo('anio')">Año</button>
+  </div>
+  <div class="af-periodo-nota">Este horizonte solo afecta preguntas de tendencia mensual en el chat — Criticidad histórica (2023+2025, fija) y disponibilidad de compuerta química (chequeo de frescura) no cambian con el período.</div>
+
   <div class="af-chat-box">
     <div id="bt-chat-log" class="af-chat-log"><div class="af-chat-hint">Pregúntale a Beta — ej. "¿qué tan crítica es la parte X?", "¿qué partes están en riesgo alto?"</div></div>
     <div id="bt-chat-faqs" class="af-chat-faqs"></div>
@@ -4900,6 +4909,42 @@ function pronRenderCombos(md) {
 <script>
 // AGENTE BETA
 let BT_LOADED = false
+// Selector de horizonte de análisis (2026-10-03) -- mismo literal que HORIZONTES en
+// backend/routers/chat.py, duplicado a propósito (no hay build step que lo comparta).
+const PERIODOS_JS = {
+  mes:       {label: 'mes actual', dias: 30,  meses_baseline: 1},
+  trimestre: {label: 'trimestre',  dias: 90,  meses_baseline: 3},
+  semestre:  {label: 'semestre',   dias: 180, meses_baseline: 6},
+  anio:      {label: 'año',        dias: 365, meses_baseline: 12},
+}
+let BT_PERIODO = 'trimestre'
+let AF_PERIODO = 'trimestre'
+
+function _marcarPeriodoActivo(prefix, p){
+  document.querySelectorAll('#tab-' + prefix + ' [data-per]').forEach(function(b){
+    b.classList.toggle('active', b.getAttribute('data-per') === p)
+  })
+}
+
+function btSetPeriodo(p){
+  BT_PERIODO = p
+  _marcarPeriodoActivo('beta', p)
+}
+
+function afDias(tope){
+  return Math.min(PERIODOS_JS[AF_PERIODO].dias, tope)
+}
+
+function afSetPeriodo(p){
+  AF_PERIODO = p
+  _marcarPeriodoActivo('alfa', p)
+  afCargarCuellos()
+  const npActivo = document.getElementById('af-input').value.trim()
+  if (npActivo) afEvaluar()
+  const cliActivo = document.getElementById('af-cliente').value
+  if (cliActivo) afCargarPartesCliente()
+}
+
 window.initBetaPanel = function(){
   if (BT_LOADED) return
   BT_LOADED = true
@@ -5023,6 +5068,15 @@ async function flPintarRiesgoBeta(piezas){
     <div class="cr-eyebrow" style="margin:0">Agente Alfa · ritmo real, cuello de botella y proyección de entrega</div>
     <button type="button" id="af-chat-reset" class="af-chat-reset-btn" title="Borra la conversación y vuelve al inicio">↺ Nueva conversación</button>
   </div>
+
+  <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:8px 0 2px">
+    <span style="font-size:12px;color:var(--color-text-secondary)">Horizonte de análisis:</span>
+    <button type="button" class="pb" data-per="mes" onclick="afSetPeriodo('mes')">Mes actual</button>
+    <button type="button" class="pb active" data-per="trimestre" onclick="afSetPeriodo('trimestre')">Trimestre</button>
+    <button type="button" class="pb" data-per="semestre" onclick="afSetPeriodo('semestre')">Semestre</button>
+    <button type="button" class="pb" data-per="anio" onclick="afSetPeriodo('anio')">Año</button>
+  </div>
+  <div class="af-periodo-nota">Gobierna el chat y los paneles de abajo (Evaluar, Cuellos). Cuello de botella tiene tope técnico de 30 días; Ritmo/Clientes de 90 días — Semestre/Año usan ese máximo.</div>
 
   <div class="af-chat-box">
     <div id="af-chat-log" class="af-chat-log"><div class="af-chat-hint">Pregúntale a Alfa — ej. "¿cómo va la parte X?", "¿qué partes de [cliente] van más lento?", "¿hay algún cuello de botella?"</div></div>
@@ -5265,7 +5319,7 @@ function crearChatAgente(cfg){
       const r = await fetch(cfg.endpoint, {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({pregunta: pregunta, historial: historial}),
+        body: JSON.stringify({pregunta: pregunta, historial: historial, periodo: cfg.getPeriodo ? cfg.getPeriodo() : null}),
       })
       if (r.ok) resp = await r.json()
     } catch (e) { resp = null }
@@ -5304,7 +5358,7 @@ function crearChatAgente(cfg){
 
 const ALFA_CHAT = crearChatAgente({
   logId: 'af-chat-log', inputId: 'af-chat-input', btnId: 'af-chat-btn', endpoint: '/api/alfa/chat',
-  faqsId: 'af-chat-faqs', resetId: 'af-chat-reset',
+  faqsId: 'af-chat-faqs', resetId: 'af-chat-reset', getPeriodo: function(){ return AF_PERIODO },
   faqs: [
     '¿Hay algún cuello de botella en el flujo ahorita?',
     '¿Qué clientes tienen actividad reciente?',
@@ -5315,7 +5369,7 @@ const ALFA_CHAT = crearChatAgente({
 })
 const BETA_CHAT = crearChatAgente({
   logId: 'bt-chat-log', inputId: 'bt-chat-input', btnId: 'bt-chat-btn', endpoint: '/api/beta/chat',
-  faqsId: 'bt-chat-faqs', resetId: 'bt-chat-reset',
+  faqsId: 'bt-chat-faqs', resetId: 'bt-chat-reset', getPeriodo: function(){ return BT_PERIODO },
   faqs: [
     '¿Qué partes tienen riesgo de rechazo alto ahora mismo?',
     '¿Qué parte tiene la mayor tendencia de rechazo este mes?',
@@ -5342,7 +5396,7 @@ async function afCargarPartesCliente(){
   const wrap = document.getElementById('af-partes-cliente')
   if (!cliente) { wrap.innerHTML = '<div class="loading-msg">Selecciona un cliente para ver sus partes con actividad.</div>'; return }
   wrap.innerHTML = '<div class="loading-msg">Cargando…</div>'
-  const d = await apiFetch('/api/alfa/partes-cliente?cliente=' + encodeURIComponent(cliente) + '&dias=14')
+  const d = await apiFetch('/api/alfa/partes-cliente?cliente=' + encodeURIComponent(cliente) + '&dias=' + afDias(90))
   if (!d || !d.partes || !d.partes.length) {
     wrap.innerHTML = '<div class="loading-msg">Sin partes con actividad reciente para este cliente.</div>'
     return
@@ -5373,7 +5427,7 @@ async function afEvaluar(){
   if (!np) { msg.textContent = 'Escribe un número de parte.'; return }
   result.style.display = ''
   result.innerHTML = '<div class="loading-msg">Evaluando…</div>'
-  const d = await apiFetch('/api/alfa/evaluar?no_parte=' + encodeURIComponent(np) + '&dias=14')
+  const d = await apiFetch('/api/alfa/evaluar?no_parte=' + encodeURIComponent(np) + '&dias=' + afDias(90))
   if (!d) { result.style.display = 'none'; result.innerHTML = ''; msg.textContent = 'Error consultando el agente.'; return }
   if (!d.proceso && !d.cliente && d.ritmo.total_terminadas === 0) {
     result.style.display = 'none'; result.innerHTML = ''
@@ -5429,9 +5483,15 @@ function afRenderResultado(d){
     + '</div>'
 }
 
+function _notaSinDato(d){
+  if (!d || !d.procesos_sin_dato || !d.procesos_sin_dato.length) return ''
+  return '<div class="af-periodo-nota">Sin datos suficientes en la ventana para evaluar: '
+    + d.procesos_sin_dato.join(', ') + ' — no significa que estén sanos, falta muestra.</div>'
+}
+
 async function afCargarCuellos(){
   const wrap = document.getElementById('af-cuellos')
-  const d = await apiFetch('/api/alfa/cuello-botella?dias=14')
+  const d = await apiFetch('/api/alfa/cuello-botella?dias=' + afDias(30))
   if (d && d.referencia) {
     const ref = new Date(d.referencia)
     const desdeReciente = new Date(ref.getTime() - d.dias * 86400000)
@@ -5444,7 +5504,7 @@ async function afCargarCuellos(){
       + ' (ancla en el último día con volumen real, no necesariamente "hoy")'
   }
   if (!d || !d.cuellos_de_botella || !d.cuellos_de_botella.length) {
-    wrap.innerHTML = '<div class="loading-msg">Sin cuellos de botella detectados (ningún proceso/etapa ≥ ' + (d ? d.umbral_ratio : 1.3) + '× su baseline).</div>'
+    wrap.innerHTML = '<div class="loading-msg">Sin cuellos de botella detectados (ningún proceso/etapa ≥ ' + (d ? d.umbral_ratio : 1.3) + '× su baseline).</div>' + _notaSinDato(d)
     return
   }
   const ETAPA_LBL = {molde_a_vaciado:'Molde → Vaciado', vaciado_a_desmoldeo:'Vaciado → Desmoldeo', desmoldeo_a_limpieza:'Desmoldeo → Limpieza'}
@@ -5454,7 +5514,7 @@ async function afCargarCuellos(){
       + '<span>' + c.horas_reciente + ' h</span><span>' + c.horas_baseline + ' h</span>'
       + '<span><b>' + c.ratio + '×</b></span></div>'
   }).join('')
-  wrap.innerHTML = head + rows
+  wrap.innerHTML = head + rows + _notaSinDato(d)
 }
 </script>
 </body>
