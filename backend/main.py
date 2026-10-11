@@ -22,6 +22,7 @@ from backend.core import (
     evaluar_pc7, evaluar_carril, _evaluar_coladas_ventana,
     _buscar_protocolos, _REDISENO_COMBOS, _referencia_actual_flujo,
     historial_rechazo_partes, tasa_shrunk,
+    QUIM_SELECT_SQL, evaluar_quimica,
 )
 
 app = FastAPI(title="Torre de Control FASA", version="0.1.0")
@@ -3192,16 +3193,8 @@ def v3_carriles_colada(id_colada: int):
 
     # PC-2: análisis SpectroMAX real vía la tabla puente de Jasso -- ver docstring de la
     # función para la cadena completa idTicket -> IdAnalisisQuimico -> valores -> spec.
-    quim_raw = run("""
-        SELECT v.C, v.Si, v.Mg, v.S, v.P, v.Mn,
-               STR_TO_DATE(v.AnalysisTime, '%Y%m%d %H:%i:%s') AS AnalysisTime,
-               cl.Clave AS clase,
-               cl.Ct_F, cl.Ct_Fl, cl.Ct_Fx,
-               cl.Si_F, cl.Si_Fl, cl.Si_Fx,
-               cl.Mg_F, cl.Mg_Fl, cl.Mg_Fx,
-               cl.S_F,  cl.S_Fl,  cl.S_Fx,
-               cl.P_F,  cl.P_Fl,  cl.P_Fx,
-               cl.Mn_F, cl.Mn_Fl, cl.Mn_Fx
+    quim_raw = run(f"""
+        SELECT {QUIM_SELECT_SQL}
         FROM betamega_03_coladasproceso rb
         JOIN betamega_02_pks_idticketsidmuestras pm ON pm.IdTicket = rb.idTicket
         JOIN corex_test.vistaanalisisquimicoparaitaca v ON v.AnalysisNum = pm.IdAnalisisQuimico
@@ -3212,20 +3205,7 @@ def v3_carriles_colada(id_colada: int):
     q = quim_raw[0] if quim_raw else {}
     quim_disponible = bool(q)
 
-    def _eval_elem(valor, centro, tolerancia, aplica):
-        if aplica != "S" or valor is None or centro is None:
-            return None
-        lo, hi = float(centro) - float(tolerancia), float(centro) + float(tolerancia)
-        return "PASS" if lo <= float(valor) <= hi else "FAIL"
-
-    quim_elem = {
-        "C":  _eval_elem(q.get("C"),  q.get("Ct_F"), q.get("Ct_Fl"), q.get("Ct_Fx")),
-        "Si": _eval_elem(q.get("Si"), q.get("Si_F"), q.get("Si_Fl"), q.get("Si_Fx")),
-        "Mg": _eval_elem(q.get("Mg"), q.get("Mg_F"), q.get("Mg_Fl"), q.get("Mg_Fx")),
-        "S":  _eval_elem(q.get("S"),  q.get("S_F"),  q.get("S_Fl"),  q.get("S_Fx")),
-        "P":  _eval_elem(q.get("P"),  q.get("P_F"),  q.get("P_Fl"),  q.get("P_Fx")),
-        "Mn": _eval_elem(q.get("Mn"), q.get("Mn_F"), q.get("Mn_Fl"), q.get("Mn_Fx")),
-    } if quim_disponible else {}
+    quim_elem = evaluar_quimica(q)
     _SCORE_KEYS = [k for k in quim_elem if quim_elem.get(k) is not None]  # ya no se excluye Mg a fuerzas
     _qk_total = len(_SCORE_KEYS)
     _qk_pass  = sum(1 for k in _SCORE_KEYS if quim_elem[k] == "PASS")

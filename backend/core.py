@@ -309,6 +309,39 @@ def evaluar_carril(
     }
 
 
+# PC-2: columnas de la cadena viva de química (betamega_02_pks_idticketsidmuestras ->
+# corex_test.vistaanalisisquimicoparaitaca -> corex_test.clases). El elemento "C" de la
+# vista mapea a Ct_* en clases (C_* no existe; Ce_* es Carbono Equivalente, otro campo).
+QUIM_SELECT_SQL = """
+    v.C, v.Si, v.Mg, v.S, v.P, v.Mn,
+    STR_TO_DATE(v.AnalysisTime, '%Y%m%d %H:%i:%s') AS AnalysisTime,
+    cl.Clave AS clase,
+    cl.Ct_F, cl.Ct_Fl, cl.Ct_Fx,
+    cl.Si_F, cl.Si_Fl, cl.Si_Fx,
+    cl.Mg_F, cl.Mg_Fl, cl.Mg_Fx,
+    cl.S_F,  cl.S_Fl,  cl.S_Fx,
+    cl.P_F,  cl.P_Fl,  cl.P_Fx,
+    cl.Mn_F, cl.Mn_Fl, cl.Mn_Fx
+"""
+_QUIM_ELEMS = [("C", "Ct"), ("Si", "Si"), ("Mg", "Mg"), ("S", "S"), ("P", "P"), ("Mn", "Mn")]
+
+
+def evaluar_quimica(q: dict) -> dict:
+    """PASS/FAIL por elemento contra la ventana F±Fl de su clase; None si no aplica (Fx!='S')."""
+    if not q:
+        return {}
+    out = {}
+    for elem, pref in _QUIM_ELEMS:
+        valor, centro = q.get(elem), q.get(f"{pref}_F")
+        tol, aplica = q.get(f"{pref}_Fl"), q.get(f"{pref}_Fx")
+        if aplica != "S" or valor is None or centro is None:
+            out[elem] = None
+        else:
+            lo, hi = float(centro) - float(tol or 0), float(centro) + float(tol or 0)
+            out[elem] = "PASS" if lo <= float(valor) <= hi else "FAIL"
+    return out
+
+
 def _evaluar_coladas_ventana(referencia: str, horas: int) -> list:
     """
     Evalúa los 7 carriles (PC-1..PC-7) para cada colada en la ventana [referencia-horas, referencia].
@@ -394,7 +427,7 @@ def _evaluar_coladas_ventana(referencia: str, horas: int) -> list:
                ROUND(AVG(CASE WHEN vt_TemperaturaVaciado BETWEEN 1100 AND 1600
                          THEN vt_TemperaturaVaciado END)) AS temp_avg,
                MIN(FHrVaciado) AS ts_primer_vaci
-        FROM alfamega_06_vaciado
+        FROM betamega_06_vaciado
         WHERE c_IdColada IN ({id_list})
           AND vt_TemperaturaVaciado IS NOT NULL
           AND vt_TemperaturaVaciado > 0
@@ -402,27 +435,23 @@ def _evaluar_coladas_ventana(referencia: str, horas: int) -> list:
     """, {})
     temp_idx = {t["c_IdColada"]: t for t in temp_raw}
 
-    # PC-2: batch química — último análisis SpectroMAX BASE por (u_Colada, u_Horno)
-    # bC_F IS NOT NULL filtra a filas SpectroMAX; filas copa/ITACA tienen todos los flags NULL
-    # NOTA: análisis BASE (pre-inoculación). Mg siempre FAIL en BASE → excluido del score.
-    #       Pendiente: usar análisis FINAL cuando haya cobertura suficiente de aB_Calidad='FINAL'.
-    uid_list = ",".join(str(c["u_colada"]) for c in coladas) or "0"
+    # PC-2: batch química -- misma cadena viva que /v3/gestion/colada/{id}/carriles
+    # (migrada 2026-10-01). cscmega_05aquimicoscumplimiento, la fuente vieja, fue borrada
+    # de ia_fasa por IT (detectado 2026-10-10). Se toma el análisis más reciente por colada,
+    # igual que el detalle, para que lista y detalle den el mismo color.
     quim_batch = run(f"""
-        SELECT q.u_Colada, q.u_Horno,
-               q.bC_F, q.bSi_F, q.bMg_F, q.bS_F, q.bP_F, q.bMn_F
-        FROM cscmega_05aquimicoscumplimiento q
-        INNER JOIN (
-            SELECT u_Colada, u_Horno, MAX(u_Fecha) AS max_fecha
-            FROM cscmega_05aquimicoscumplimiento
-            WHERE u_Colada IN ({uid_list})
-              AND bC_F IS NOT NULL
-            GROUP BY u_Colada, u_Horno
-        ) lat ON q.u_Colada = lat.u_Colada
-             AND q.u_Horno  = lat.u_Horno
-             AND q.u_Fecha  = lat.max_fecha
-        GROUP BY q.u_Colada, q.u_Horno
+        SELECT rb.c_IdColada AS id_colada, {QUIM_SELECT_SQL}
+        FROM betamega_03_coladasproceso rb
+        JOIN betamega_02_pks_idticketsidmuestras pm ON pm.IdTicket = rb.idTicket
+        JOIN corex_test.vistaanalisisquimicoparaitaca v ON v.AnalysisNum = pm.IdAnalisisQuimico
+        JOIN corex_test.clases cl ON cl.IdClase = rb.cm_idClase
+        WHERE rb.c_IdColada IN ({id_list}) AND pm.IdAnalisisQuimico IS NOT NULL
     """, {})
-    quim_idx = {(r["u_Colada"], r["u_Horno"]): r for r in quim_batch}
+    quim_idx = {}
+    for q in quim_batch:
+        prev = quim_idx.get(q["id_colada"])
+        if prev is None or (q["AnalysisTime"] and (not prev["AnalysisTime"] or q["AnalysisTime"] > prev["AnalysisTime"])):
+            quim_idx[q["id_colada"]] = q
 
     # PC-5 batch: tiempo en molde vs TiempoDesmoldeo por NoParte
     molde5_batch = run(f"""
@@ -499,10 +528,9 @@ def _evaluar_coladas_ventana(referencia: str, horas: int) -> list:
         n_ok_t   = int(tr.get("n_ok") or 0)
         pct_temp = round(n_ok_t / n_t * 100.0, 1) if n_t else None
 
-        qq       = quim_idx.get((uid, col["horno"]), {})
-        _QKEYS   = ["bC_F", "bSi_F", "bS_F", "bP_F", "bMn_F"]  # Mg excluido (BASE pre-inoculación)
-        _q_total = sum(1 for k in _QKEYS if qq.get(k) is not None)
-        _q_pass  = sum(1 for k in _QKEYS if qq.get(k) is not None and str(qq[k]).endswith(")1"))
+        q_elem   = evaluar_quimica(quim_idx.get(cid, {}))
+        _q_total = sum(1 for v in q_elem.values() if v is not None)
+        _q_pass  = sum(1 for v in q_elem.values() if v == "PASS")
         pct_quim = round(_q_pass / _q_total * 100.0, 1) if _q_total else None
 
         mo5 = molde5_idx.get(cid, {})
