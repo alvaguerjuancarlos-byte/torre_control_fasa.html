@@ -4564,7 +4564,7 @@ function plnRenderCumplimiento(d){
   document.getElementById('pln-cumplimiento-resumen').innerHTML =
     '<div class="pln-kpis-grid" style="margin-bottom:12px">'
     + '<div class="pn-kpi"><div class="kl">Kg buenos (plan)</div><div class="kv">' + plnFmt(r.kg_buenos_plan_total, 0) + '</div><div class="ks">no autoritativo</div></div>'
-    + '<div class="pn-kpi"><div class="kl">Kg neto esperado</div><div class="kv">' + plnFmt(r.kg_neto_esperado_total, 0) + '</div><div class="ks">aplicando rechazo histórico</div></div>'
+    + '<div class="pn-kpi"><div class="kl">Kg neto esperado</div><div class="kv">' + plnFmt(r.kg_neto_esperado_total, 0) + '</div><div class="ks">aplicando rechazo histórico' + (r.partes_tasa_complementada ? ' · ' + r.partes_tasa_complementada + ' partes con tasa 12m (*)' : '') + '</div></div>'
     + '<div class="pn-kpi"><div class="kl">Partes con ritmo real</div><div class="kv">' + r.partes_con_ritmo_real + ' / ' + r.partes_totales + '</div><div class="ks">últimos 14 días</div></div>'
     + '</div>'
 
@@ -4581,7 +4581,7 @@ function plnRenderCumplimiento(d){
     return '<div class="pln-det-row' + (sinRitmo ? ' warn' : '') + '">'
       + '<span class="mono">' + f.parte + '</span><span>' + (f.proceso || '—') + '</span>'
       + '<span>' + (f.sdo_final != null ? f.sdo_final : '—') + '</span><span>' + plnFmt(f.kg_buenos_plan, 0) + '</span>'
-      + '<span>' + (f.tasa_rechazo_esperada_pct != null ? f.tasa_rechazo_esperada_pct + '%' : '—') + '</span>'
+      + '<span' + (f.origen_tasa && f.origen_tasa !== 'gamamega_2025' ? ' title="Sin tasa 2025 tabulada: tasa histórica 12 meses de la parte (o global si no tiene historial)" style="font-style:italic;color:var(--muted)"' : '') + '>' + (f.tasa_rechazo_esperada_pct != null ? f.tasa_rechazo_esperada_pct + '%' : '—') + (f.origen_tasa && f.origen_tasa !== 'gamamega_2025' ? '*' : '') + '</span>'
       + '<span>' + plnFmt(f.kg_neto_esperado, 0) + '</span>'
       + '<span>' + (f.ritmo_real_pzas_dia != null ? f.ritmo_real_pzas_dia : '—') + '</span>'
       + '<span>' + (f.dias_estimados_saldo != null ? f.dias_estimados_saldo + ' d' : (sinRitmo ? 'sin ritmo' : '—')) + '</span></div>'

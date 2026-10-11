@@ -22,7 +22,7 @@ from datetime import datetime, timedelta
 from typing import Optional
 from fastapi import APIRouter, HTTPException, Query
 
-from backend.core import run, _referencia_actual_flujo
+from backend.core import run, _referencia_actual_flujo, historial_rechazo_partes, tasa_shrunk
 from backend import plan_lector, plan_corex
 
 router = APIRouter(tags=["alfa"])
@@ -382,6 +382,25 @@ def programa_seguimiento(mes: str = Query(..., description="YYYY-MM, ej. 2026-08
     tasas = _tasa_rechazo_2025_batch(partes)
     ritmos_reales = _ritmo_real_partes_batch(partes, dias, referencia)
 
+    # Partes sin fila en gamamega_01_riesgodefectoparte (partes nuevas o sin rechazo
+    # tabulado en 2025): antes quedaban fuera del neto pero dentro de kg_buenos, así que
+    # "producción neta esperada" parecía un rechazo mucho mayor al real (oct-2026: 15
+    # partes / 74 t). Se completan con la tasa histórica shrunk de los últimos 12 meses
+    # (mismo método que /api/riesgo-plan); sin historial, cae a la tasa global.
+    faltan = [p for p in partes if p not in tasas]
+    origen_tasa = {p: "gamamega_2025" for p in tasas}
+    if faltan:
+        ref_dt = datetime.fromisoformat(referencia)
+        hist = historial_rechazo_partes((ref_dt - timedelta(days=365)).strftime("%Y-%m-%d 00:00:00"),
+                                        ref_dt.strftime("%Y-%m-%d 23:59:59"))
+        tot_n = sum(v["n"] for v in hist.values())
+        global_rate = (sum(v["rechazos"] for v in hist.values()) / tot_n) if tot_n else 0.15
+        for p in faltan:
+            h = hist.get(p, {"n": 0, "rechazos": 0})
+            rate_pct, _ = tasa_shrunk(h["n"], h["rechazos"], global_rate, k=75)
+            tasas[p] = rate_pct / 100
+            origen_tasa[p] = "historial_12m" if h["n"] else "global"
+
     detalle = []
     kg_buenos_total = 0.0
     kg_neto_total = 0.0
@@ -408,6 +427,7 @@ def programa_seguimiento(mes: str = Query(..., description="YYYY-MM, ej. 2026-08
             "peso_kg":                     fila.get("peso_kg"),
             "kg_buenos_plan":              kg_buenos,
             "tasa_rechazo_esperada_pct":   round(tasa * 100, 2) if tasa is not None else None,
+            "origen_tasa":                 origen_tasa.get(parte),
             "kg_neto_esperado":            kg_neto,
             "ritmo_real_pzas_dia":         ritmo,
             "dias_estimados_saldo":        dias_estimados,
@@ -431,6 +451,7 @@ def programa_seguimiento(mes: str = Query(..., description="YYYY-MM, ej. 2026-08
             "kg_neto_esperado_total": round(kg_neto_total, 1),
             "partes_con_ritmo_real":  sum(1 for f in detalle if f["ritmo_real_pzas_dia"]),
             "partes_totales":         len(detalle),
+            "partes_tasa_complementada": sum(1 for f in detalle if f["origen_tasa"] in ("historial_12m", "global")),
         },
         "ritmo_real_por_proceso": ritmo_real_por_proceso,
         "detalle": detalle,
