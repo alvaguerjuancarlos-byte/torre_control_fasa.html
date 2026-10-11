@@ -189,14 +189,15 @@ def health():
 
 @app.get("/rango-datos")
 def rango_datos():
-    """Retorna la fecha mínima y máxima disponible en la BD."""
+    """Retorna la fecha mínima y máxima disponible en la BD (betamega_01; la fuente
+    anterior, cscmega_01rechazosbyidticket, fue borrada por IT en 2026-10)."""
     rows = run("""
         SELECT
-            DATE(MIN(u_Fecha)) AS fecha_min,
-            DATE(MAX(u_Fecha)) AS fecha_max,
-            YEAR(MIN(u_Fecha)) AS anio_min,
-            YEAR(MAX(u_Fecha)) AS anio_max
-        FROM cscmega_01rechazosbyidticket
+            DATE(MIN(FHrVaciado)) AS fecha_min,
+            DATE(MAX(FHrVaciado)) AS fecha_max,
+            YEAR(MIN(FHrVaciado)) AS anio_min,
+            YEAR(MAX(FHrVaciado)) AS anio_max
+        FROM betamega_01_rechazosbyidticket
     """)
     return rows[0] if rows else {}
 

@@ -32,6 +32,8 @@ las ~44k filas de cscmega (probado, >2 min sin resultado -- no puede usar índic
 por eso el peso se resuelve en Python contra un dict, no en un JOIN de SQL.
 """
 
+import calendar
+
 from fastapi import APIRouter
 
 from backend.core import run
@@ -62,11 +64,16 @@ def _mapa_peso() -> dict:
 
 
 def _ton_producidas_por_mes(peso_map: dict) -> dict:
-    """Solo 2025 -- ver docstring del módulo (cscmega_* congelada, sin 2026)."""
+    """MIGRACIÓN (2026-10-11): IT borró cscmega_01rechazosbyidticket y
+    cscmega_00_ticketsproducidos. Ahora betamega_01_rechazosbyidticket (idTicket único,
+    trae No_Parte directo, 2023 -> hoy). Ojo: cuenta ~50.1k tickets en 2025 contra los
+    44,041 validados con la fuente vieja (la misma diferencia aparece en betamega_03), así
+    que el % de rechazo de 2025 baja respecto a lo validado el 2026-09-06. Ya no se puede
+    conciliar ticket por ticket porque la fuente vieja no existe."""
     rows = run("""
-        SELECT r.u_Anio AS anio, r.u_Month AS mes, t.no_parte AS no_parte
-        FROM ia_fasa.cscmega_01rechazosbyidticket r
-        JOIN ia_fasa.cscmega_00_ticketsproducidos t ON t.idTicket = r.idTicket
+        SELECT YEAR(FHrVaciado) AS anio, MONTH(FHrVaciado) AS mes, No_Parte AS no_parte
+        FROM ia_fasa.betamega_01_rechazosbyidticket
+        WHERE FHrVaciado >= '2025-01-01'
     """)
     ton_mes = {}
     for r in rows:
@@ -103,12 +110,18 @@ def costo_no_calidad_mensual():
     peso_map = _mapa_peso()
     ton_prod_mes = _ton_producidas_por_mes(peso_map)
     ton_rech_mes = _ton_rechazadas_por_mes()
+    # piso_ia.rechazo puede cortarse a media mes (hoy: 2026-03-09) mientras la producción
+    # sigue completa -- ese mes saldría con un % artificialmente bajo, así que se omite.
+    corte = run("SELECT MAX(fecha) AS mx FROM piso_ia.rechazo")[0]["mx"]
 
     meses = []
     for (anio, mes), tr in sorted(ton_rech_mes.items()):
         costo_ton = COSTO_TON_USD.get(anio, {}).get(mes)
         if costo_ton is None:
             continue  # sin referencia de costo/ton para este mes todavía (gray lane)
+        if corte and (anio, mes) >= (corte.year, corte.month) \
+                and corte.day < calendar.monthrange(anio, mes)[1]:
+            continue  # rechazo incompleto para este mes
 
         tp = ton_prod_mes.get((anio, mes))
         costo_prod = tp * costo_ton if tp is not None else None
@@ -128,6 +141,6 @@ def costo_no_calidad_mensual():
 
     return {
         "meses": meses,
-        "nota": "ton_producidas/pct_rechazo/costo_produccion_usd en null para 2026: "
-                "cscmega_* (fuente de producción total verificada) está congelada desde 2025-12-29.",
+        "nota": "Producción total desde betamega_01_rechazosbyidticket (cscmega_* fue borrada "
+                "por IT en 2026-10). Toneladas rechazadas desde piso_ia.rechazo, detenida en 2026-03-09.",
     }
