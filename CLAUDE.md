@@ -60,7 +60,8 @@ backend/
   main.py        3791 líneas — TODAS las rutas HTTP salvo Alfa/Beta/Chat (ver abajo)
   core.py        infraestructura compartida: engine de BD, run(), rango(), los 7 Puntos
                  de Control (PC-1..PC-7), evaluación de carriles/ventanas
-  plan_lector.py lee el Plan de Producción Mensual DIRECTO de un Excel (ver §4)
+  plan_corex.py  lee el Plan de Producción Mensual de Corex (ver §4)
+  plan_lector.py respaldo: el mismo plan desde Excel
   models/        modelo ML v2: RandomForest + calibrador Platt + lookup de partes
                  (rf_rechazo_v2.joblib, ~9MB) — riesgo de rechazo por parte/colada
   routers/
@@ -86,7 +87,7 @@ check_ciclo.py   diagnóstico suelto de tiempo de ciclo, no se importa desde bac
 
 - MySQL, conexión única vía SQLAlchemy (`backend/core.py`), schema por defecto `ia_fasa` (`DB_SCHEMA` en `.env`). Varias queries referencian explícitamente un **segundo schema en el mismo servidor, `corex_test`** (ej. `corex_test.modelos`, `corex_test.clientes`) — es autoritativo para proceso/cliente, independiente del Excel del Plan de Producción.
 - **El usuario de BD (`sapiens`) es SOLO LECTURA.** Todo el backend es de solo lectura por diseño (`main.py` docstring: *"FastAPI backend (READ-ONLY)"*, CORS solo permite `GET`). No agregar endpoints de escritura sin confirmar explícitamente con JC que el permiso de BD cambió.
-- **El Plan de Producción Mensual se lee directo de un Excel**, no de la BD (`plan_lector.py`, ruta hardcodeada `C:\Users\Administrator\Documents\FASA\plan de produccion mensual`) — porque las tablas `programa_produccion_*` en `ia_fasa` están bloqueadas para `sapiens`. Cuando IT/Jasso otorguen permiso de escritura, la intención documentada en el propio código es que `/api/programa` empiece a preferir la BD y use el Excel como fallback — no al revés.
+- **El Plan de Producción Mensual se lee de Corex** (`plan_corex.py` → `ia_fasa.gamamega_01_programaperiodo`, `Periodo` YYMM mensual / YYYYWW semanal) desde oct-2026 — JC confirmó que ya no se usa el Excel. Corex solo trae el detalle por parte (piezas, kg): el encabezado (ventas, presupuesto, línea/desarrollo, inventario) y los ritmos objetivo no están capturados y salen como "no capturado en Corex", nunca se infieren. Orden en `alfa._obtener_plan()`: `programa_produccion_*` (nunca creadas) → Corex → Excel (`plan_lector.py`, solo respaldo para meses fuera de Corex).
 - Varias fuentes de datos tienen calidad/cobertura documentada inline en los docstrings de `alfa.py`/`beta.py` (ej. columnas de `cscmega_08ruta` "confirmadas confiables ~93-99%", ETL de química "congelado desde 2025-12-29"). **Leer el docstring del router antes de confiar en una columna** — ya hay decisiones tomadas ahí sobre qué es autoritativo y qué no.
 - **2026-10: IT borró de `ia_fasa` toda la familia `cscmega_*`/`alfamega_*`.** Lo que usa `/v4` ya se migró a `betamega_*` (rechazo por ticket: `betamega_01_rechazosbyidticket`, 2023 → hoy). Quedan referencias a tablas borradas en endpoints legados de `main.py` que `/v4` no llama (`/piso`, `/produccion/kpis`, `/colada/{id}`, etc.) — dan 500 si se llaman.
 - **Rechazo no confiable desde 2026-07-09** (`betamega_02_pks_ticketcorrida` detenida): las piezas nuevas salen con `bRechazo=0`. Regla compartida `core.meses_rechazo_no_confiables()` (< 200 piezas o cero rechazos en el mes) — la usan Beta, simulaciones y pronóstico para no mostrar un 0% falso. No reemplazarla por una fecha fija.

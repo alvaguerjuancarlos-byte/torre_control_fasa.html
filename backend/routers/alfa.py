@@ -23,7 +23,7 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, Query
 
 from backend.core import run, _referencia_actual_flujo
-from backend import plan_lector
+from backend import plan_lector, plan_corex
 
 router = APIRouter(tags=["alfa"])
 
@@ -162,9 +162,9 @@ def _saldo_pendiente_parte(no_parte: str) -> Optional[dict]:
             LIMIT 1
         """, {"np": no_parte})
     except Exception:
-        return None
+        rows = []  # tablas programa_produccion_* no existen
     if not rows:
-        return None
+        return plan_corex.saldo_parte_corex(no_parte)  # plan capturado en Corex (2026-10)
     r = rows[0]
     return {
         "sdo_final":   r["sdo_final"],
@@ -275,8 +275,10 @@ def alfa_cuello_botella(dias: int = Query(default=7, le=30)):
 
 def _obtener_plan(mes: str) -> Optional[dict]:
     """BD primero (programa_produccion_*, hoy vacías -- sapiens es solo-lectura,
-    el DDL nunca se corrió); si no hay nada, cae a leer el Excel en vivo vía
-    plan_lector. Devuelve None si no hay plan en ningún lado para ese mes."""
+    el DDL nunca se corrió); luego el plan capturado en Corex
+    (gamamega_01_programaperiodo, fuente principal desde oct-2026, ver
+    plan_corex.py); el Excel en vivo (plan_lector) queda solo como respaldo para
+    meses que no estén en Corex. None si no hay plan en ningún lado."""
     try:
         anio_mes = datetime.strptime(mes, "%Y-%m").date().replace(day=1)
         encabezado_rows = run("""
@@ -316,14 +318,14 @@ def _obtener_plan(mes: str) -> Optional[dict]:
             "detalle_referencial": [{**f, "autoritativo": False} for f in detalle_referencial],
         }
 
-    return plan_lector.leer_plan(mes)
+    return plan_corex.leer_plan_corex(mes) or plan_lector.leer_plan(mes)
 
 
 @router.get("/api/programa")
 def programa_mensual(mes: str = Query(..., description="YYYY-MM, ej. 2026-08")):
     plan = _obtener_plan(mes)
     if not plan:
-        raise HTTPException(status_code=404, detail=f"No hay plan cargado ni archivo Excel para {mes}")
+        raise HTTPException(status_code=404, detail=f"No hay plan para {mes} en Corex ni archivo Excel")
     return plan
 
 
@@ -373,7 +375,7 @@ def programa_seguimiento(mes: str = Query(..., description="YYYY-MM, ej. 2026-08
     JC pidió: tener un plan, dar seguimiento, evaluar cumplimiento."""
     plan = _obtener_plan(mes)
     if not plan:
-        raise HTTPException(status_code=404, detail=f"No hay plan cargado ni archivo Excel para {mes}")
+        raise HTTPException(status_code=404, detail=f"No hay plan para {mes} en Corex ni archivo Excel")
 
     partes = [f["parte"] for f in plan["detalle_referencial"]]
     referencia = _referencia_actual_flujo()

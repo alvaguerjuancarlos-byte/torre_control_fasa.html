@@ -674,39 +674,24 @@ def historial_rechazo_partes(d_ini: str, d_fin: str) -> dict:
     "reciente" en realidad tenía tope en dic-2025 sin avisar. Compartido ahora por
     /v2/gestion/riesgo-partes y /api/riesgo-plan para que ninguno vuelva a divergir
     de la fuente viva.
+
+    ACTUALIZACIÓN 2026-10-11: alfamega_01 (la rama < 2025) fue borrada por IT; betamega_03
+    cubre 2023 -> hoy, así que queda una sola consulta. Se excluyen los meses sin rechazo
+    confiable (meses_rechazo_no_confiables) -- sus ceros falsos bajaban la tasa de cada parte.
     """
-    PIVOT = "2025-01-01 00:00:00"
-    agg: dict = {}
-
-    def _acumular(rows):
-        for r in rows:
-            p = r["no_parte"]
-            if p not in agg:
-                agg[p] = {"n": 0, "rechazos": 0}
-            agg[p]["n"]        += int(r["n"] or 0)
-            agg[p]["rechazos"] += int(r["rechazos"] or 0)
-
-    if d_fin >= PIVOT:
-        d_ini_recientes = max(d_ini, PIVOT)
-        _acumular(run("""
-            SELECT No_Parte AS no_parte, COUNT(*) AS n, SUM(bRechazo) AS rechazos
-            FROM betamega_03_coladasproceso
-            WHERE FHrVaciado BETWEEN :d AND :h
-              AND No_Parte IS NOT NULL AND No_Parte != ''
-            GROUP BY No_Parte
-        """, {"d": d_ini_recientes, "h": d_fin}))
-
-    if d_ini < PIVOT:
-        d_fin_hist = min(d_fin, "2024-12-31 23:59:59")
-        _acumular(run("""
-            SELECT No_Parte AS no_parte, COUNT(*) AS n, SUM(bRechazo) AS rechazos
-            FROM alfamega_01_rechazosbyidticket
-            WHERE FHrVaciado BETWEEN :d AND :h
-              AND No_Parte IS NOT NULL AND No_Parte != ''
-            GROUP BY No_Parte
-        """, {"d": d_ini, "h": d_fin_hist}))
-
-    return agg
+    excluir = meses_rechazo_no_confiables(d_ini, d_fin)
+    params = {"d": d_ini, "h": d_fin, **{f"m{i}": m for i, m in enumerate(excluir)}}
+    filtro = ("AND DATE_FORMAT(FHrVaciado, '%Y-%m') NOT IN ("
+              + ",".join(f":m{i}" for i in range(len(excluir))) + ")") if excluir else ""
+    rows = run(f"""
+        SELECT No_Parte AS no_parte, COUNT(*) AS n, SUM(bRechazo) AS rechazos
+        FROM betamega_03_coladasproceso
+        WHERE FHrVaciado BETWEEN :d AND :h
+          AND No_Parte IS NOT NULL AND No_Parte != ''
+          {filtro}
+        GROUP BY No_Parte
+    """, params)
+    return {r["no_parte"]: {"n": int(r["n"] or 0), "rechazos": int(r["rechazos"] or 0)} for r in rows}
 
 
 def tasa_shrunk(n: int, rechazos: int, global_rate: float, k: int = 75) -> tuple:

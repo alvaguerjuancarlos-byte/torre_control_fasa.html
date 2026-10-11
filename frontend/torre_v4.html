@@ -3452,16 +3452,17 @@ function simRenderTable(items) {
     </div>
 
     <div class="cr-foot">
-      <b>Fuente:</b> Producción real mes × parte (cscmega/alfamega) cruzada con tasas gamamega 2025.
+      <b>Fuente:</b> Producción real mes × parte (betamega_01_rechazosbyidticket) cruzada con tasas gamamega 2025.
       <b>Rechazos esperados:</b> n_piezas × tasa_2025_defecto.
       <b>Real:</b> rechazos totales ocurridos en el mes para comparación.
     </div>
   </div>
 
   <div class="cr-foot" style="margin-top:24px">
-    <b>Plan:</b> hoja <code>Plan</code>/<code>resumen</code> del Excel mensual de JC, leído en vivo (todavía sin
-    permiso de escritura en la BD — <code>sapiens</code> es solo-lectura) — el detalle por parte
-    (<code>resumen</code>) <b>no es fuente de verdad</b>, es zona de trabajo del responsable, solo referencia.
+    <b>Plan:</b> capturado en Corex (<code>gamamega_01_programaperiodo</code>, plan mensual por parte) desde
+    oct-2026; si un mes no está en Corex se usa el Excel mensual como respaldo. Corex no trae el encabezado
+    (ventas, presupuesto, línea/desarrollo) ni los ritmos objetivo — se marcan "no capturado".
+    <b>Kg buenos:</b> piezas programadas × peso del modelo (<code>corex_test.modelos</code>).
     <b>Producción neta esperada:</b> Kg Buenos del plan × (1 − tasa de rechazo histórica 2025 de esa parte,
     <code>gamamega_01_riesgodefectoparte</code>) — mismo campo que usa el pronóstico histórico de abajo, aplicado
     ahora al plan en vez de a producción real pasada.
@@ -3646,7 +3647,7 @@ async function rgpCargar(mes){
 
   if (!d) {
     sinPlan.style.display = ''
-    sinPlan.textContent = 'Sin plan para este mes — ni cargado en base de datos, ni un archivo Excel encontrado en la carpeta del Plan de Producción con ese mes/año en el título.'
+    sinPlan.textContent = 'Sin plan para este mes — no está capturado en Corex (gamamega_01_programaperiodo) ni hay un Excel de respaldo con ese mes/año.'
     return
   }
   _rgpData = d
@@ -4485,7 +4486,7 @@ async function plnCargar(mes){
 
   if (!d) {
     sinPlan.style.display = ''
-    sinPlan.textContent = 'Sin plan para este mes — ni cargado en base de datos, ni un archivo Excel encontrado en la carpeta del Plan de Producción con ese mes/año en el título.'
+    sinPlan.textContent = 'Sin plan para este mes — no está capturado en Corex (gamamega_01_programaperiodo) ni hay un Excel de respaldo con ese mes/año.'
     return
   }
 
@@ -4497,8 +4498,28 @@ async function plnCargar(mes){
 
 function plnRenderKpis(d){
   const e = d.encabezado
-  const fuenteTxt = d.fuente === 'bd' ? 'base de datos' : ('Excel — ' + (e.archivo_origen || '?'))
+  const fuenteTxt = d.fuente === 'corex' ? 'Corex (periodo ' + e.periodo_corex + ')'
+                  : d.fuente === 'bd' ? 'base de datos' : ('Excel — ' + (e.archivo_origen || '?'))
   document.getElementById('pln-fuente-badge').textContent = '· fuente: ' + fuenteTxt
+  // Corex solo trae el detalle por parte: el encabezado del Excel (ventas, presupuesto,
+  // buenas/vaciadas, línea/desarrollo, inventario) no está capturado -- se dice, no se infiere.
+  if (d.fuente === 'corex') {
+    const nc = 'no capturado en Corex'
+    const kpisCx = [
+      { l: 'Piezas programadas', v: plnFmt(e.piezas_plan, 0), s: e.partes + ' números de parte' },
+      { l: 'Toneladas del plan', v: plnFmt(e.ton_plan), s: 'piezas × peso de modelo' },
+      { l: 'Días hábiles',       v: plnFmt(e.dias_habiles, 0), s: 'lunes a sábado, sin festivos' },
+      { l: 'Producción neta esperada', v: plnFmt(d.resumen.kg_neto_esperado_total / 1000), s: 'ton, aplicando rechazo histórico' },
+      { l: 'Ventas',      v: '—', s: nc, cls: ' nc' },
+      { l: 'Presupuesto', v: '—', s: nc, cls: ' nc' },
+      { l: 'Línea / Desarrollo', v: '—', s: nc, cls: ' nc' },
+      { l: 'Inv. no fact.', v: '—', s: nc, cls: ' nc' },
+    ]
+    document.getElementById('pln-kpis').innerHTML = kpisCx.map(function(kp){
+      return '<div class="pn-kpi' + (kp.cls || '') + '"' + (kp.cls ? ' style="opacity:.55"' : '') + '><div class="kl">' + kp.l + '</div><div class="kv">' + kp.v + '</div><div class="ks">' + kp.s + '</div></div>'
+    }).join('')
+    return
+  }
   const kpis = [
     { l: 'Ventas',        v: plnFmt(e.ventas_ton), s: 'ton' },
     { l: 'Presupuesto',   v: plnFmt(e.presup_ton), s: 'ton' },
@@ -4516,12 +4537,16 @@ function plnRenderKpis(d){
 
 function plnRenderRitmos(d){
   const rows = d.ritmos_objetivo || []
+  if (!rows.length) {
+    document.getElementById('pln-ritmos').innerHTML = '<div class="pn-hint" style="margin:0 0 10px">Ritmo objetivo por proceso (moldes/día) no capturado en Corex — se muestra solo el ritmo real.</div>'
+  } else {
   const head = '<div class="pln-ritmo-row head"><span>Proceso</span><span>Turno</span><span>Moldes/día</span><span>Peso prom (kg)</span><span>Kg diarios objetivo</span></div>'
   const body = rows.map(function(r){
     return '<div class="pln-ritmo-row"><span>' + r.proceso + '</span><span>' + (r.tipo_dia === 'LV' ? 'L-V' : 'Sáb') + '</span>'
       + '<span>' + plnFmt(r.moldes_dia, 0) + '</span><span>' + plnFmt(r.peso_prom_kg, 0) + '</span><span>' + plnFmt(r.kg_diarios, 0) + '</span></div>'
   }).join('')
   document.getElementById('pln-ritmos').innerHTML = head + body
+  }
 
   const real = d.ritmo_real_por_proceso || {}
   const procesos = ['AF1', 'AF2', 'AF3']
@@ -5138,9 +5163,9 @@ async function flPintarRiesgoBeta(piezas){
     los tickets (probable rezago de escaneo, no proceso real) que se descartan con el mismo criterio que ya
     usa PC-5. <b>Proceso/cliente:</b> corex_test.modelos.area + clientes — autoritativo, ~el 50% de los
     modelos no tiene área asignada en el ERP y se reporta "sin proceso", no se infiere.
-    <b>Saldo pendiente y proyección de entrega:</b> vienen del Plan de Producción Mensual (hoja `resumen`
-    del Excel) — <b>NO es una fuente autoritativa</b>, solo referencia; no aparece si el plan del mes no
-    se ha cargado. <b>Cuello de botella:</b> heurística inicial (razón ≥ 1.3× el baseline), sin concepto de
+    <b>Saldo pendiente y proyección de entrega:</b> vienen del Plan de Producción Mensual capturado en
+    Corex (piezas programadas del plan más reciente que incluye la parte) — solo referencia; no aparece si
+    la parte no está en ningún plan. <b>Cuello de botella:</b> heurística inicial (razón ≥ 1.3× el baseline), sin concepto de
     turno todavía — no hay horarios de turno definidos en el sistema.
   </div>
 </section>

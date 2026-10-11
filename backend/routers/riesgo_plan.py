@@ -25,9 +25,8 @@ alfa.py, _riesgo_lote_partes de beta.py) -- es la única excepción documentada 
 "los routers no se importan entre sí": la alternativa era reescribir 3 queries
 batch no triviales. core.py sigue sin importar de ningún router.
 
-El plan mensual (plan_lector.leer_plan) es SIEMPRE no autoritativo (Excel, zona
-de trabajo cuyos totales no reconcilian) -- se propaga autoritativo=False igual
-que en el resto del dashboard.
+El plan mensual (_obtener_plan: Corex desde oct-2026, Excel como respaldo) se
+propaga con autoritativo=False igual que en el resto del dashboard.
 """
 
 import math
@@ -70,7 +69,7 @@ def riesgo_plan(
 
     plan = _obtener_plan(mes)
     if not plan:
-        raise HTTPException(status_code=404, detail=f"No hay plan cargado ni archivo Excel para {mes}")
+        raise HTTPException(status_code=404, detail=f"No hay plan para {mes} en Corex ni archivo Excel")
 
     filas_plan = plan["detalle_referencial"]
     partes = [f["parte"] for f in filas_plan]
