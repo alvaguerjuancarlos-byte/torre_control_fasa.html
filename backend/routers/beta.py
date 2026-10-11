@@ -8,10 +8,11 @@ Dos compuertas de datos, nunca mezcladas:
      Cruz) — se decidió NO duplicarla en una tabla nueva, leer esta directo.
      FlagCriticidadDefectoParte/FlagTendInterAnual son -1/0/1/NULL, no
      binarios (713/575/87/6 filas resp.) — ver _riesgo_label().
-  2. Química en vivo — cscmega_05cquimicosbase (SpectroMAX). ETL congelado
-     desde 2025-12-29 (responsable: Jasso). Disponibilidad se calcula en
-     vivo contra MAX(u_Fecha) real, nunca hardcodeada ni simulada/inferida
-     cuando falta.
+  2. Química en vivo — cadena betamega_02_pks_idticketsidmuestras ->
+     corex_test.vistaanalisisquimicoparaitaca (SpectroMAX), la misma que usa
+     PC-2. Antes cscmega_05cquimicosbase, congelada desde 2025-12-29 y borrada
+     por IT en 2026-10. Disponibilidad se calcula en vivo contra el análisis
+     ligado más reciente, nunca hardcodeada ni simulada/inferida cuando falta.
 """
 
 import calendar
@@ -49,7 +50,11 @@ def _riesgo_label(flag) -> str:
 
 
 def _compuerta_quimica() -> dict:
-    row = run("SELECT MAX(u_Fecha) AS mx FROM cscmega_05cquimicosbase", {})
+    row = run("""
+        SELECT STR_TO_DATE(MAX(v.AnalysisTime), '%Y%m%d %H:%i:%s') AS mx
+        FROM betamega_02_pks_idticketsidmuestras pm
+        JOIN corex_test.vistaanalisisquimicoparaitaca v ON v.AnalysisNum = pm.IdAnalisisQuimico
+    """, {})
     ultima = row[0]["mx"] if row else None
     disponible = bool(ultima) and (datetime.now() - ultima).days <= QUIMICA_UMBRAL_DIAS
     return {
@@ -247,19 +252,19 @@ def beta_criticas(
     if not rojas_pc6:
         return {"referencia": referencia, "horas": horas, "n_criticas": 0, "criticas": []}
 
-    u_list = sorted({c["u_colada"] for c in rojas_pc6})
-    u_str = ",".join(str(int(u)) for u in u_list)
+    # Defecto dominante desde betamega_03 por c_IdColada (id real). Antes cscmega_01 por
+    # u_Colada: congelada, borrada por IT en 2026-10, y u_Colada se recicla.
+    id_str = ",".join(str(int(c["id_colada"])) for c in rojas_pc6)
     rows = run(f"""
-        SELECT rb.u_Colada, t.nomDefecto, t.No_Parte, COUNT(*) AS n
-        FROM cscmega_01rechazosbyidticket rb
-        JOIN cscmega_01resultadoidticket t ON t.idTicket = rb.idTicket
-        WHERE rb.u_Colada IN ({u_str}) AND rb.bRechazo = 1 AND t.nomDefecto IS NOT NULL
-        GROUP BY rb.u_Colada, t.nomDefecto, t.No_Parte
-        ORDER BY rb.u_Colada, n DESC
+        SELECT c_IdColada AS id_colada, nomDefecto, No_Parte, COUNT(*) AS n
+        FROM betamega_03_coladasproceso
+        WHERE c_IdColada IN ({id_str}) AND bRechazo = 1 AND nomDefecto IS NOT NULL
+        GROUP BY c_IdColada, nomDefecto, No_Parte
+        ORDER BY c_IdColada, n DESC
     """, {})
     top_idx = {}
     for r in rows:
-        top_idx.setdefault(r["u_Colada"], {"defecto": r["nomDefecto"], "no_parte": r["No_Parte"]})
+        top_idx.setdefault(r["id_colada"], {"defecto": r["nomDefecto"], "no_parte": r["No_Parte"]})
 
     partes = list({v["no_parte"] for v in top_idx.values() if v["no_parte"]})
     riesgo_map = _riesgo_lote_partes(partes)
@@ -271,7 +276,7 @@ def beta_criticas(
 
     criticas = []
     for c in rojas_pc6:
-        top = top_idx.get(c["u_colada"])
+        top = top_idx.get(c["id_colada"])
         if not top or not top["no_parte"]:
             continue
         defecto, no_parte = top["defecto"], top["no_parte"].strip()
