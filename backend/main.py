@@ -3431,9 +3431,10 @@ def _resolver_clientes(no_partes: list) -> dict:
 
 def _tasa_rechazo_partes(no_partes: list) -> dict:
     """Tasa de rechazo histórica por No_Parte (todo el histórico disponible en
-    alfamega_01_rechazosbyidticket — a diferencia de cscmega_01rechazosbyidticket,
-    congelado desde 2025-12-29, este ETL siguió corriendo hasta 2026-03-09, ver
-    scripts/check_2026_status.py). No es el rechazo real de un pedido/embarque
+    betamega_01_rechazosbyidticket, 2023 -> hoy). Antes alfamega_01_rechazosbyidticket,
+    borrada de ia_fasa por IT (detectado 2026-10-10). Ojo: desde 2026-07-09 bRechazo
+    no se marca en piezas nuevas (betamega_02_pks_ticketcorrida detenida), así que el
+    histórico reciente diluye la tasa un poco. No es el rechazo real de un pedido/embarque
     específico — fdbase no tiene llave hacia colada/ticket."""
     if not no_partes:
         return {}
@@ -3441,7 +3442,7 @@ def _tasa_rechazo_partes(no_partes: list) -> dict:
     params = {f"p{i}": p for i, p in enumerate(no_partes)}
     rows = run(f"""
         SELECT No_Parte AS no_parte, COUNT(*) AS n, SUM(bRechazo) AS rec
-        FROM alfamega_01_rechazosbyidticket
+        FROM betamega_01_rechazosbyidticket
         WHERE No_Parte IN ({placeholders})
         GROUP BY No_Parte
     """, params)
@@ -3464,19 +3465,22 @@ def _ubicacion_partes(no_partes: list) -> dict:
         return {}
     placeholders = ",".join(f":p{i}" for i in range(len(no_partes)))
     params = {f"p{i}": p for i, p in enumerate(no_partes)}
+    # Migrado 2026-10-11 de cscmega_01rechazosbyidticket+cscmega_08ruta (borradas por IT) a
+    # betamega_03+betamega_08. Agrupa por c_IdColada (id real) en vez de u_Colada, que se
+    # recicla y mezclaba coladas distintas con el mismo número.
     rows = run(f"""
-        SELECT r.u_NoParte AS no_parte, rb.u_Colada AS u_colada,
+        SELECT r.No_Parte AS no_parte, b3.c_IdColada AS id_colada, MAX(b3.Colada) AS u_colada,
                COUNT(*) AS piezas,
                SUM(CASE WHEN r.bLIMP=1 THEN 1 ELSE 0 END) AS terminado,
                SUM(CASE WHEN r.bLIMP=0 AND r.bDESM=1 THEN 1 ELSE 0 END) AS en_limpieza,
                SUM(CASE WHEN r.bDESM=0 AND r.bVACI=1 THEN 1 ELSE 0 END) AS en_desmoldeo,
                SUM(CASE WHEN r.bVACI=0 AND r.bMOLD=1 THEN 1 ELSE 0 END) AS en_vaciado,
                SUM(CASE WHEN r.bMOLD=0 THEN 1 ELSE 0 END) AS sin_datos,
-               MAX(rb.u_Fecha) AS ultima_fecha
-        FROM cscmega_01rechazosbyidticket rb
-        JOIN cscmega_08ruta r ON r.u_idTicket = rb.idTicket
-        WHERE r.u_NoParte IN ({placeholders})
-        GROUP BY r.u_NoParte, rb.u_Colada
+               MAX(b3.FHrVaciado) AS ultima_fecha
+        FROM betamega_08_ticketrutacritica r
+        JOIN betamega_03_coladasproceso b3 ON b3.idTicket = r.idTicket
+        WHERE r.No_Parte IN ({placeholders}) AND b3.c_IdColada > 0
+        GROUP BY r.No_Parte, b3.c_IdColada
     """, params)
 
     mejor: Dict[str, dict] = {}
@@ -3668,13 +3672,14 @@ def v2_pedidos_cliente_tonelaje(
     bucket: str = Query(default="mes"),
 ):
     """Toneladas entregadas (piso_ia.fdbase x corex_test.modelos.PesoKgs) y % de rechazo real de
-    producción (cscmega_01rechazosbyidticket) para un cliente. Ventana y granularidad vienen del
+    producción (betamega_01_rechazosbyidticket; antes cscmega_01rechazosbyidticket, borrada por IT
+    2026-10) para un cliente. Ventana y granularidad vienen del
     período activo en el resto del tab (Año/Trimestre → bucket 'mes'; Mes/Semana → bucket 'semana',
     para no perder la tendencia cuando la ventana es corta) — antes esta gráfica tenía una ventana
     fija de 12 meses independiente del filtro de abajo. Sin desde/hasta: fallback a los últimos 12
     meses anclados al MAX(fecha) real de fdbase (no "hoy", fdbase va por detrás).
-    % rechazo queda en None donde no hay dato: producción congelada desde 2025-12-29, mientras que
-    fdbase (embarques) sigue teniendo filas hasta marzo 2026."""
+    % rechazo queda en None donde no hay piezas producidas en el período. betamega_01 sí tiene
+    2026, pero bRechazo no se marca en piezas vaciadas desde 2026-07-09."""
     from datetime import date, timedelta
     import calendar as cal_mod
     MESES = ['', 'Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic']
@@ -3712,7 +3717,7 @@ def v2_pedidos_cliente_tonelaje(
 
     es_semana = bucket == "semana"
     tons_key_sql = "DATE_SUB(fecha, INTERVAL WEEKDAY(fecha) DAY)" if es_semana else "fecha"
-    rech_key_sql = "DATE_SUB(rb.u_Fecha, INTERVAL WEEKDAY(rb.u_Fecha) DAY)" if es_semana else "rb.u_Fecha"
+    rech_key_sql = "DATE_SUB(rb.FHrVaciado, INTERVAL WEEKDAY(rb.FHrVaciado) DAY)" if es_semana else "rb.FHrVaciado"
     fmt = "%Y-%m-%d" if es_semana else "%Y-%m"
 
     tons_idx: Dict[str, float] = {}
@@ -3734,9 +3739,8 @@ def v2_pedidos_cliente_tonelaje(
         rech_rows = run(f"""
             SELECT DATE_FORMAT({rech_key_sql},'{fmt}') AS bk,
                    COUNT(*) AS n, SUM(rb.bRechazo) AS rec
-            FROM cscmega_01rechazosbyidticket rb
-            JOIN cscmega_01resultadoidticket rt ON rt.idTicket = rb.idTicket
-            WHERE rt.No_Parte IN ({placeholders}) AND rb.u_Fecha BETWEEN :d AND :h
+            FROM betamega_01_rechazosbyidticket rb
+            WHERE rb.No_Parte IN ({placeholders}) AND rb.FHrVaciado BETWEEN :d AND :h
             GROUP BY bk
         """, {**params, "d": d_ini.isoformat() + " 00:00:00", "h": d_fin.isoformat() + " 23:59:59"})
         rech_idx = {r["bk"]: (int(r["n"] or 0), int(r["rec"] or 0)) for r in rech_rows}
