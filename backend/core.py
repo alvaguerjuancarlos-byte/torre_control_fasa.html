@@ -309,6 +309,27 @@ def evaluar_carril(
     }
 
 
+# Un mes con muestra grande y CERO rechazos es estadísticamente imposible (meses sanos traen
+# 7-22%): significa que bRechazo no se está marcando (betamega_02_pks_ticketcorrida detenida
+# desde 2026-07-09), no que la calidad fue perfecta. Regla compartida por Agente Beta
+# (tendencia mensual), simulaciones y pronóstico -- dinámica, sin fechas hardcodeadas: en
+# cuanto IT reactive el pipeline los meses vuelven a evaluarse solos.
+UMBRAL_PIEZAS_MES_CONFIABLE = 200
+
+
+def meses_rechazo_no_confiables(d: str, h: str) -> list:
+    """Meses 'YYYY-MM' con producción en [d, h] cuyo rechazo no es evaluable
+    (menos de UMBRAL_PIEZAS_MES_CONFIABLE piezas, o cero rechazos)."""
+    rows = run("""
+        SELECT DATE_FORMAT(FHrVaciado, '%Y-%m') AS mes, COUNT(*) AS n, SUM(bRechazo) AS rec
+        FROM betamega_01_rechazosbyidticket
+        WHERE FHrVaciado BETWEEN :d AND :h
+        GROUP BY mes
+    """, {"d": d, "h": h})
+    return sorted(r["mes"] for r in rows
+                  if int(r["n"] or 0) < UMBRAL_PIEZAS_MES_CONFIABLE or not int(r["rec"] or 0))
+
+
 # PC-2: columnas de la cadena viva de química (betamega_02_pks_idticketsidmuestras ->
 # corex_test.vistaanalisisquimicoparaitaca -> corex_test.clases). El elemento "C" de la
 # vista mapea a Ct_* en clases (C_* no existe; Ce_* es Carbono Equivalente, otro campo).

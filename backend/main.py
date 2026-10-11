@@ -22,7 +22,7 @@ from backend.core import (
     evaluar_pc7, evaluar_carril, _evaluar_coladas_ventana,
     _buscar_protocolos, _REDISENO_COMBOS, _referencia_actual_flujo,
     historial_rechazo_partes, tasa_shrunk,
-    QUIM_SELECT_SQL, evaluar_quimica,
+    QUIM_SELECT_SQL, evaluar_quimica, meses_rechazo_no_confiables,
 )
 
 app = FastAPI(title="Torre de Control FASA", version="0.1.0")
@@ -1404,18 +1404,25 @@ def v2_riesgo_partes(anio: int = None, mes: int = None, ventana: int = 12):
     }
 
 
-def _rechazo_por_parte(d: str, h: str) -> list:
+def _rechazo_por_parte(d: str, h: str, excluir_meses: tuple = ()) -> list:
     """Piezas y rechazos por No_Parte en [d, h] desde betamega_01_rechazosbyidticket
     (2023 -> hoy, una sola tabla). Reemplaza las dos ramas viejas de las simulaciones:
     cscmega_01rechazosbyidticket+resultadoidticket (2025+) y alfamega_01 (<2025),
-    ambas borradas por IT en 2026-10."""
-    return run("""
+    ambas borradas por IT en 2026-10. `excluir_meses` ('YYYY-MM') saca meses sin rechazo
+    confiable (ver core.meses_rechazo_no_confiables) -- sus ceros diluirían la tasa."""
+    params = {"d": d, "h": h}
+    filtro = ""
+    if excluir_meses:
+        params.update({f"m{i}": m for i, m in enumerate(excluir_meses)})
+        filtro = "AND DATE_FORMAT(FHrVaciado, '%Y-%m') NOT IN (" +                  ",".join(f":m{i}" for i in range(len(excluir_meses))) + ")"
+    return run(f"""
         SELECT No_Parte AS no_parte, COUNT(*) AS n, SUM(bRechazo) AS rec
         FROM betamega_01_rechazosbyidticket
         WHERE FHrVaciado BETWEEN :d AND :h
           AND No_Parte IS NOT NULL AND No_Parte != ''
+          {filtro}
         GROUP BY No_Parte
-    """, {"d": d, "h": h})
+    """, params)
 
 
 @app.get("/v2/gestion/simulacion-programa")
@@ -1447,8 +1454,10 @@ def v2_simulacion_programa(anio: int = 2025, mes: int = 3, ventana: int = 12):
     # --- Produccion real + tasa historica previa (betamega_01, sin leakage) ---
     rows_mes = [{"no_parte": r["no_parte"], "n": r["n"], "rechazos_real": r["rec"]}
              for r in _rechazo_por_parte(d_ini, d_fin)]
+    real_no_confiable = meses_rechazo_no_confiables(d_ini, d_fin)
+    hist_excluidos = meses_rechazo_no_confiables(h_ini, h_fin)
     hist_agg: dict = {r["no_parte"]: {"n": int(r["n"] or 0), "rec": int(r["rec"] or 0)}
-                      for r in _rechazo_por_parte(h_ini, h_fin)}
+                      for r in _rechazo_por_parte(h_ini, h_fin, tuple(hist_excluidos))}
 
     GLOBAL_RATE = 0.1509  # fallback si la parte no tiene historial previo
 
@@ -1501,6 +1510,11 @@ def v2_simulacion_programa(anio: int = 2025, mes: int = 3, ventana: int = 12):
         "periodo": {"anio": anio, "mes": mes, "desde": d_ini[:10], "hasta": d_fin[:10],
                     "hist_desde": h_ini[:10], "hist_hasta": h_fin[:10]},
         "ventana": ventana,
+        # Meses del período simulado sin rechazo confiable: el "real" sale en 0 falso,
+        # el frontend no debe mostrarlo como tasa real ni calcular precisión con él.
+        "real_confiable": not real_no_confiable,
+        "meses_real_no_confiable": real_no_confiable,
+        "meses_hist_excluidos": hist_excluidos,
         "resumen": {
             "total_piezas":  total_n,
             "rechazos_pred": round(total_pred, 0),
@@ -1546,8 +1560,10 @@ def v2_simulacion_trimestre(anio: int = 2025, trimestre: int = 1, ventana: int =
     # --- Produccion real + tasa historica previa (betamega_01, sin leakage) ---
     rows_tri = [{"no_parte": r["no_parte"], "n": r["n"], "rechazos_real": r["rec"]}
              for r in _rechazo_por_parte(d_ini, d_fin)]
+    real_no_confiable = meses_rechazo_no_confiables(d_ini, d_fin)
+    hist_excluidos = meses_rechazo_no_confiables(h_ini, h_fin)
     hist_agg: dict = {r["no_parte"]: {"n": int(r["n"] or 0), "rec": int(r["rec"] or 0)}
-                      for r in _rechazo_por_parte(h_ini, h_fin)}
+                      for r in _rechazo_por_parte(h_ini, h_fin, tuple(hist_excluidos))}
 
     GLOBAL_RATE      = 0.1509
     total_hist_n     = sum(v["n"]   for v in hist_agg.values())
@@ -1598,6 +1614,11 @@ def v2_simulacion_trimestre(anio: int = 2025, trimestre: int = 1, ventana: int =
                     "desde": d_ini[:10], "hasta": d_fin[:10],
                     "hist_desde": h_ini[:10], "hist_hasta": h_fin[:10]},
         "ventana": ventana,
+        # Meses del período simulado sin rechazo confiable: el "real" sale en 0 falso,
+        # el frontend no debe mostrarlo como tasa real ni calcular precisión con él.
+        "real_confiable": not real_no_confiable,
+        "meses_real_no_confiable": real_no_confiable,
+        "meses_hist_excluidos": hist_excluidos,
         "resumen": {
             "total_piezas":  total_n,
             "rechazos_pred": round(total_pred, 0),
@@ -1653,6 +1674,8 @@ def v2_pronostico_programa(anio: int = 2025):
         HAVING COUNT(*) >= 5
     """, {"d": f"{anio}-01-01 00:00:00", "h": f"{anio}-12-31 23:59:59"})
 
+    no_conf = set(meses_rechazo_no_confiables(f"{anio}-01-01 00:00:00", f"{anio}-12-31 23:59:59"))
+
     # 3. Cruce gamamega × producción en Python, por mes
     mes_data: dict = {}
     for r in prod_rows:
@@ -1701,7 +1724,8 @@ def v2_pronostico_programa(anio: int = 2025):
 
         total_esp_mes = sum(md["familias"].values())
         total_esp_anual  += total_esp_mes
-        total_real_anual += md["real_rec"]
+        if f"{anio}-{m:02d}" not in no_conf:
+            total_real_anual += md["real_rec"]
         for fam, esp in md["familias"].items():
             fam_anual[fam] = fam_anual.get(fam, 0) + esp
 
@@ -1737,6 +1761,7 @@ def v2_pronostico_programa(anio: int = 2025):
             "total_piezas": md["total_piezas"],
             "total_esp":    round(total_esp_mes, 1),
             "real_rec":     md["real_rec"],
+            "real_confiable": f"{anio}-{m:02d}" not in no_conf,
             "familias":     {k: round(v, 1) for k, v in md["familias"].items()},
             "partes":       partes_out[:20],
             "top_combos":   combos[:15],
@@ -1753,6 +1778,7 @@ def v2_pronostico_programa(anio: int = 2025):
         "kpis": {
             "total_esp":     round(total_esp_anual, 0),
             "total_real":    total_real_anual,
+            "meses_real_no_confiable": sorted(no_conf),
             "top_mes":       top_mes,
             "top_mes_lbl":   MESES_NOM[top_mes] if top_mes else "—",
             "top_familia":   max(fam_anual, key=fam_anual.get) if fam_anual else "",

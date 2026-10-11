@@ -20,12 +20,12 @@ from datetime import datetime, timedelta
 from typing import Optional
 from fastapi import APIRouter, Query
 
-from backend.core import run, _evaluar_coladas_ventana, _buscar_protocolos, _REDISENO_COMBOS, _referencia_actual_flujo
+from backend.core import (run, _evaluar_coladas_ventana, _buscar_protocolos, _REDISENO_COMBOS,
+                          _referencia_actual_flujo, UMBRAL_PIEZAS_MES_CONFIABLE)
 
 router = APIRouter(prefix="/api/beta", tags=["beta"])
 
 QUIMICA_UMBRAL_DIAS = 7  # dato más viejo que esto => compuerta no disponible
-UMBRAL_PIEZAS_MES_CONFIABLE = 200  # muestra mínima para considerar evaluable el rechazo de un mes
 UMBRAL_PARTES_ACTIVAS_CONFIABLE = 5  # mínimo de partes con actividad real para no sugerir ampliar
 
 # Verificado 2026-10-02: nPzasTotal = nPzas2023 + nPzas2025 EXACTO en las 1,381 filas de

@@ -469,6 +469,7 @@ main{padding:16px 20px;max-width:1100px;margin:0 auto}
           <option value="2023">2023</option>
           <option value="2024">2024</option>
           <option value="2025" selected>2025</option>
+          <option value="2026">2026</option>
         </select>
         <select id="sim-mes" style="font-size:12px;padding:4px 8px;border:0.5px solid var(--color-border-secondary);border-radius:6px;background:#fff">
           <option value="1">Enero</option><option value="2">Febrero</option>
@@ -2751,6 +2752,11 @@ async function runSimulacion() {
     const periodoLabel = _simMode === 'mes'
       ? `${MESES[parseInt(mes)]} ${anio}`
       : `${data.periodo.label} ${anio}`
+    // Meses sin rechazo marcado (pipeline de IT detenido): el "real" es un 0 falso.
+    const realOk = data.real_confiable !== false
+    const mesLbl = ym => { const [y, m] = ym.split('-'); return `${MESES[parseInt(m)]} ${y}` }
+    const noConfTxt = (data.meses_real_no_confiable || []).map(mesLbl).join(', ')
+    const histExclTxt = (data.meses_hist_excluidos || []).map(mesLbl).join(', ')
 
     resEl.style.display = 'block'
     resEl.innerHTML = `
@@ -2767,17 +2773,26 @@ async function runSimulacion() {
         </div>
         <div style="flex:1;min-width:140px;background:#FFF7ED;border:0.5px solid #FED7AA;border-radius:10px;padding:12px 16px;text-align:center">
           <div style="font-size:11px;color:#C2410C;margin-bottom:4px">Rechazos reales</div>
+          ${realOk ? `
           <div style="font-size:22px;font-weight:700;color:#9A3412">${s.rechazos_real.toLocaleString('es-MX')}</div>
-          <div style="font-size:11px;color:#C2410C">${s.rate_real}% tasa real</div>
+          <div style="font-size:11px;color:#C2410C">${s.rate_real}% tasa real</div>` : `
+          <div style="font-size:15px;font-weight:700;color:#9CA3AF;padding:4px 0">Sin dato confiable</div>
+          <div style="font-size:11px;color:#9CA3AF">rechazo no registrado</div>`}
         </div>
-        <div style="flex:1;min-width:140px;background:#F9FAFB;border:0.5px solid ${precColor};border-radius:10px;padding:12px 16px;text-align:center">
+        <div style="flex:1;min-width:140px;background:#F9FAFB;border:0.5px solid ${realOk ? precColor : '#E5E7EB'};border-radius:10px;padding:12px 16px;text-align:center">
           <div style="font-size:11px;color:var(--color-text-tertiary);margin-bottom:4px">Precisión modelo</div>
+          ${realOk ? `
           <div style="font-size:22px;font-weight:700;color:${precColor}">${s.delta_pct > 0 ? '+' : ''}${s.delta_pct}%</div>
-          <div style="font-size:11px;color:${precColor}">${precLabel}</div>
+          <div style="font-size:11px;color:${precColor}">${precLabel}</div>` : `
+          <div style="font-size:15px;font-weight:700;color:#9CA3AF;padding:4px 0">No evaluable</div>
+          <div style="font-size:11px;color:#9CA3AF">sin rechazo real</div>`}
         </div>
       </div>
+      ${!realOk ? `<div style="margin-top:8px;padding:8px 12px;background:#FFFBEB;border:0.5px solid #FDE68A;border-radius:8px;font-size:11.5px;color:#92400E">
+        ⚠ Sin dato confiable de rechazo real en ${noConfTxt}: el registro de rechazos dejó de marcarse en la fuente (pendiente con IT) o la muestra es menor a 200 piezas. Un 0% aquí no significa cero rechazos.
+      </div>` : ''}
       <div style="font-size:11px;color:var(--color-text-tertiary);margin-top:6px">
-        Simulación ${periodoLabel} · historial ${data.ventana}m (${data.periodo.hist_desde} → ${data.periodo.hist_hasta}) · predicho ${s.rate_pred}% vs real ${s.rate_real}% · delta ${s.delta_pct > 0 ? '+' : ''}${s.delta_pct} pp
+        Simulación ${periodoLabel} · historial ${data.ventana}m (${data.periodo.hist_desde} → ${data.periodo.hist_hasta})${histExclTxt ? ` sin ${histExclTxt} (sin rechazo confiable)` : ''} · predicho ${s.rate_pred}%${realOk ? ` vs real ${s.rate_real}% · delta ${s.delta_pct > 0 ? '+' : ''}${s.delta_pct} pp` : ' · real sin dato confiable'}
       </div>`
 
     if (!partes.length) {
@@ -2811,9 +2826,13 @@ async function runSimulacion() {
             <span style="font-size:11px;font-weight:600;color:${rc};min-width:26px;text-align:right">${Math.round(p.rechazos_pred)}</span>
           </div>
         </td>
+        ${realOk ? `
         <td style="padding:6px 12px;text-align:center;font-size:12px;font-weight:600;color:#9A3412">${p.rechazos_real}</td>
         <td style="padding:6px 12px;text-align:center;font-size:12px;font-weight:700;color:${dColor}">${dTxt}</td>
-        <td style="padding:6px 12px;text-align:center;font-size:12px;color:${rateColor(p.rate_real)};font-weight:600">${p.rate_real}%</td>
+        <td style="padding:6px 12px;text-align:center;font-size:12px;color:${rateColor(p.rate_real)};font-weight:600">${p.rate_real}%</td>` : `
+        <td style="padding:6px 12px;text-align:center;font-size:12px;color:#D1D5DB">—</td>
+        <td style="padding:6px 12px;text-align:center;font-size:12px;color:#D1D5DB">—</td>
+        <td style="padding:6px 12px;text-align:center;font-size:12px;color:#D1D5DB">—</td>`}
         <td style="padding:6px 12px;text-align:center;font-size:14px">${tendHtml(p.ml_tend)}</td>
       </tr>`
     }).join('')
@@ -3396,6 +3415,7 @@ function simRenderTable(items) {
       <div class="pn-field">
         <label class="pn-lbl">Año</label>
         <select id="pn-anio" class="pn-sel">
+          <option value="2026">2026</option>
           <option value="2025" selected>2025</option>
           <option value="2024">2024</option>
           <option value="2023">2023</option>
@@ -4599,7 +4619,10 @@ function pronRenderKpis(res) {
   var topFamLabel = k.top_familia ? famLabel(k.top_familia) : '—'
   var kpis = [
     { l:'Rechazos esp. año', v:Number(k.total_esp).toLocaleString('es-MX'), s:'suma modelos defecto × programa', cls:'' },
-    { l:'Rechazos reales',   v:Number(k.total_real).toLocaleString('es-MX'), s:'total registrado en el año', cls:'' },
+    { l:'Rechazos reales',   v:Number(k.total_real).toLocaleString('es-MX'),
+      s:(k.meses_real_no_confiable && k.meses_real_no_confiable.length)
+        ? 'excluye ' + k.meses_real_no_confiable.length + ' mes(es) sin dato confiable'
+        : 'total registrado en el año', cls:'' },
     { l:'Mes con más scrap', v:k.top_mes_lbl||'—', s:'mes de mayor concentración esperada', cls:'' },
     { l:'Familia dominante', v:topFamLabel, s:'mayor contribución anual al scrap', cls:'' },
   ]
@@ -4667,7 +4690,7 @@ function pronRenderChart(res) {
   if (_pronShowReal) {
     var pts = []
     meses.forEach(function(m, i) {
-      if (m.real_rec > 0) {
+      if (m.real_rec > 0 && m.real_confiable !== false) {
         var cx = xBar(i) + barOff + barW/2
         pts.push(cx + ',' + yP(m.real_rec))
       }
@@ -4676,7 +4699,7 @@ function pronRenderChart(res) {
       svg += '<polyline points="'+pts.join(' ')+'" fill="none" stroke="#1D9E75" stroke-width="1.5" stroke-dasharray="4,3" opacity=".8"/>'
     }
     meses.forEach(function(m, i) {
-      if (m.real_rec > 0) {
+      if (m.real_rec > 0 && m.real_confiable !== false) {
         var cx = xBar(i) + barOff + barW/2
         svg += '<circle cx="'+cx+'" cy="'+yP(m.real_rec)+'" r="3" fill="#1D9E75" opacity=".9" onmouseenter="pronBarTip(event,'+i+')" onmouseleave="pronHideTip()" style="cursor:default"/>'
       }
@@ -4703,7 +4726,7 @@ function pronBarTip(ev, idx) {
     return '<span style="color:'+famColor(f)+'">'+famLabel(f)+'</span>: '+Math.round((m.familias||{})[f])
   }).join('<br>')
   var tt = document.getElementById('pn-tt')
-  tt.innerHTML = '<b>'+m.lbl+'</b><br>Esp: <b>'+Number(m.total_esp).toLocaleString('es-MX')+'</b> | Real: '+Number(m.real_rec).toLocaleString('es-MX')+'<br>'+famsHtml+'<br><span style="color:var(--muted);font-size:10px">Clic → Pareto de partes</span>'
+  tt.innerHTML = '<b>'+m.lbl+'</b><br>Esp: <b>'+Number(m.total_esp).toLocaleString('es-MX')+'</b> | Real: '+(m.real_confiable === false ? '<span style="color:#9CA3AF">sin dato confiable</span>' : Number(m.real_rec).toLocaleString('es-MX'))+'<br>'+famsHtml+'<br><span style="color:var(--muted);font-size:10px">Clic → Pareto de partes</span>'
   var wrap  = document.getElementById('pn-svg-wrap')
   var wRect = wrap.getBoundingClientRect()
   var left  = ev.clientX - wRect.left + 12
