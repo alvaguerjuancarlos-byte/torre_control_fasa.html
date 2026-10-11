@@ -1404,6 +1404,20 @@ def v2_riesgo_partes(anio: int = None, mes: int = None, ventana: int = 12):
     }
 
 
+def _rechazo_por_parte(d: str, h: str) -> list:
+    """Piezas y rechazos por No_Parte en [d, h] desde betamega_01_rechazosbyidticket
+    (2023 -> hoy, una sola tabla). Reemplaza las dos ramas viejas de las simulaciones:
+    cscmega_01rechazosbyidticket+resultadoidticket (2025+) y alfamega_01 (<2025),
+    ambas borradas por IT en 2026-10."""
+    return run("""
+        SELECT No_Parte AS no_parte, COUNT(*) AS n, SUM(bRechazo) AS rec
+        FROM betamega_01_rechazosbyidticket
+        WHERE FHrVaciado BETWEEN :d AND :h
+          AND No_Parte IS NOT NULL AND No_Parte != ''
+        GROUP BY No_Parte
+    """, {"d": d, "h": h})
+
+
 @app.get("/v2/gestion/simulacion-programa")
 def v2_simulacion_programa(anio: int = 2025, mes: int = 3, ventana: int = 12):
     """
@@ -1429,63 +1443,12 @@ def v2_simulacion_programa(anio: int = 2025, mes: int = 3, ventana: int = 12):
     t_hist_fin = date(anio, mes, 1) - timedelta(days=1)
     h_ini = t_hist_ini.isoformat() + " 00:00:00"
     h_fin = t_hist_fin.isoformat() + " 23:59:59"
-    PIVOT = "2025-01-01 00:00:00"
 
-    # --- Produccion real del mes objetivo ---
-    if anio >= 2025:
-        rows_mes = run("""
-            SELECT rt.No_Parte AS no_parte,
-                   COUNT(*) AS n,
-                   SUM(rb.bRechazo) AS rechazos_real
-            FROM cscmega_01rechazosbyidticket rb
-            JOIN cscmega_01resultadoidticket rt ON rt.idTicket = rb.idTicket
-            WHERE rb.u_Fecha BETWEEN :d AND :h
-              AND rt.No_Parte IS NOT NULL AND rt.No_Parte != ''
-            GROUP BY rt.No_Parte
-        """, {"d": d_ini, "h": d_fin})
-    else:
-        rows_mes = run("""
-            SELECT No_Parte AS no_parte,
-                   COUNT(*) AS n,
-                   SUM(bRechazo) AS rechazos_real
-            FROM alfamega_01_rechazosbyidticket
-            WHERE FHrVaciado BETWEEN :d AND :h
-              AND No_Parte IS NOT NULL AND No_Parte != ''
-            GROUP BY No_Parte
-        """, {"d": d_ini, "h": d_fin})
-
-    # --- Tasa historica 12m previos (cross-table) ---
-    hist_agg: dict = {}
-    if h_fin >= PIVOT:
-        h_ini_25 = max(h_ini, PIVOT)
-        for r in run("""
-            SELECT rt.No_Parte AS no_parte,
-                   COUNT(*) AS n, SUM(rb.bRechazo) AS rec
-            FROM cscmega_01rechazosbyidticket rb
-            JOIN cscmega_01resultadoidticket rt ON rt.idTicket = rb.idTicket
-            WHERE rb.u_Fecha BETWEEN :d AND :h
-              AND rt.No_Parte IS NOT NULL AND rt.No_Parte != ''
-            GROUP BY rt.No_Parte
-        """, {"d": h_ini_25, "h": h_fin}):
-            p = r["no_parte"]
-            hist_agg.setdefault(p, {"n": 0, "rec": 0})
-            hist_agg[p]["n"]   += int(r["n"] or 0)
-            hist_agg[p]["rec"] += int(r["rec"] or 0)
-
-    if h_ini < PIVOT:
-        h_fin_hist = min(h_fin, "2024-12-31 23:59:59")
-        for r in run("""
-            SELECT No_Parte AS no_parte,
-                   COUNT(*) AS n, SUM(bRechazo) AS rec
-            FROM alfamega_01_rechazosbyidticket
-            WHERE FHrVaciado BETWEEN :d AND :h
-              AND No_Parte IS NOT NULL AND No_Parte != ''
-            GROUP BY No_Parte
-        """, {"d": h_ini, "h": h_fin_hist}):
-            p = r["no_parte"]
-            hist_agg.setdefault(p, {"n": 0, "rec": 0})
-            hist_agg[p]["n"]   += int(r["n"] or 0)
-            hist_agg[p]["rec"] += int(r["rec"] or 0)
+    # --- Produccion real + tasa historica previa (betamega_01, sin leakage) ---
+    rows_mes = [{"no_parte": r["no_parte"], "n": r["n"], "rechazos_real": r["rec"]}
+             for r in _rechazo_por_parte(d_ini, d_fin)]
+    hist_agg: dict = {r["no_parte"]: {"n": int(r["n"] or 0), "rec": int(r["rec"] or 0)}
+                      for r in _rechazo_por_parte(h_ini, h_fin)}
 
     GLOBAL_RATE = 0.1509  # fallback si la parte no tiene historial previo
 
@@ -1579,63 +1542,12 @@ def v2_simulacion_trimestre(anio: int = 2025, trimestre: int = 1, ventana: int =
 
     h_ini = t_hist_ini.isoformat() + " 00:00:00"
     h_fin = t_hist_fin.isoformat() + " 23:59:59"
-    PIVOT = "2025-01-01 00:00:00"
 
-    # --- Produccion real del trimestre ---
-    if anio >= 2025:
-        rows_tri = run("""
-            SELECT rt.No_Parte AS no_parte,
-                   COUNT(*) AS n,
-                   SUM(rb.bRechazo) AS rechazos_real
-            FROM cscmega_01rechazosbyidticket rb
-            JOIN cscmega_01resultadoidticket rt ON rt.idTicket = rb.idTicket
-            WHERE rb.u_Fecha BETWEEN :d AND :h
-              AND rt.No_Parte IS NOT NULL AND rt.No_Parte != ''
-            GROUP BY rt.No_Parte
-        """, {"d": d_ini, "h": d_fin})
-    else:
-        rows_tri = run("""
-            SELECT No_Parte AS no_parte,
-                   COUNT(*) AS n,
-                   SUM(bRechazo) AS rechazos_real
-            FROM alfamega_01_rechazosbyidticket
-            WHERE FHrVaciado BETWEEN :d AND :h
-              AND No_Parte IS NOT NULL AND No_Parte != ''
-            GROUP BY No_Parte
-        """, {"d": d_ini, "h": d_fin})
-
-    # --- Tasa historica previos al trimestre ---
-    hist_agg: dict = {}
-    if h_fin >= PIVOT:
-        h_ini_25 = max(h_ini, PIVOT)
-        for r in run("""
-            SELECT rt.No_Parte AS no_parte,
-                   COUNT(*) AS n, SUM(rb.bRechazo) AS rec
-            FROM cscmega_01rechazosbyidticket rb
-            JOIN cscmega_01resultadoidticket rt ON rt.idTicket = rb.idTicket
-            WHERE rb.u_Fecha BETWEEN :d AND :h
-              AND rt.No_Parte IS NOT NULL AND rt.No_Parte != ''
-            GROUP BY rt.No_Parte
-        """, {"d": h_ini_25, "h": h_fin}):
-            p = r["no_parte"]
-            hist_agg.setdefault(p, {"n": 0, "rec": 0})
-            hist_agg[p]["n"]   += int(r["n"]   or 0)
-            hist_agg[p]["rec"] += int(r["rec"] or 0)
-
-    if h_ini < PIVOT:
-        h_fin_hist = min(h_fin, "2024-12-31 23:59:59")
-        for r in run("""
-            SELECT No_Parte AS no_parte,
-                   COUNT(*) AS n, SUM(bRechazo) AS rec
-            FROM alfamega_01_rechazosbyidticket
-            WHERE FHrVaciado BETWEEN :d AND :h
-              AND No_Parte IS NOT NULL AND No_Parte != ''
-            GROUP BY No_Parte
-        """, {"d": h_ini, "h": h_fin_hist}):
-            p = r["no_parte"]
-            hist_agg.setdefault(p, {"n": 0, "rec": 0})
-            hist_agg[p]["n"]   += int(r["n"]   or 0)
-            hist_agg[p]["rec"] += int(r["rec"] or 0)
+    # --- Produccion real + tasa historica previa (betamega_01, sin leakage) ---
+    rows_tri = [{"no_parte": r["no_parte"], "n": r["n"], "rechazos_real": r["rec"]}
+             for r in _rechazo_por_parte(d_ini, d_fin)]
+    hist_agg: dict = {r["no_parte"]: {"n": int(r["n"] or 0), "rec": int(r["rec"] or 0)}
+                      for r in _rechazo_por_parte(h_ini, h_fin)}
 
     GLOBAL_RATE      = 0.1509
     total_hist_n     = sum(v["n"]   for v in hist_agg.values())
@@ -1727,32 +1639,19 @@ def v2_pronostico_programa(anio: int = 2025):
         p = g["No_Parte"]
         gama_by_parte.setdefault(p, []).append(g)
 
-    # 2. Producción real + rechazos reales, agrupados mes × parte
-    if anio >= 2025:
-        prod_rows = run("""
-            SELECT MONTH(rb.u_Fecha) AS mes,
-                   rt.No_Parte       AS no_parte,
-                   COUNT(*)          AS n_piezas,
-                   SUM(rb.bRechazo)  AS real_rec
-            FROM cscmega_01rechazosbyidticket rb
-            JOIN cscmega_01resultadoidticket rt ON rt.idTicket = rb.idTicket
-            WHERE rb.u_Fecha BETWEEN :d AND :h
-              AND rt.No_Parte IS NOT NULL AND rt.No_Parte != ''
-            GROUP BY MONTH(rb.u_Fecha), rt.No_Parte
-            HAVING COUNT(*) >= 5
-        """, {"d": f"{anio}-01-01 00:00:00", "h": f"{anio}-12-31 23:59:59"})
-    else:
-        prod_rows = run("""
-            SELECT MONTH(FHrVaciado) AS mes,
-                   No_Parte          AS no_parte,
-                   COUNT(*)          AS n_piezas,
-                   SUM(bRechazo)     AS real_rec
-            FROM alfamega_01_rechazosbyidticket
-            WHERE FHrVaciado BETWEEN :d AND :h
-              AND No_Parte IS NOT NULL AND No_Parte != ''
-            GROUP BY MONTH(FHrVaciado), No_Parte
-            HAVING COUNT(*) >= 5
-        """, {"d": f"{anio}-01-01 00:00:00", "h": f"{anio}-12-31 23:59:59"})
+    # 2. Producción real + rechazos reales, agrupados mes × parte (betamega_01, 2023 -> hoy;
+    #    antes cscmega_01 para 2025+ y alfamega_01 para <2025, ambas borradas por IT 2026-10)
+    prod_rows = run("""
+        SELECT MONTH(FHrVaciado) AS mes,
+               No_Parte          AS no_parte,
+               COUNT(*)          AS n_piezas,
+               SUM(bRechazo)     AS real_rec
+        FROM betamega_01_rechazosbyidticket
+        WHERE FHrVaciado BETWEEN :d AND :h
+          AND No_Parte IS NOT NULL AND No_Parte != ''
+        GROUP BY MONTH(FHrVaciado), No_Parte
+        HAVING COUNT(*) >= 5
+    """, {"d": f"{anio}-01-01 00:00:00", "h": f"{anio}-12-31 23:59:59"})
 
     # 3. Cruce gamamega × producción en Python, por mes
     mes_data: dict = {}
