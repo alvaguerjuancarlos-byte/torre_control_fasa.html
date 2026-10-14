@@ -2285,42 +2285,55 @@ def piso_diagnostico(u_colada: int, horno: int, id_colada: Optional[int] = Query
     comportamiento viejo por u_colada+horno sobre cscmega_*, para no romper /piso (dashboard
     legado, ver frontend/piso.html) que todavía llama así.
 
-    El chip 1 (fusión/hold) SIGUE sobre cscmega_03coladacargametalica siempre: no hay
-    reemplazo limpio en betamega_03 -- su columna más parecida (MinutosTiempoHorno) resultó
-    ser fusión+hold ya sumados (verificado cruzando contra cscmega para el mismo c_IdColada
-    en el período donde ambas existen), no separable sin trabajo de ETL/IT. Por eso sale
-    "sin_dato" para cualquier colada posterior a 2025-12-29 en vez de adivinar el reparto --
-    con `id_colada` se valida además que la fila de cscmega encontrada por u_colada+horno
-    (un número que se recicla) tenga fecha cercana a la fecha real de esta colada; si no,
-    se descarta como el match de OTRA colada vieja con el mismo número (mismo problema que
-    ya se encontró y corrigió para la química en /v3/gestion/colada/{id}/carriles).
+    Chip 1 (fusión/hold): fusión y hold separados solo existían en
+    cscmega_03coladacargametalica, que IT borró en oct-2026 (este endpoint daba 500 desde
+    entonces). No hay reemplazo vivo que los separe -- MinutosTiempoHorno es fusión+hold ya
+    sumados (verificado contra cscmega cuando ambas existían). Con `id_colada` el chip pasa
+    a ser "tiempo en horno vs límite" de betamega_00_coladaprocesodemoras (viva, una fila
+    por colada, indexada por idColada real) + la causa de demora que captura el horno
+    (Clave/Descripcion). Estado: ok si MinutosTiempoHorno <= TiempoLimite (el límite lo
+    define Corex por colada, no se inventa aquí), alert si lo excede. Sin `id_colada` (solo
+    el /piso legado) se conserva la consulta vieja, que sigue rota igual que el resto de esa
+    rama.
     """
     vivo = id_colada is not None
 
-    fecha_real_colada = None
+    fusion = hold = kg_carga = None
+    horno_info = None
     if vivo:
-        fr = run("SELECT MIN(FHrVaciado) AS f FROM betamega_03_coladasproceso WHERE c_IdColada = :id",
-                 {"id": id_colada})
-        fecha_real_colada = fr[0]["f"] if fr else None
-
-    # 1. Fusión, hold y carga metálica -- ver docstring: sin reemplazo vivo, se queda en
-    # cscmega_03 siempre (sale sin_dato para coladas 2026, en vez de un número adivinado).
-    proc = run("""
-        SELECT c_TiempoFundicion AS fusion_min,
-               TIMESTAMPDIFF(MINUTE, c_FechaFinal, c_FechaLiberado) AS hold_min,
-               c_Kilos AS kg_carga, c_FechaInicial
-        FROM cscmega_03coladacargametalica
-        WHERE u_Colada = :col AND u_Horno = :horn
-        ORDER BY c_FechaInicial DESC LIMIT 1
-    """, {"col": u_colada, "horn": horno})
-    p = proc[0] if proc else {}
-    match_confiable = (not vivo) or bool(
-        p.get("c_FechaInicial") and fecha_real_colada and
-        abs((p["c_FechaInicial"] - fecha_real_colada).days) <= 3
-    )
-    fusion   = float(p["fusion_min"]) if match_confiable and p.get("fusion_min") else None
-    hold     = float(p["hold_min"])   if match_confiable and p.get("hold_min") is not None else None
-    kg_carga = float(p["kg_carga"])   if match_confiable and p.get("kg_carga") else None
+        dm = run("""
+            SELECT MinutosTiempoHorno, TiempoLimite, Demora, Clave, Descripcion
+            FROM betamega_00_coladaprocesodemoras
+            WHERE idColada = :id LIMIT 1
+        """, {"id": id_colada})
+        if dm and dm[0]["MinutosTiempoHorno"] is not None:
+            d0 = dm[0]
+            t_horno = float(d0["MinutosTiempoHorno"])
+            limite  = float(d0["TiempoLimite"]) if d0["TiempoLimite"] is not None else None
+            demora  = float(d0["Demora"] or 0)
+            horno_info = {
+                "tiempo_horno_min": t_horno,
+                "limite_min":       limite,
+                "demora_min":       demora,
+                "demora_clave":     d0["Clave"],
+                "demora_causa":     (d0["Descripcion"] or "").strip() or None,
+                "estado": ("sin_dato" if limite is None else
+                           "ok" if t_horno <= limite else "alert"),
+            }
+    else:
+        # Legado (/piso): sobre la tabla borrada, sin cambios.
+        proc = run("""
+            SELECT c_TiempoFundicion AS fusion_min,
+                   TIMESTAMPDIFF(MINUTE, c_FechaFinal, c_FechaLiberado) AS hold_min,
+                   c_Kilos AS kg_carga
+            FROM cscmega_03coladacargametalica
+            WHERE u_Colada = :col AND u_Horno = :horn
+            ORDER BY c_FechaInicial DESC LIMIT 1
+        """, {"col": u_colada, "horn": horno})
+        p = proc[0] if proc else {}
+        fusion   = float(p["fusion_min"]) if p.get("fusion_min") else None
+        hold     = float(p["hold_min"])   if p.get("hold_min") is not None else None
+        kg_carga = float(p["kg_carga"])   if p.get("kg_carga") else None
 
     fusion_estado = (
         "ok"    if fusion and 25 <= fusion <= 35 else
@@ -2534,6 +2547,7 @@ def piso_diagnostico(u_colada: int, horno: int, id_colada: Optional[int] = Query
             "fusion_estado": fusion_estado,
             "hold_estado": hold_estado,
         },
+        "horno": horno_info,
         "defecto": {
             "top": defectos[0] if defectos else None,
             "lista": defectos,

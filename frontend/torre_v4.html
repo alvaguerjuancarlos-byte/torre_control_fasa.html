@@ -2297,6 +2297,11 @@ function renderFlujoDetalle(col, carriles, piezas, diag){
     const chips=[]
     if(f.fusion_min!=null) chips.push('<span style="font-size:11px;padding:4px 10px;border-radius:6px;background:'+fCol[f.fusion_estado]+'22;color:'+fCol[f.fusion_estado]+';font-weight:600">Fusión '+f.fusion_min.toFixed(0)+' min</span>')
     if(f.hold_min!=null) chips.push('<span style="font-size:11px;padding:4px 10px;border-radius:6px;background:'+fCol[f.hold_estado]+'22;color:'+fCol[f.hold_estado]+';font-weight:600">Hold '+f.hold_min.toFixed(0)+' min</span>')
+    const hz=diag.horno
+    if(hz){
+      chips.push('<span style="font-size:11px;padding:4px 10px;border-radius:6px;background:'+fCol[hz.estado]+'22;color:'+fCol[hz.estado]+';font-weight:600">En horno '+hz.tiempo_horno_min.toFixed(0)+(hz.limite_min!=null?' / '+hz.limite_min.toFixed(0):'')+' min</span>')
+      if(hz.demora_min>0||hz.demora_causa) chips.push('<span style="font-size:11px;padding:4px 10px;border-radius:6px;background:#FEF3C7;color:#92400E;font-weight:600">Demora '+(hz.demora_min||0).toFixed(0)+' min'+(hz.demora_causa?' · '+(hz.demora_clave?hz.demora_clave+' ':'')+hz.demora_causa:'')+'</span>')
+    }
     if(b.delta!=null) chips.push('<span style="font-size:11px;padding:4px 10px;border-radius:6px;background:'+(b.delta>0?'#FCEBEB':'#E1F5EE')+';color:'+(b.delta>0?'#A32D2D':'#0F6E56')+';font-weight:600">'+(b.delta>0?'+':'')+b.delta+'pp vs benchmark horno ('+b.n_coladas+' coladas)</span>')
     if(dd.top) chips.push('<span style="font-size:11px;padding:4px 10px;border-radius:6px;background:#F3F4F6;color:#5f5e5a;font-weight:600">Top defecto: '+dd.top.nombre+' ('+dd.top.pct+'%)</span>')
     if(chips.length){
