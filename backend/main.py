@@ -23,6 +23,7 @@ from backend.core import (
     _buscar_protocolos, _REDISENO_COMBOS, _referencia_actual_flujo,
     historial_rechazo_partes, tasa_shrunk,
     QUIM_SELECT_SQL, evaluar_quimica, meses_rechazo_no_confiables,
+    cargas_por_colada, resumen_carga,
 )
 
 app = FastAPI(title="Torre de Control FASA", version="0.1.0")
@@ -2984,8 +2985,9 @@ def v3_gestion_coladas(
 ):
     """
     Lista de coladas en la ventana con los 7 carriles pre-evaluados.
-    PC-1 y PC-3 son GRIS estructural (sin fuente integrada en ia_fasa);
-    PC-2, PC-4, PC-5, PC-6, PC-7 se evalúan en vivo.
+    PC-3 es GRIS estructural (sin fuente integrada en ia_fasa); PC-1 (desde
+    2026-10-13, betamega_00_cargasmetalicas), PC-2, PC-4, PC-5, PC-6 y PC-7 se
+    evalúan en vivo.
 
     Sin `referencia` cae a "ahora" (2026-09-23: antes caía a un string fijo
     "2025-12-19T08:00" -- inofensivo mientras _evaluar_coladas_ventana() leía de
@@ -3158,9 +3160,22 @@ def v3_carriles_colada(id_colada: int):
     n_ok = int(tr.get("n_ok") or 0)
     pct_temp_ok = round(n_ok / n_t * 100.0, 1) if n_t else None
 
+    # PC-1: carga al horno, receta vs real por material (regla de tolerancia en core.py)
+    comps_carga = cargas_por_colada([id_colada]).get(id_colada, [])
+    carga = resumen_carga(comps_carga)
+
     carriles_out = []
     for c in CARRILES:
-        if c.id_pc == "PC-2":
+        if c.id_pc == "PC-1":
+            ev = evaluar_carril(c, carga["pct_ok"], m.get("fecha_inicial"), id_colada)
+            if comps_carga:
+                ev["detalle"] = {
+                    **carga,
+                    "materiales": comps_carga,
+                    "nota": "Ferroaleaciones: Corex no tiene tolerancia definida (0); se usa "
+                            "0.5 % o 0.01 kg hasta que Calidad la defina.",
+                }
+        elif c.id_pc == "PC-2":
             ev = evaluar_carril(c, pct_quim, q.get("AnalysisTime") if quim_disponible else None, id_colada)
             ev["detalle"] = {
                 "disponible": quim_disponible,

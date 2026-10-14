@@ -2346,7 +2346,25 @@ function renderCarril(c){
   let detalleHtml=''
   if(c.detalle&&Object.keys(c.detalle).length){
     const d=c.detalle
-    if(c.id_pc==='PC-2'){
+    if(c.id_pc==='PC-1'){
+      if(d.n_materiales){
+        const fuera=d.n_materiales-d.n_ok
+        detalleHtml=`<div class="carril-detalle">${d.n_ok}/${d.n_materiales} materiales en tolerancia · carga ${d.kg_real.toLocaleString('es-MX')} kg (receta ${d.kg_receta.toLocaleString('es-MX')} kg)${fuera?` · <strong style="color:var(--red-chip)">${fuera} fuera</strong>`:''}</div>`
+        const fila=m=>{
+          const col=m.en_tolerancia?'inherit':'var(--red-chip)'
+          const dif=(m.dif_kg>0?'+':'')+m.dif_kg
+          return `<tr style="color:${col}"><td style="padding:1px 8px 1px 0">${m.descripcion||m.clave}</td>`
+            +`<td style="text-align:right;padding:1px 8px">${m.kg_receta}</td>`
+            +`<td style="text-align:right;padding:1px 8px">${m.kg_real}</td>`
+            +`<td style="text-align:right;padding:1px 8px;font-weight:${m.en_tolerancia?400:700}">${dif}</td>`
+            +`<td style="text-align:right;padding:1px 0 1px 8px;color:var(--muted)">±${m.tol_kg}</td></tr>`
+        }
+        detalleHtml+=`<div class="carril-detalle" style="margin-top:4px;overflow-x:auto"><table style="border-collapse:collapse;font-size:11px">`
+          +`<tr style="color:var(--muted)"><th style="text-align:left;font-weight:600;padding:1px 8px 1px 0">Material</th><th style="text-align:right;font-weight:600;padding:1px 8px">Receta kg</th><th style="text-align:right;font-weight:600;padding:1px 8px">Real kg</th><th style="text-align:right;font-weight:600;padding:1px 8px">Dif.</th><th style="text-align:right;font-weight:600;padding:1px 0 1px 8px">Tol.</th></tr>`
+          +d.materiales.map(fila).join('')+`</table></div>`
+        if(d.nota) detalleHtml+=`<div class="carril-detalle" style="font-style:italic;color:var(--muted)">${d.nota}</div>`
+      }
+    } else if(c.id_pc==='PC-2'){
       if(d.elementos){
         const chips=Object.entries(d.elementos).map(([el,st])=>{
           // Mg se muestra en gris con asterisco — análisis BASE pre-inoculación, excluido del score

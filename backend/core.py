@@ -134,10 +134,13 @@ MOTIVOS_GRIS = {
 
 CARRILES: List[CarrilControl] = [
     CarrilControl(
-        "PC-1", "kg cargados por material vs receta",
-        "ia_fasa.cscmega_03coladacargametalica.c_Kilos (kg total — sin desglose por material)",
-        None, "inicio_fusion",
-        "kg real por componente vs receta programada", "P-01", 15, "gris_sin_dato",
+        "PC-1", "carga al horno — kg por material vs receta",
+        "ia_fasa.betamega_00_cargasmetalicas (KgsReal vs KgsReceta por material)",
+        VentanaControl("completitud", 100.0, 80.0, "pct"),
+        "inicio_fusion",
+        "% materiales en tolerancia (|real−receta| ≤ máx(0.5 % receta, resolución de báscula: "
+        "1 kg metálicos / 0.01 kg ferroaleaciones)) ; 100 %→VERDE ; ≥80 %→ÁMBAR ; <80 %→ROJO",
+        "P-01", 15, "activo",
     ),
     CarrilControl(
         "PC-2", "análisis químico — elementos clave en especificación",
@@ -303,6 +306,7 @@ def evaluar_carril(
         "valor":        señal_valor,
         "ts_deteccion": ts_det.isoformat() if ts_det else None,
         "latencia_seg": latencia_seg,
+        "latencia_objetivo": carril.latencia_objetivo,
         "motivo_gris":  None,
         "protocolo":    carril.protocolo if estado == "ROJO" else None,
         "detalle":      {},
@@ -328,6 +332,63 @@ def meses_rechazo_no_confiables(d: str, h: str) -> list:
     """, {"d": d, "h": h})
     return sorted(r["mes"] for r in rows
                   if int(r["n"] or 0) < UMBRAL_PIEZAS_MES_CONFIABLE or not int(r["rec"] or 0))
+
+
+# PC-1: carga al horno (2026-10-13). Fuente betamega_00_cargasmetalicas, viva y validada
+# contra corex_test.coladasdetalle (kg reales idénticos por colada). NO se usa su
+# bFueraTolerancia: con PrcTolerancia=0.5 % (metálicos) / 0 (ferroaleaciones) y la
+# receta escalada con decimales contra una báscula que pesa en kg enteros, marca
+# diferencias de redondeo (75.73 vs 75 kg = "fuera") -- 62 % de coladas saldrían ROJO
+# sin problema real. Regla elegida por JC: tolerancia = máx(0.5 % de la receta,
+# resolución de báscula). Con ella: ~71 % VERDE, 27 % ÁMBAR, 2 % ROJO (rojos = 5-7 kg
+# de diferencia en cargas de ~600 kg). La tolerancia real de ferroaleaciones sigue
+# pendiente de Calidad (solicitud #10 del reporte a IT del 13-oct). La tabla trae
+# duplicados exactos (colada 84420 x10) -- por eso el DISTINCT.
+PC1_TOL_PCT = 0.005
+PC1_RESOLUCION_KG = {"metalicos": 1.0, "ferroaleaciones": 0.01}
+
+
+def _pc1_resolucion(tipo: str) -> float:
+    return PC1_RESOLUCION_KG["ferroaleaciones" if (tipo or "").lower().startswith("ferro")
+                             else "metalicos"]
+
+
+def cargas_por_colada(ids: list) -> Dict[int, list]:
+    """Materiales de la carga (receta vs real) por IdColada, ya evaluados contra la tolerancia de PC-1."""
+    ids = [int(i) for i in ids if i]
+    if not ids:
+        return {}
+    rows = run(f"""
+        SELECT DISTINCT IdColada, Tipo, Clave, Descripcion, KgsReceta, KgsReal
+        FROM betamega_00_cargasmetalicas
+        WHERE IdColada IN ({",".join(str(i) for i in ids)})
+    """, {})
+    out: Dict[int, list] = {}
+    for r in rows:
+        receta, real = float(r["KgsReceta"] or 0), float(r["KgsReal"] or 0)
+        tol = max(PC1_TOL_PCT * receta, _pc1_resolucion(r["Tipo"]))
+        out.setdefault(r["IdColada"], []).append({
+            "tipo": r["Tipo"], "clave": r["Clave"],
+            "descripcion": (r["Descripcion"] or "").strip(),
+            "kg_receta": round(receta, 2), "kg_real": round(real, 2),
+            "dif_kg": round(real - receta, 2) + 0.0, "tol_kg": round(tol, 2),  # +0.0: evita "-0.0"
+            "en_tolerancia": abs(real - receta) <= tol,
+        })
+    for comps in out.values():
+        comps.sort(key=lambda c: (c["en_tolerancia"], -abs(c["dif_kg"])))
+    return out
+
+
+def resumen_carga(comps: list) -> dict:
+    """% de materiales en tolerancia + totales de la carga; pct None si la colada no tiene carga registrada."""
+    n = len(comps)
+    n_ok = sum(1 for c in comps if c["en_tolerancia"])
+    return {
+        "n_materiales": n, "n_ok": n_ok,
+        "pct_ok": round(n_ok / n * 100.0, 1) if n else None,
+        "kg_receta": round(sum(c["kg_receta"] for c in comps), 1),
+        "kg_real": round(sum(c["kg_real"] for c in comps), 1),
+    }
 
 
 # PC-2: columnas de la cadena viva de química (betamega_02_pks_idticketsidmuestras ->
@@ -528,6 +589,9 @@ def _evaluar_coladas_ventana(referencia: str, horas: int) -> list:
     """, {})
     etapa_idx = {r["id_colada"]: r for r in etapa_batch}
 
+    carga_idx = cargas_por_colada([c["id_colada"] for c in coladas])
+
+    pc1 = next(c for c in CARRILES if c.id_pc == "PC-1")
     pc2 = next(c for c in CARRILES if c.id_pc == "PC-2")
     pc4 = next(c for c in CARRILES if c.id_pc == "PC-4")
     pc5 = next(c for c in CARRILES if c.id_pc == "PC-5")
@@ -559,6 +623,8 @@ def _evaluar_coladas_ventana(referencia: str, horas: int) -> list:
         cumple5     = int(mo5.get("cumple") or 0)
         pct_cumple5 = round(cumple5 / con_umbral5 * 100.0, 1) if con_umbral5 else None
 
+        carga = resumen_carga(carga_idx.get(cid, []))
+        ev1 = evaluar_carril(pc1, carga["pct_ok"], col["inicio_fusion"], cid)
         ev2 = evaluar_carril(pc2, pct_quim,    None,                    cid)
         ev4 = evaluar_carril(pc4, pct_temp,    tr.get("ts_primer_vaci"), cid)
         ev5 = evaluar_carril(pc5, pct_cumple5, None,                    cid)
@@ -582,7 +648,7 @@ def _evaluar_coladas_ventana(referencia: str, horas: int) -> list:
             etapa = "Sin datos"
 
         estados = {
-            "PC-1": "GRIS", "PC-2": ev2["estado"], "PC-3": "GRIS",
+            "PC-1": ev1["estado"], "PC-2": ev2["estado"], "PC-3": "GRIS",
             "PC-4": ev4["estado"], "PC-5": ev5["estado"],
             "PC-6": ev6["estado"], "PC-7": ev7["estado"],
         }
@@ -602,6 +668,7 @@ def _evaluar_coladas_ventana(referencia: str, horas: int) -> list:
             "pct_cierre":    pct_ci,
             "temp_avg":      int(tr["temp_avg"]) if tr.get("temp_avg") else None,
             "pct_temp_ok":   pct_temp,
+            "pct_carga_ok":  carga["pct_ok"],
             "estados":       estados,
             "etapa":         etapa,
             "tiene_alerta":  tiene_alerta,
