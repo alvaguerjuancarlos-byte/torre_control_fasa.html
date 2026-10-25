@@ -6,6 +6,7 @@ Corre localmente; el HTML apunta a http://localhost:8000
 import os
 import json
 import math
+import time
 from pathlib import Path
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Tuple, List
@@ -3865,5 +3866,71 @@ def produccion_tonelaje_mensual(anios: str = Query(default="2024,2025")):
         "total_por_anio": total_anual,
         "meses": resumen,
     }
+
+
+# Caché en proceso para /produccion/retornos-mensual: la consulta tarda 20-30 s contra la BD
+# remota (deduplicar betamega_00_cargasmetalicas obliga a agrupar ~250k filas) y el dato
+# cambia una vez al día. Se recalcula a la hora.
+_RETORNOS_CACHE: Dict[str, tuple] = {}
+_RETORNOS_TTL_SEG = 3600
+
+
+@app.get("/produccion/retornos-mensual")
+def produccion_retornos_mensual(anios: str = Query(default="2023,2024,2025,2026")):
+    """
+    % de retornos en la carga al horno por mes (2026-10-14). El Plan de Control Nivel 1 (PC-1)
+    pide retornos <= 30% de la carga; las recetas de Corex lo rebasan seguido desde mar-2026.
+
+    Fuente betamega_00_cargasmetalicas (kg reales por material, viva), fecha de
+    betamega_00_coladaprocesodemoras -- no de betamega_03, que tiene el hueco de cobertura
+    jul-oct 2026. Definición PROVISIONAL: retorno = Descripcion que empieza con "RETORNO"; la
+    rebaba cribada propia queda fuera hasta que Calidad confirme (solicitud #13 del reporte a IT
+    del 13-oct). El GROUP BY interno quita los duplicados exactos de la tabla (coladas 84371,
+    84418, 84420); sin él agosto 2026 sube ~13 t de carga.
+
+    Endpoint aparte de /produccion/tonelaje-mensual a propósito: tarda 20-30 s y no debe frenar
+    las barras de la tarjeta; el frontend lo pide en paralelo y pinta la franja al llegar.
+    """
+    lista_anios = sorted({a.strip() for a in anios.split(",") if a.strip().isdigit()}) or ["2026"]
+    key = ",".join(lista_anios)
+    hit = _RETORNOS_CACHE.get(key)
+    if hit and time.time() - hit[0] < _RETORNOS_TTL_SEG:
+        return hit[1]
+
+    rows = run("""
+        SELECT YEAR(dm.FechaInicial) AS anio, MONTH(dm.FechaInicial) AS mes,
+               COUNT(*) AS coladas, SUM(c.kg_ret) AS kg_ret, SUM(c.kg_carga) AS kg_carga
+        FROM betamega_00_coladaprocesodemoras dm
+        JOIN (
+            SELECT IdColada,
+                   SUM(CASE WHEN es_ret = 1 THEN kg ELSE 0 END) AS kg_ret,
+                   SUM(kg) AS kg_carga
+            FROM (
+                SELECT IdColada,
+                       MAX(UPPER(TRIM(Descripcion)) LIKE 'RETORNO%') AS es_ret,
+                       MAX(KgsReal) AS kg
+                FROM betamega_00_cargasmetalicas
+                GROUP BY IdColada, Tipo, Clave, Descripcion
+            ) x
+            GROUP BY IdColada
+        ) c ON c.IdColada = dm.idColada
+        WHERE YEAR(dm.FechaInicial) IN ({})
+        GROUP BY anio, mes
+    """.format(key))
+    out = {
+        "limite_pct": 30,
+        "definicion": "provisional: materiales 'RETORNO*' / kg reales de carga (sin rebaba cribada)",
+        "meses": {
+            "{}-{}".format(r["anio"], str(r["mes"]).zfill(2)): {
+                "coladas":  int(r["coladas"]),
+                "kg_ret":   round(float(r["kg_ret"] or 0), 0),
+                "kg_carga": round(float(r["kg_carga"] or 0), 0),
+                "pct_retornos": round(float(r["kg_ret"] or 0) / float(r["kg_carga"]) * 100, 1) if r["kg_carga"] else None,
+            }
+            for r in rows
+        },
+    }
+    _RETORNOS_CACHE[key] = (time.time(), out)
+    return out
 
 

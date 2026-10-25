@@ -1772,7 +1772,15 @@ let _tonData = null
 // desde 2025-12-29) -- por eso solo se dibuja como línea/KPI sobre el año que ya tiene barras
 // reales (2025), nunca se inventa una barra para 2026.
 let _costoNocData = null
+// % retornos en carga (/produccion/retornos-mensual): tarda 20-30 s la primera vez (caché de 1 h
+// en backend), así que NO entra al Promise.all de abajo -- llega aparte y vuelve a pintar.
+let _retornosData = null
 async function loadTonelaje(){
+  if(!_retornosData){
+    apiFetch('/produccion/retornos-mensual?anios=2023,2024,2025,2026')
+      .then(r => { _retornosData = r; if(_tonData) renderTonelaje() })
+      .catch(() => {})
+  }
   // Los botones del selector propio aparecen de inmediato (no esperan al fetch) -- si no, con la
   // congestión de conexiones concurrentes de Ejecutivo (ver commit 1b8691c) el usuario ve la
   // tarjeta sin selector varios segundos y concluye que "no existe" (JC, 2026-09-29).
@@ -1877,6 +1885,18 @@ function renderTonelaje(){
   }), {ton_brutos:0, ton_producto_ok:0, ton_rechazo:0})
   const pctRech = tot.ton_brutos ? Math.round(tot.ton_rechazo/tot.ton_brutos*1000)/10 : 0
 
+  // % retornos en la carga (ver /produccion/retornos-mensual): ponderado por kg del período;
+  // límite 30% del Plan de Control Nivel 1, definición provisional.
+  const retLim = (_retornosData && _retornosData.limite_pct) || 30
+  const retPorMes = {}
+  meses.forEach(m => {
+    const r = ((_retornosData && _retornosData.meses)||{})[m.anio+'-'+String(m.mes).padStart(2,'0')]
+    if(r && r.pct_retornos != null) retPorMes[m.mes] = r
+  })
+  const retVals = Object.values(retPorMes)
+  const retKgCarga = retVals.reduce((s,r) => s + r.kg_carga, 0)
+  const pctRet = retKgCarga ? Math.round(retVals.reduce((s,r) => s + r.kg_ret, 0)/retKgCarga*1000)/10 : null
+
   sub.textContent = 'Peso real de colada (c_Kilos) repartido por pieza · ' + tonEtiquetaPeriodo() + ' · ' + meses.length + ' meses'
 
   kpisEl.innerHTML =
@@ -1884,13 +1904,14 @@ function renderTonelaje(){
     + mc('Ton. producto OK', tot.ton_producto_ok.toLocaleString('es-MX')+' t', 'success', '')
     + mc('Ton. rechazo', tot.ton_rechazo.toLocaleString('es-MX')+' t', 'danger', '')
     + mc('% rechazo (kg)', pctRech+'%', pctRech>=15?'danger':pctRech>=7?'warning':'success', 'ponderado por peso')
+    + (pctRet != null ? mcNuevo('% retornos en carga', pctRet+'%', 'límite plan PC-1 ≤ '+retLim+'% · definición provisional') : '')
     + (tonProdVerificada && costoProdTotal ? mcNuevo('Costo de producción', '$'+Math.round(costoProdTotal).toLocaleString('es-MX'),
         '$'+Math.round(costoProdTotal/tonProdVerificadaTotal).toLocaleString('es-MX')+'/ton promedio') : '')
     + (costoNocTotal ? mcNuevo('Costo de no-calidad', '$'+Math.round(costoNocTotal).toLocaleString('es-MX'),
         tonProdVerificada && costoProdTotal ? (costoNocTotal/costoProdTotal*100).toFixed(1)+'% del costo de producción' : 'piso_ia.rechazo × costo/ton') : '')
     + (costoNocTotal && tonProdVerificada ? mcNuevo('Costo no-calidad / Ton', '$'+Math.round(costoNocTotal/tonProdVerificadaTotal).toLocaleString('es-MX'), 'por ton. producida') : '')
 
-  chartEl.innerHTML = svgTonelaje(meses, nocPorMes)
+  chartEl.innerHTML = svgTonelaje(meses, nocPorMes, retPorMes, retLim)
 
   const porHorno = {}
   meses.forEach(m => {
@@ -1923,10 +1944,15 @@ function renderTonelaje(){
     +'</tr></thead><tbody>'+filas+'</tbody></table>'
 }
 
-function svgTonelaje(meses, nocPorMes){
+function svgTonelaje(meses, nocPorMes, retPorMes, retLim){
   nocPorMes = nocPorMes || {}
+  retPorMes = retPorMes || {}
   const tieneCosto = Object.keys(nocPorMes).length > 0
-  const VW=720, VH=170, PL=44, PR=tieneCosto?54:12, PT=8, PB=28
+  const tieneRet = Object.keys(retPorMes).length > 0
+  // Franja de % retornos debajo de las etiquetas de mes (eje propio, no un tercer eje sobre las
+  // barras: el derecho ya es del costo de no-calidad).
+  const RH = tieneRet ? 62 : 0
+  const VW=720, VH=170+RH, PL=44, PR=tieneCosto?54:12, PT=8, PB=28+RH
   const BW=VW-PL-PR, BH=VH-PT-PB
   const maxT = Math.max(...meses.map(m=>m.ton_brutos), 1) * 1.08
   const maxC = tieneCosto ? Math.max(...meses.map(m => (nocPorMes[m.mes]||{}).costo_no_calidad_usd || 0), 1) * 1.25 : 1
@@ -1960,6 +1986,32 @@ function svgTonelaje(meses, nocPorMes){
     bars += `<text x="${x+barW/2}" y="${VH-PB+13}" text-anchor="middle" font-size="9" fill="#6B7280">${MES_LBLS[m.mes-1]}</text>`
   })
 
+  // Franja % retornos: escala fija 15–50% para que el límite quede siempre en el mismo lugar.
+  let retBand=''
+  if(tieneRet){
+    const rTop = PT+BH+PB-RH+18, rH = RH-26, rMin=15, rMax=50
+    const Yr = p => rTop + rH - (Math.min(Math.max(p,rMin),rMax)-rMin)/(rMax-rMin)*rH
+    retBand += `<text x="${PL}" y="${rTop-6}" font-size="9" font-weight="600" fill="#6B7280">% retornos en carga</text>`
+    retBand += `<text x="${PL+98}" y="${rTop-6}" font-size="8.5" fill="#9CA3AF">límite plan PC-1 ${retLim}% · definición provisional (solo "RETORNO…")</text>`
+    retBand += `<line x1="${PL}" y1="${Yr(retLim).toFixed(1)}" x2="${VW-PR}" y2="${Yr(retLim).toFixed(1)}" stroke="#9CA3AF" stroke-width="0.8" stroke-dasharray="3 3"/>`
+    retBand += `<text x="${PL-4}" y="${(Yr(retLim)+3).toFixed(1)}" text-anchor="end" font-size="8.5" fill="#9CA3AF">${retLim}%</text>`
+    let prev=null
+    meses.forEach((m,i)=>{
+      const r = retPorMes[m.mes]
+      if(!r){ prev=null; return }
+      const cx = Xc(i), cy = Yr(r.pct_retornos)
+      if(prev) retBand += `<line x1="${prev[0].toFixed(1)}" y1="${prev[1].toFixed(1)}" x2="${cx.toFixed(1)}" y2="${cy.toFixed(1)}" stroke="#6366F1" stroke-width="1.6"/>`
+      prev=[cx,cy]
+    })
+    meses.forEach((m,i)=>{
+      const r = retPorMes[m.mes]
+      if(!r) return
+      const cx = Xc(i), cy = Yr(r.pct_retornos), sobre = r.pct_retornos > retLim
+      retBand += `<circle cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="3" fill="${sobre?'#EF4444':'#6366F1'}" stroke="#fff" stroke-width="1"><title>${MES_LBLS[m.mes-1]}: ${r.pct_retornos}% retornos · ${r.coladas} coladas</title></circle>`
+      retBand += `<text x="${cx.toFixed(1)}" y="${(cy-6).toFixed(1)}" text-anchor="middle" font-size="8.5" fill="${sobre?'#B91C1C':'#4B5563'}">${r.pct_retornos.toFixed(0)}%</text>`
+    })
+  }
+
   // Costo de no-calidad: línea ámbar sobre eje secundario, fuente/método distinto a las barras
   // (piso_ia.rechazo x PesoKgs, no c_Kilos/colada) -- por eso no comparte el eje izquierdo.
   let costoLine='', costoDots='', costoLabels=''
@@ -1986,7 +2038,7 @@ function svgTonelaje(meses, nocPorMes){
   }
 
   return `<svg width="100%" viewBox="0 0 ${VW} ${VH}" style="display:block;overflow:visible">
-    ${yax}${bars}${costoLine}${costoDots}${costoLabels}${legend}
+    ${yax}${bars}${costoLine}${costoDots}${costoLabels}${legend}${retBand}
     <line x1="${PL}" y1="${PT}" x2="${PL}" y2="${PT+BH}" stroke="#E5E7EB" stroke-width="0.5"/>
     ${tieneCosto?`<line x1="${VW-PR}" y1="${PT}" x2="${VW-PR}" y2="${PT+BH}" stroke="#F0C374" stroke-width="0.5"/>`:''}
   </svg>`
