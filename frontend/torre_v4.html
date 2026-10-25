@@ -229,7 +229,6 @@ main{padding:16px 20px;max-width:1100px;margin:0 auto}
       <div style="font-size:14px;font-weight:600;color:var(--color-text-primary)">Rendimiento Metálico y Costo de Calidad</div>
       <div id="ton-sub" style="font-size:11px;color:var(--color-text-tertiary);margin-top:2px">Cargando…</div>
     </div>
-    <div id="ton-periodo-sel"></div>
     <div id="ton-kpis" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px"></div>
     <div id="ton-chart" style="min-height:150px"></div>
     <div id="ton-horno" style="margin-top:12px"></div>
@@ -247,12 +246,6 @@ main{padding:16px 20px;max-width:1100px;margin:0 auto}
         <span style="font-size:11px;color:var(--color-text-tertiary)">Vista:</span>
         <button id="ch-v-alto" class="pb active" onclick="setChartsVista('alto')"   style="font-size:11px;padding:4px 10px">Alto nivel</button>
         <button id="ch-v-det"  class="pb"        onclick="setChartsVista('detalle')" style="font-size:11px;padding:4px 10px">Detalle 80/20</button>
-        <span style="width:1px;background:var(--color-border-secondary);margin:0 2px;align-self:stretch"></span>
-        <span style="font-size:11px;color:var(--color-text-tertiary)">Horizonte:</span>
-        <button id="ch-w-6"  class="pb"        onclick="setPronHorizonte(6)"  style="font-size:11px;padding:4px 10px">6m</button>
-        <button id="ch-w-12" class="pb active"  onclick="setPronHorizonte(12)" style="font-size:11px;padding:4px 10px">12m</button>
-        <button id="ch-w-18" class="pb"         onclick="setPronHorizonte(18)" style="font-size:11px;padding:4px 10px">18m</button>
-        <button id="ch-w-24" class="pb"         onclick="setPronHorizonte(24)" style="font-size:11px;padding:4px 10px">24m</button>
         <span id="ch-estimado-ctrl" style="display:contents">
         <span style="width:1px;background:var(--color-border-secondary);margin:0 2px;align-self:stretch"></span>
         <span style="font-size:11px;color:var(--color-text-tertiary)">Estimado:</span>
@@ -592,30 +585,28 @@ function fmtLocal(dt) {
 // PRONÓSTICO DE PRODUCCIÓN Y RECHAZO
 // ════════════════════════════════════════════════════════════
 let _pronData = null
+// Ventana fija de 12 meses (2026-10-25): el selector "Horizonte 6/12/18/24m" se quitó -- la gráfica
+// ya no muestra meses móviles sino los meses del año elegido en el selector único de arriba
+// (renderMainCharts filtra por EAnio). 12 m basta para cubrir cualquier año en curso.
 let _pronVentana = 12
 let _pronLoaded = false
 let _pronYear   = 2025   // año para el que está cargado _pronData
 let _pronForecastMode = 'mes'
+// Meses del período elegido arriba, para sombrearlos en las gráficas de piezas/rechazo
+// (null en vista anual). Lo fija eSyncCards().
+let _eResalte = null
 
-function setPronHorizonte(v) {
-  _pronVentana = v
-  ;[6,12,18,24].forEach(x => document.getElementById(`ch-w-${x}`).classList.toggle('active', x === v))
-  _pronLoaded = false
-  initPronostico()
-}
+function _updateVentanaBtns() {}  // el selector de horizonte ya no existe; se conserva por eSetAnio()
 
-function _updateVentanaBtns() {
-  // 2023: máx 12m (solo tiene datos del mismo año)
-  // 2024: máx 24m (2024 + 2023 en cache alfamega)
-  const maxV = EAnio === 2023 ? 12 : 24
-  ;[6,12,18,24].forEach(v => {
-    const btn = document.getElementById(`ch-w-${v}`)
-    btn.disabled = v > maxV
-    if (v > maxV && _pronVentana === v) {
-      _pronVentana = maxV
-      ;[6,12,18,24].forEach(x => document.getElementById(`ch-w-${x}`).classList.toggle('active', x === _pronVentana))
-    }
+// Sombra detrás de los meses del período elegido arriba (trimestre/mes). slotX(i) = inicio del slot.
+function svgResalte(historico, slotX, slotW, PT, BH) {
+  if (!_eResalte) return ''
+  let out = ''
+  historico.forEach((h, i) => {
+    if (h.anio === _eResalte.anio && h.mes >= _eResalte.mIni && h.mes <= _eResalte.mFin)
+      out += `<rect x="${slotX(i).toFixed(1)}" y="${PT}" width="${slotW.toFixed(1)}" height="${BH}" fill="#FEF3C7"/>`
   })
+  return out
 }
 
 function setChartsVista(v) {
@@ -760,7 +751,10 @@ function renderMainCharts() {
   // "Número de Piezas Producidas y Rechazadas" se quedaba en "Cargando…" para siempre,
   // sin importar el toggle Año/Trimestre/Mes (ese si actualizaba bien las demás tarjetas).
   if (!_pronData || _pronYear !== EAnio) return
-  const hist = _pronData.historico
+  // Solo los meses del año elegido (2026-10-25: antes eran los últimos N meses móviles, cruzando
+  // años, y no coincidían con el período de las demás tarjetas)
+  const hist = _pronData.historico.filter(h => h.anio === EAnio)
+  if (!hist.length) return
   const fc   = aggForecast(_pronData.pronostico, 'mensual', _pronForecastMode)
   document.getElementById('charts-prod').innerHTML = svgProduccion(hist, fc)
   document.getElementById('charts-rech').innerHTML = svgRechazo(hist, fc)
@@ -790,7 +784,7 @@ function renderMainCharts() {
     const p0 = _pronData.pronostico[0]
     const conf = p0.confianza==='alta'?'★★★':p0.confianza==='media'?'★★☆':'★☆☆'
     document.getElementById('charts-sub').textContent =
-      `Últimos ${_pronData.ventana}m · hasta ${_pronData.max_date} · Estimado ${p0.label}: ${p0.n_piezas_est.toLocaleString('es-MX')} pzas · ${p0.rate_est}% tasa · confianza ${conf}`
+      `Año ${EAnio} · ${hist.length} meses · hasta ${_pronData.max_date} · Estimado ${p0.label}: ${p0.n_piezas_est.toLocaleString('es-MX')} pzas · ${p0.rate_est}% tasa · confianza ${conf}`
   }
 }
 
@@ -817,8 +811,8 @@ function svgProduccion(historico, pronostico) {
     yax += `<text x="${PL-4}" y="${y+4}" text-anchor="end" font-size="9" fill="#9CA3AF">${(v/1000).toFixed(1)}k</text>`
   }
 
-  // Historical bars
-  let bars = ''
+  // Historical bars (sobre la sombra del período elegido arriba)
+  let bars = svgResalte(historico, i => PL + i * slotW, slotW, PT, BH)
   historico.forEach((h, i) => {
     const x = X(i), bh = (h.n_piezas / maxN) * BH, y = Y(h.n_piezas)
     bars += `<rect x="${x}" y="${y}" width="${barW}" height="${bh}" rx="2" fill="#93C5FD"/>`
@@ -900,8 +894,8 @@ function svgRechazo(historico, pronostico) {
   const Y = r => PT + BH - (r / maxR) * BH
   const X = i => PL + i * slotW + barW / 2
 
-  // Y-axis ticks
-  let svg = ''
+  // Y-axis ticks (sobre la sombra del período elegido arriba, centrada en cada punto X(i))
+  let svg = svgResalte(historico, i => PL + i * slotW + barW / 2 - slotW / 2, slotW, PT, BH)
   const ticks = [0, Math.round(maxR*0.33), Math.round(maxR*0.66), Math.round(maxR)]
   ticks.forEach(v => {
     const y = Y(v)
@@ -1221,60 +1215,43 @@ let D = {meta:{target:7,bandLo:5,bandHi:7,tonPt:87.6,cLo:711,cHi:1185,avg:13.3},
   best:{lbl:'—',rate:0}, worst:{lbl:'—',rate:0}}
 let EG='anual', EI=0, CC=null
 
-// Selectores de período propios por gráfica (JC, 2026-09-29) -- independientes del toggle
-// Año/Trimestre/Mes de arriba (EG/EI), que solo gobierna Período/Familias de defecto. El año
-// (EAnio) sigue siendo compartido por las 3: no tienen su propio botón de año, solo
-// granularidad + índice dentro del año global. Ver periodoSelectorHTML()/periodosDelAnio().
+// Selector ÚNICO de período (JC, 2026-10-25): el Año/Trimestre/Mes + año + navegador de arriba
+// (EG/EI/EAnio) gobierna TODAS las tarjetas. Reemplaza los selectores propios por tarjeta que
+// se habían agregado el 2026-09-29 -- con ellos cada gráfica podía mostrar un período distinto
+// y la pestaña no se podía leer de corrido. _tonG/_tonI, _scG/_scI, _ccG/_ccI siguen existiendo
+// como estado interno de cada tarjeta, pero solo los escribe eSyncCards() desde el global, en
+// granularidad + índice de calendario (periodosDelAnio), no el índice de D.trimestral/D.mensual.
 let _tonG='anual', _tonI=0
 let _scG='anual', _scI=0
 let _ccG='anual', _ccI=0
+const MESES_CORTOS = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic']
 
-// Construye los botones Año/Trimestre/Mes + navegador de período (‹ dropdown ›), igual criterio
-// visual que el selector global de arriba (líneas ~207-222) pero con id/prefijo propio por
-// tarjeta para no chocar entre sí ni con el global.
-function periodoSelectorHTML(prefix){
-  return '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:10px">'
-    +'<button class="pb active" data-pg="anual" onclick="'+prefix+'SetG(\'anual\')" style="font-size:11px;padding:4px 10px">Año</button>'
-    +'<button class="pb" data-pg="trimestral" onclick="'+prefix+'SetG(\'trimestral\')" style="font-size:11px;padding:4px 10px">Trimestre</button>'
-    +'<button class="pb" data-pg="mensual" onclick="'+prefix+'SetG(\'mensual\')" style="font-size:11px;padding:4px 10px">Mes</button>'
-    +'<span id="'+prefix+'-periodo-nav" style="font-size:12px;color:var(--color-text-secondary);display:none;margin-left:2px">'
-    +'<button id="'+prefix+'Prev" class="navb" onclick="'+prefix+'Step(-1)">&lsaquo;</button>'
-    +'<select id="'+prefix+'Sel" onchange="'+prefix+'Pick(this.selectedIndex)" style="min-width:100px;font-size:12px"></select>'
-    +'<button id="'+prefix+'Next" class="navb" onclick="'+prefix+'Step(1)">&rsaquo;</button>'
-    +'</span></div>'
+// Índice de calendario (periodosDelAnio) del período elegido arriba. D.trimestral trae "1Q".."4Q"
+// y D.mensual "Ene".."Dic", solo los períodos con dato -- por eso no basta con EI.
+function ePeriodoCalendario(){
+  if (EG === 'anual') return 0
+  const cur = ePer(EG)[EI]
+  if (!cur) return 0
+  if (EG === 'trimestral') return Math.max(0, parseInt(cur.lbl, 10) - 1)
+  return Math.max(0, MESES_CORTOS.indexOf(cur.lbl))
 }
-// Refleja el estado activo (botón resaltado + navegador visible/oculto + opciones del <select>)
-// para una tarjeta dada -- se llama después de inyectar periodoSelectorHTML() en el DOM.
-function periodoSelectorSync(prefix, g, i){
-  document.querySelectorAll('#'+ID_CARD[prefix]+' .pb[data-pg]').forEach(b=>b.classList.toggle('active', b.dataset.pg===g))
-  const nav = document.getElementById(prefix+'-periodo-nav')
-  if (!nav) return
-  nav.style.display = g==='anual' ? 'none' : ''
-  if (g==='anual') return
-  const P = periodosDelAnio(g, EAnio)
-  document.getElementById(prefix+'Sel').innerHTML = P.map((p,idx)=>'<option value="'+idx+'">'+p.label+'</option>').join('')
-  document.getElementById(prefix+'Sel').value = i
-  document.getElementById(prefix+'Prev').disabled = i<=0
-  document.getElementById(prefix+'Next').disabled = i>=P.length-1
-}
-// Mapea cada prefijo a la tarjeta contenedora donde viven sus botones .pb[data-pg] -- necesario
-// porque los 3 selectores comparten los mismos data-pg ('anual'/'trimestral'/'mensual') y hay
-// que buscarlos scopeados a su propia tarjeta, no globalmente en #tab-ejecutivo.
-const ID_CARD = { ton: 'e-tonelaje', sc: 'e-scatter-card', cc: 'e-ciclo-card' }
 
-// Al activar Trimestre/Mes por primera vez hay que caer en el último período que ya empezó, no
-// en el último del calendario -- periodosDelAnio() genera los 4 trimestres/12 meses completos
-// sin importar si ya pasaron, así que "length-1" cae en un período futuro vacío para el año en
-// curso (ej. 4T en septiembre). Mismo criterio que ya usa eDef() para el toggle global, pero ahí
-// funciona gratis porque D.trimestral/D.mensual solo trae los períodos con dato real -- aquí no.
-function defaultPeriodoIdx(g, anio){
-  const P = periodosDelAnio(g, anio)
-  if (anio === new Date().getFullYear()) {
-    const hoy = new Date().toISOString().slice(0,10)
-    for (let i = P.length - 1; i >= 0; i--) if (P[i].desde <= hoy) return i
-    return 0
+// Lleva el período de arriba a Rendimiento Metálico, Piezas producidas (sombra), Rechazo por
+// parte y Cierre de ciclo. Solo vuelve a pedir datos al backend si el período cambió de verdad
+// (scatter y cierre de ciclo hacen fetch; tonelaje y piezas solo re-dibujan lo ya cargado).
+function eSyncCards(){
+  const i = ePeriodoCalendario()
+  const cambio = _scG !== EG || _scI !== i
+  _tonG = _scG = _ccG = EG
+  _tonI = _scI = _ccI = i
+  if (EG === 'anual') _eResalte = null
+  else {
+    const per = periodosDelAnio(EG, EAnio)[i]
+    _eResalte = { anio: EAnio, mIni: +per.desde.slice(5,7), mFin: +per.hasta.slice(5,7) }
   }
-  return P.length - 1
+  if (_tonData) renderTonelaje()
+  renderMainCharts()
+  if (cambio) { scCargar(); ccCargar() }
 }
 
 const round2 = v => Math.round(v*100)/100
@@ -1282,8 +1259,11 @@ const eP = v => (Math.round(v*100)/100)+'%'
 const eM = v => { v=Math.round(v); return v>=1e6?'$'+(v/1e6).toFixed(2)+'M':'$'+Math.round(v/1e3).toLocaleString('en-US')+'K' }
 function ePer(g) { return g==='anual'?[D.anual]:g==='semanal'?D.semanal:g==='trimestral'?D.trimestral:D.mensual }
 function eTS(g)  { return g==='anual'?D.mensual:ePer(g) }
-function eOpt(g,p){ return g==='semanal'?('Semana '+p.lbl.slice(1)):g==='anual'?String(EAnio):p.lbl }
-function eHero(g,p){ return g==='semanal'?('Semana '+p.lbl.slice(1)+' · '+EAnio):g==='anual'?('Año '+EAnio):(p.lbl+' '+EAnio) }
+// El backend nombra los trimestres "1Q".."4Q"; en pantalla van como "1T".."4T", igual que
+// periodosDelAnio() y las etiquetas de las demás tarjetas.
+const eLbl = (g,p) => g==='trimestral' ? p.lbl.replace('Q','T') : p.lbl
+function eOpt(g,p){ return g==='semanal'?('Semana '+p.lbl.slice(1)):g==='anual'?String(EAnio):eLbl(g,p) }
+function eHero(g,p){ return g==='semanal'?('Semana '+p.lbl.slice(1)+' · '+EAnio):g==='anual'?('Año '+EAnio):(eLbl(g,p)+' '+EAnio) }
 function eDef(g){ const P=ePer(g); if(g==='semanal'){for(let i=P.length-1;i>=0;i--)if(P[i].n>=100)return i;} return P.length-1 }
 
 function mc(label,val,sem,sub){
@@ -1371,7 +1351,6 @@ function eScatterCard(){
   const chart = PS ? eScatterSVG(PS, D.anual.rate || D.meta.avg) : '<p style="font-size:12px;color:var(--color-text-tertiary)">Cargando…</p>'
   return '<div class="card2" id="e-scatter-card" style="margin-top:12px">'
     +'<p style="font-size:14px;font-weight:500;margin:0 0 10px">Rechazo por número de parte · ' + scEtiquetaPeriodo() + '</p>'
-    + periodoSelectorHTML('sc')
     +'<p style="font-size:11px;color:var(--color-text-tertiary);margin:0 0 12px">' + subtitle + '</p>'
     + chart
     +'<p style="font-size:10px;color:var(--color-text-tertiary);margin:8px 0 0;text-align:center">🔍 Scroll para zoom &nbsp;·&nbsp; Arrastrar para mover &nbsp;·&nbsp; Doble clic para resetear</p>'
@@ -1422,7 +1401,7 @@ function svgCierreCiclo(dist){
 }
 
 function eCierreCiclo(){
-  if(!CC) return '<div class="card2" id="e-ciclo-card" style="margin-top:12px">'+periodoSelectorHTML('cc')+'<p style="font-size:12px;color:var(--color-text-tertiary)">Cargando…</p></div>'
+  if(!CC) return '<div class="card2" id="e-ciclo-card" style="margin-top:12px"><p style="font-size:14px;font-weight:500;margin:0 0 10px">Cierre de ciclo de coladas · '+ccEtiquetaPeriodo()+'</p><p style="font-size:12px;color:var(--color-text-tertiary)">Cargando…</p></div>'
   const LBL_CORTO={h08:'≤8h',h16:'8-16h',h24:'16-24h',h32:'24-32h',h48:'32-48h',h72:'48-72h',h96:'72-96h',h120:'96-120h',h144:'120-144h',h144p:'144h-30d',en_proceso:'En proceso',cuarentena_sv:'Cuar. sin veredicto',cuarentena_rc:'Cuar. ya rechazada',atipico:'Atípico'}
   const dist = CC.distribucion.map(d=>({...d, labelCorto: LBL_CORTO[d.bucket]||d.bucket}))
   const legend = '<div style="display:flex;gap:16px;flex-wrap:wrap;margin:6px 0 2px;font-size:10px;color:var(--color-text-tertiary)">'
@@ -1434,7 +1413,6 @@ function eCierreCiclo(){
     +'</div>'
   return '<div class="card2" id="e-ciclo-card" style="margin-top:12px">'
     +'<p style="font-size:14px;font-weight:500;margin:0 0 10px">Cierre de ciclo de coladas · '+ccEtiquetaPeriodo()+'</p>'
-    +periodoSelectorHTML('cc')
     +svgCierreCiclo(dist)
     +legend
     +'<p style="font-size:11px;color:var(--color-text-tertiary);margin:6px 0 0">Meta: cerrar el ciclo en ≤ 24 h · '+CC.pct_en_meta+'% en meta · Cuarentena: '+CC.cuarentena.toLocaleString('en-US')+' coladas, > 144 h sin cerrar — '
@@ -1443,7 +1421,7 @@ function eCierreCiclo(){
     +'</div>'
 }
 
-// ── Selector de período propio: Rechazo por número de parte (scatter) ──────────
+// ── Rechazo por número de parte (scatter): período del selector único (eSyncCards) ──
 async function scCargar(){
   const params = new URLSearchParams({anio: EAnio})
   if (_scG !== 'anual') {
@@ -1455,15 +1433,8 @@ async function scCargar(){
   PS = await apiFetch('/v2/ejecutivo/partes-scatter?' + params.toString())
   eRender()
 }
-function scSetG(g){ _scG = g; _scI = defaultPeriodoIdx(g, EAnio); scCargar() }
-function scStep(d){
-  const P = periodosDelAnio(_scG, EAnio)
-  _scI = Math.min(P.length - 1, Math.max(0, _scI + d))
-  scCargar()
-}
-function scPick(i){ _scI = +i; scCargar() }
 
-// ── Selector de período propio: Cierre de ciclo de coladas ─────────────────────
+// ── Cierre de ciclo de coladas: período del selector único (eSyncCards) ────────
 async function ccCargar(){
   const params = new URLSearchParams({anio: EAnio})
   if (_ccG !== 'anual') {
@@ -1472,18 +1443,9 @@ async function ccCargar(){
   }
   CC = null
   document.getElementById('eDash-ciclo').innerHTML = eCierreCiclo()
-  periodoSelectorSync('cc', _ccG, _ccI)
   CC = await apiFetch('/v2/ejecutivo/cierre-ciclo?' + params.toString())
   document.getElementById('eDash-ciclo').innerHTML = eCierreCiclo()
-  periodoSelectorSync('cc', _ccG, _ccI)
 }
-function ccSetG(g){ _ccG = g; _ccI = defaultPeriodoIdx(g, EAnio); ccCargar() }
-function ccStep(d){
-  const P = periodosDelAnio(_ccG, EAnio)
-  _ccI = Math.min(P.length - 1, Math.max(0, _ccI + d))
-  ccCargar()
-}
-function ccPick(i){ _ccI = +i; ccCargar() }
 
 function eRender(){
   const m=D.meta, P=ePer(EG), cur=P[EI], prev=EI>0?P[EI-1]:null
@@ -1519,11 +1481,6 @@ function eRender(){
   document.getElementById('eDash-ciclo').innerHTML = eCierreCiclo()
   renderMainCharts()
   initScatterZoom()
-  // eScatterCard()/eCierreCiclo() se regeneran completos en cada eRender() (también disparado
-  // por el toggle global de arriba) -- su selector propio de período necesita re-sincronizarse
-  // cada vez, si no siempre se ve "Año" resaltado aunque el estado real sea otro.
-  periodoSelectorSync('sc', _scG, _scI)
-  periodoSelectorSync('cc', _ccG, _ccI)
 }
 
 // Sincronización de fecha entre pestañas (JC, 2026-09-23): el período que se ve en
@@ -1597,8 +1554,8 @@ function eNav(){
   document.getElementById('eLatest').textContent=(EI===P.length-1)?'● último con datos':''
 }
 function eBuild(){ document.getElementById('eSel').innerHTML=ePer(EG).map((p,i)=>'<option value="'+i+'">'+eOpt(EG,p)+'</option>').join('') }
-function ePick(i){ EI=i; eNav(); eRender(); eSincronizarFechas() }
-function eStep(d){ const P=ePer(EG); EI=Math.min(P.length-1,Math.max(0,EI+d)); eNav(); eRender(); eSincronizarFechas() }
+function ePick(i){ EI=i; eNav(); eRender(); eSyncCards(); eSincronizarFechas() }
+function eStep(d){ const P=ePer(EG); EI=Math.min(P.length-1,Math.max(0,EI+d)); eNav(); eRender(); eSyncCards(); eSincronizarFechas() }
 // fromUser=false: llamada automática (carga de página / cambio de año vía eSetAnio, que
 // ya sincroniza por su cuenta después de que EAnio quede fijo) -- no dispara
 // eSincronizarFechas() aquí para no pisar el default "ahora" del control unificado
@@ -1607,7 +1564,7 @@ function eSetG(g, fromUser){
   EG=g
   document.querySelectorAll('#tab-ejecutivo .pb[data-g]').forEach(b=>b.classList.toggle('active',b.dataset.g===g))
   document.getElementById('e-periodo-nav').style.display = g==='anual' ? 'none' : ''
-  EI=eDef(g); eBuild(); eNav(); eRender()
+  EI=eDef(g); eBuild(); eNav(); eRender(); eSyncCards()
   if (fromUser !== false) eSincronizarFechas()
 }
 
@@ -1740,20 +1697,15 @@ function eScatterSVG(parts, rateAnio) {
 async function initEjecutivo(anio){
   if(anio) EAnio = anio
   setHdrStatus('Cargando datos ' + EAnio + '…')
-  // cierre-ciclo/partes-scatter se cargan por su cuenta (scCargar/ccCargar) -- cada uno tiene
-  // ahora su propio selector de período (JC, 2026-09-29) y se recarga también cuando el usuario
-  // cambia SOLO ese selector, no solo al cambiar de año. Aquí se resetean a "año completo" cada
-  // vez que cambia el año global, para no arrastrar un trimestre/mes del año anterior.
+  // cierre-ciclo/partes-scatter se cargan por su cuenta (scCargar/ccCargar) con el período del
+  // selector único (eSyncCards). Se resetean a "año completo" al cambiar de año; si el selector
+  // está en Año se piden ya, sin esperar resumen-anual (~4 s). En Trimestre/Mes hay que esperar
+  // a D para saber qué trimestre/mes queda elegido: los pide eSyncCards() desde eSetG() al final.
   _scG = 'anual'; _scI = 0; PS = null
   _ccG = 'anual'; _ccI = 0; CC = null
   _tonG = 'anual'; _tonI = 0
 
-  // Estas 4 no leen D (el resultado de resumen-anual) -- solo EAnio, ya fijado arriba. Se
-  // disparan ANTES de esperar resumen-anual, no encadenadas detrás, porque ese fetch por sí
-  // solo tarda ~4s (medido 2026-09-29) y no hay razón para que Tonelaje/Scatter/Cierre de
-  // ciclo/Pronóstico esperen algo que no necesitan antes de empezar a cargar.
-  scCargar()
-  ccCargar()
+  if (EG === 'anual') { scCargar(); ccCargar() }
   initPronostico()
   loadTonelaje()
 
@@ -1788,12 +1740,6 @@ async function loadTonelaje(){
       .then(r => { _retornosData = r; if(_tonData) renderTonelaje() })
       .catch(() => {})
   }
-  // Los botones del selector propio aparecen de inmediato (no esperan al fetch) -- si no, con la
-  // congestión de conexiones concurrentes de Ejecutivo (ver commit 1b8691c) el usuario ve la
-  // tarjeta sin selector varios segundos y concluye que "no existe" (JC, 2026-09-29).
-  document.getElementById('ton-periodo-sel').innerHTML = periodoSelectorHTML('ton')
-  periodoSelectorSync('ton', _tonG, _tonI)
-
   // En paralelo, no secuencial -- antes cada fetch esperaba al anterior (~2s extra sumados al
   // final de una cadena ya larga: resumen-anual -> scatter/cierre-ciclo/pronostico/tonelaje-mensual
   // en paralelo -> [aquí] costo-no-calidad). Ninguno de los dos depende del otro.
@@ -1806,17 +1752,10 @@ async function loadTonelaje(){
   renderTonelaje()
 }
 
-// Selector de período propio (Año/Trimestre/Mes) -- a diferencia de Scatter/Cierre de ciclo, no
+// Período del selector único (eSyncCards) -- a diferencia de Scatter/Cierre de ciclo, no
 // dispara fetch: _tonData ya trae los 12 meses del año con desglose por horno en una sola
-// respuesta (ver /produccion/tonelaje-mensual), así que cambiar de período aquí es solo
+// respuesta (ver /produccion/tonelaje-mensual), así que cambiar de período es solo
 // reslicear lo ya cargado (ver renderTonelaje()).
-function tonSetG(g){ _tonG = g; _tonI = defaultPeriodoIdx(g, EAnio); renderTonelaje() }
-function tonStep(d){
-  const P = periodosDelAnio(_tonG, EAnio)
-  _tonI = Math.min(P.length - 1, Math.max(0, _tonI + d))
-  renderTonelaje()
-}
-function tonPick(i){ _tonI = +i; renderTonelaje() }
 function tonRangoMeses(){
   if (_tonG === 'anual') return [1, 12]
   const per = periodosDelAnio(_tonG, EAnio)[_tonI]
@@ -1843,9 +1782,6 @@ function renderTonelaje(){
   const kpisEl = document.getElementById('ton-kpis')
   const chartEl = document.getElementById('ton-chart')
   const hornoEl = document.getElementById('ton-horno')
-
-  document.getElementById('ton-periodo-sel').innerHTML = periodoSelectorHTML('ton')
-  periodoSelectorSync('ton', _tonG, _tonI)
 
   const [mIni, mFin] = tonRangoMeses()
 
