@@ -68,6 +68,8 @@ backend/
     alfa.py      Agente Alfa — ritmo real, cuello de botella, proyección de entrega
     beta.py      Agente Beta — riesgo de calidad / predictivo
     chat.py      capa conversacional (tool-use) sobre alfa.py + beta.py
+    arenas.py    Control de Arenas (panel de planta en Control del Proceso, no es un PC
+                 por colada) sobre betamega_09_variablesdecontrol
 frontend/
   torre_v4.html  DASHBOARD ACTIVO (7 tabs, ver §1)
   torre_v3.html, gestion.html, ejecutivo.html, piso.html   versiones anteriores,

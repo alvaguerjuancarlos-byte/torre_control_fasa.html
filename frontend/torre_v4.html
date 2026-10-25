@@ -348,6 +348,13 @@ main{padding:16px 20px;max-width:1100px;margin:0 auto}
     <div id="al-lista-beta"><div class="loading-msg">Cargando…</div></div>
   </div>
 
+  <!-- ── Control de Arenas: panel de planta por línea/tipo de arena (no es un PC por colada:
+       la arena no se liga a la colada, ver backend/routers/arenas.py) ── -->
+  <div style="font-size:14px;font-weight:600;color:var(--color-text-primary);margin:20px 0 4px">🧪 Control de Arenas</div>
+  <div style="font-size:11px;color:var(--muted);margin-bottom:8px">Laboratorio de arenas (<code>betamega_09_variablesdecontrol</code>) · última medición de cada variable en la ventana · 100% en límite → verde, ≥80% → ámbar, &lt;80% → rojo</div>
+  <div id="ar-grupos" style="display:flex;flex-wrap:wrap;gap:8px"><div class="loading-msg">Cargando…</div></div>
+  <div id="ar-detalle" style="display:none;margin-top:10px"></div>
+
   <div style="margin:24px 0;border-top:1px solid var(--color-border-secondary)"></div>
 
   <!-- ── Flujo del Proceso: mapa por etapa + detalle de colada ── -->
@@ -2127,6 +2134,62 @@ function renderFlujo(){
 function cargarControlProceso(){
   cargarFlujo()
   cargarAlertas()
+  cargarArenas()
+}
+
+// ── Control de Arenas ──
+let _arGrupos=[], _arAbierto=null
+const AR_COLOR={VERDE:'#1D9E75',AMBAR:'#F59E0B',ROJO:'#EF4444',GRIS:'#9CA3AF'}
+async function cargarArenas(){
+  const horas=document.getElementById('cp-sel-horas').value
+  const ref=document.getElementById('cp-inp-ref').value
+  const cont=document.getElementById('ar-grupos')
+  cont.innerHTML='<div class="loading-msg">Cargando…</div>'
+  document.getElementById('ar-detalle').style.display='none'
+  try{
+    const res=await fetch(`/v3/gestion/arenas?referencia=${encodeURIComponent(ref)}&horas=${horas}`)
+    const data=await res.json()
+    _arGrupos=data.grupos||[]
+    if(!_arGrupos.length){ cont.innerHTML='<div class="empty-msg">Sin pruebas de laboratorio de arenas en la ventana</div>'; return }
+    cont.innerHTML=_arGrupos.map((g,i)=>{
+      const col=AR_COLOR[g.estado]||AR_COLOR.GRIS
+      const val=g.pct_en_limite!=null?`${g.n_ok}/${g.n_variables} en límite`:'sin variables evaluables'
+      return `<div onclick="abrirArena(${i})" style="cursor:pointer;min-width:150px;padding:8px 12px;border-radius:8px;border:1px solid ${col};border-left:5px solid ${col};background:var(--color-background-primary,#fff)">`
+        +`<div style="font-size:12px;font-weight:700">${g.grupo}</div>`
+        +`<div style="font-size:11px;color:${col};font-weight:600">${val}</div>`
+        +`<div style="font-size:10px;color:var(--muted)">${g.n_fuera_ventana}/${g.n_mediciones} mediciones fuera · últ. ${g.ultima.slice(5,16).replace('-','/')}</div></div>`
+    }).join('')
+    if(_arAbierto!=null && _arAbierto<_arGrupos.length) abrirArena(_arAbierto, true)
+  }catch(e){
+    cont.innerHTML=`<div style="color:red;padding:12px">Error al cargar arenas: ${e.message}</div>`
+  }
+}
+
+function abrirArena(i, mantener){
+  const det=document.getElementById('ar-detalle')
+  if(!mantener && _arAbierto===i && det.style.display!=='none'){ det.style.display='none'; _arAbierto=null; return }
+  _arAbierto=i
+  const g=_arGrupos[i]
+  const fila=v=>{
+    const col=v.limite_por_revisar?'var(--muted)':v.en_limite===false?'var(--red-chip)':'inherit'
+    const lim=(v.lim_inf!=null&&v.lim_sup!=null)?`${v.lim_inf} – ${v.lim_sup}`:'—'
+    const tag=v.limite_por_revisar?' <span style="font-size:10px;border:1px solid #9CA3AF;border-radius:4px;padding:0 4px">límite por revisar</span>':''
+    const nota=[v.motivo,v.acciones].filter(Boolean).join(' · ')
+    return `<tr style="color:${col}"><td style="padding:2px 10px 2px 0">${v.variable}${tag}</td>`
+      +`<td style="text-align:right;padding:2px 10px;font-weight:${v.en_limite===false&&!v.limite_por_revisar?700:400}">${v.valor}</td>`
+      +`<td style="text-align:right;padding:2px 10px;color:var(--muted)">${lim}</td>`
+      +`<td style="padding:2px 10px;color:var(--muted)">${v.fecha.slice(5,16).replace('-','/')}</td>`
+      +`<td style="padding:2px 0 2px 10px;color:var(--muted);font-style:italic">${nota}</td></tr>`
+  }
+  det.innerHTML=`<div style="padding:10px 12px;border:1px solid var(--color-border-secondary);border-radius:8px;overflow-x:auto">`
+    +`<div style="font-size:12px;font-weight:700;margin-bottom:6px">${g.grupo} · última medición por variable</div>`
+    +`<table style="border-collapse:collapse;font-size:11px"><tr style="color:var(--muted)">`
+    +`<th style="text-align:left;padding:2px 10px 2px 0">Variable</th><th style="text-align:right;padding:2px 10px">Valor</th>`
+    +`<th style="text-align:right;padding:2px 10px">Límite</th><th style="text-align:left;padding:2px 10px">Fecha</th>`
+    +`<th style="text-align:left;padding:2px 0 2px 10px">Motivo / acciones (laboratorio)</th></tr>`
+    +g.variables.map(fila).join('')+`</table>`
+    +`<div style="font-size:10px;color:var(--muted);margin-top:6px;font-style:italic">AFS con límite 48–54 y granulometría (% retenido) no cuentan para el color: sus límites no corresponden a la arena real (≈99% fuera), pendiente de Calidad.</div></div>`
+  det.style.display='block'
 }
 
 async function cargarFlujo(){
