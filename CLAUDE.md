@@ -70,6 +70,8 @@ backend/
     chat.py      capa conversacional (tool-use) sobre alfa.py + beta.py
     arenas.py    Control de Arenas (panel de planta en Control del Proceso, no es un PC
                  por colada) sobre betamega_09_variablesdecontrol
+    pronostico_semanal.py  pronóstico semanal de rechazo de CSC (gamamega_01_paretopesoperiodo),
+                 sección del tab Plan de Producción
 frontend/
   torre_v4.html  DASHBOARD ACTIVO (7 tabs, ver §1)
   torre_v3.html, gestion.html, ejecutivo.html, piso.html   versiones anteriores,

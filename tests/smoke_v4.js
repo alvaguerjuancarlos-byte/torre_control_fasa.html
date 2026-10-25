@@ -29,6 +29,7 @@ const API_ENDPOINTS = [
   '/v3/gestion/coladas',
   '/v3/gestion/alertas',
   '/v3/gestion/arenas',
+  '/api/pronostico-semanal',
   '/v2/gestion/riesgo-partes',
   '/v2/pedidos/lista?limit=5',
   '/api/beta/riesgo-alto?limit=5',

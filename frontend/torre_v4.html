@@ -3562,6 +3562,15 @@ function simRenderTable(items) {
 
   </div>
 
+  <!-- Pronóstico semanal de rechazo de CSC (gamamega_01_paretopesoperiodo), independiente del mes -->
+  <div class="pn-section-title">Pronóstico semanal de rechazo · CSC <span class="fuente-badge">· fuente: Corex (gamamega_01_paretopesoperiodo)</span></div>
+  <div id="pps-semanas"><div class="pn-msg">Cargando…</div></div>
+  <div id="pps-aviso"></div>
+  <div id="pps-kpis" class="pln-kpis-grid"></div>
+  <div id="pps-defectos"></div>
+  <div id="pps-top"></div>
+  <div class="pn-hint">Haz clic en una barra para ver esa semana. Rechazo esperado = kg programados × tasa de CSC por parte y defecto. No se compara contra rechazo real: el registro de rechazo está detenido desde el 9-jul-2026.</div>
+
   <!-- Sección secundaria: pronóstico histórico de rechazo (se conserva, colapsada) -->
   <div class="pn-toggle-seccion" id="pn-toggle-historico" onclick="pronToggleSeccionHistorica()">▸ Pronóstico histórico de rechazo (por año)</div>
   <div id="pn-seccion-historica" style="display:none">
@@ -4603,6 +4612,78 @@ function initPronPanel() {
   if (PLN_LOADED) return
   PLN_LOADED = true
   plnPoblarSelectorMes()
+  ppsCargar(null)
+}
+
+// ── Pronóstico semanal de rechazo de CSC ──
+async function ppsCargar(periodo){
+  const d = await apiFetch('/api/pronostico-semanal' + (periodo ? '?periodo=' + periodo : ''))
+  const cont = document.getElementById('pps-semanas')
+  if (!d || !d.detalle) { cont.innerHTML = '<div class="pln-msg-box">Sin pronóstico semanal cargado en Corex.</div>'; return }
+  ppsRenderSemanas(d.semanas, d.detalle.periodo)
+  ppsRenderDetalle(d.detalle)
+}
+
+const PPS_MESES = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic']
+function ppsFechaCorta(iso){
+  const p = iso.split('-'); return parseInt(p[2], 10) + ' ' + PPS_MESES[parseInt(p[1], 10) - 1]
+}
+
+function ppsRenderSemanas(semanas, sel){
+  const VW = 720, VH = 150, PL = 8, PR = 8, PT = 18, PB = 30
+  const n = semanas.length, slot = (VW - PL - PR) / n, bw = Math.min(36, slot * 0.6)
+  const maxKg = Math.max(...semanas.map(s => s.kg_rechazo_esperado), 1) * 1.1
+  const BH = VH - PT - PB
+  let svg = ''
+  semanas.forEach((s, i) => {
+    const h = s.kg_rechazo_esperado / maxKg * BH, x = PL + slot * i + (slot - bw) / 2, y = PT + BH - h
+    const on = s.periodo === sel
+    const col = s.carga_duplicada ? '#9CA3AF' : on ? '#B45309' : '#F0C374'
+    svg += `<g style="cursor:pointer" onclick="ppsCargar(${s.periodo})"><title>Sem ${s.semana} · ${ppsFechaCorta(s.desde)}–${ppsFechaCorta(s.hasta)}: ${plnFmt(s.kg_rechazo_esperado / 1000)} t esperadas de ${plnFmt(s.kg_prog / 1000)} t (${s.pct_esperado}%) · ${s.partes} partes${s.carga_duplicada ? ' · carga duplicada' : ''}</title>`
+      + `<rect x="${PL + slot * i}" y="${PT - 14}" width="${slot}" height="${VH - PT + 14}" fill="transparent"/>`
+      + `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${bw.toFixed(1)}" height="${h.toFixed(1)}" rx="2" fill="${col}"/>`
+      + `<text x="${(x + bw / 2).toFixed(1)}" y="${(y - 4).toFixed(1)}" text-anchor="middle" font-size="9" font-weight="${on ? 700 : 400}" fill="${on ? '#92400E' : '#6B7280'}">${s.pct_esperado}%</text>`
+      + `<text x="${(x + bw / 2).toFixed(1)}" y="${VH - PB + 13}" text-anchor="middle" font-size="9" font-weight="${on ? 700 : 400}" fill="#374151">S${s.semana}</text>`
+      + `<text x="${(x + bw / 2).toFixed(1)}" y="${VH - PB + 24}" text-anchor="middle" font-size="8" fill="#9CA3AF">${ppsFechaCorta(s.desde)}</text></g>`
+  })
+  document.getElementById('pps-semanas').innerHTML =
+    `<svg viewBox="0 0 ${VW} ${VH}" style="width:100%;display:block;background:#fff;border:0.5px solid var(--color-border-tertiary);border-radius:8px">${svg}</svg>`
+}
+
+function ppsRenderDetalle(d){
+  document.getElementById('pps-aviso').innerHTML = d.carga_duplicada
+    ? '<div class="pln-msg-box" style="padding:10px;margin:8px 0;color:#92400E;background:#FFFBEB">Semana ' + d.semana + ': Corex trae dos cargas distintas para la misma semana (partes con piezas diferentes). Se muestra la carga más reciente; las cifras no son confiables hasta que IT la corrija.</div>'
+    : ''
+  const top = d.defectos[0]
+  const kpis = [
+    { l: 'Semana ' + d.semana, v: ppsFechaCorta(d.desde) + '–' + ppsFechaCorta(d.hasta), s: d.partes + ' partes · ' + plnFmt(d.piezas_prog, 0) + ' piezas' },
+    { l: 'Kg programados', v: plnFmt(d.kg_prog / 1000), s: 'ton, base CSC' },
+    { l: 'Rechazo esperado', v: plnFmt(d.kg_rechazo_esperado / 1000), s: 'ton' },
+    { l: '% rechazo esperado', v: d.pct_esperado + '%', s: 'kg esperados / kg programados' },
+    { l: 'Defecto principal', v: top ? top.defecto : '—', s: top ? top.pct + '% del rechazo esperado' : '' },
+  ]
+  document.getElementById('pps-kpis').innerHTML = kpis.map(k =>
+    '<div class="pn-kpi"><div class="kl">' + k.l + '</div><div class="kv" style="font-size:' + (k.v.length > 10 ? 15 : 22) + 'px">' + k.v + '</div><div class="ks">' + k.s + '</div></div>').join('')
+
+  // Pareto por defecto: barra de kg + % acumulado, top 12
+  const defs = d.defectos.slice(0, 12), maxKg = defs.length ? defs[0].kg : 1
+  document.getElementById('pps-defectos').innerHTML = '<div class="pn-section-title">Pareto por defecto · semana ' + d.semana + '</div>'
+    + '<div class="pn-combos-wrap2" style="padding:8px 14px">' + defs.map(x =>
+      '<div style="display:grid;grid-template-columns:170px 1fr 70px 60px;gap:8px;align-items:center;font-size:11.5px;padding:3px 0">'
+      + '<div>' + x.defecto + '</div>'
+      + '<div style="background:#F3F4F6;border-radius:3px;height:12px"><div style="width:' + (x.kg / maxKg * 100).toFixed(1) + '%;height:12px;border-radius:3px;background:' + (x.pct_acum <= 80 ? '#B45309' : '#F0C374') + '"></div></div>'
+      + '<div class="pn-num">' + plnFmt(x.kg, 0) + ' kg</div>'
+      + '<div class="pn-num" style="color:var(--muted)">' + x.pct_acum + '%</div></div>').join('')
+    + '<div style="font-size:10px;color:var(--muted);margin-top:4px">Barras oscuras = defectos dentro del 80% acumulado. Columna derecha = % acumulado.</div></div>'
+
+  const filas = d.top_80.map(c =>
+    '<div class="pn-combos-row" style="grid-template-columns:130px 1fr 70px 90px 80px 70px"><div class="mono">' + c.no_parte + '</div><div>' + c.defecto + '</div>'
+    + '<div class="pn-num">' + c.piezas_prog + '</div><div class="pn-num">' + plnFmt(c.kg_esperado, 0) + '</div>'
+    + '<div class="pn-num">' + (c.pct_de_la_parte != null ? c.pct_de_la_parte + '%' : '—') + '</div><div class="pn-num" style="color:var(--muted)">' + c.pct_acum + '%</div></div>').join('')
+  document.getElementById('pps-top').innerHTML = '<div class="pn-section-title">Parte × defecto que suman el 80% · ' + d.top_80.length + ' combinaciones</div>'
+    + '<div class="pn-combos-wrap2" style="max-height:360px;overflow-y:auto">'
+    + '<div class="pn-combos-head" style="grid-template-columns:130px 1fr 70px 90px 80px 70px;position:sticky;top:0"><div>No. parte</div><div>Defecto</div><div class="pn-num">Pzas prog.</div><div class="pn-num">Kg esperados</div><div class="pn-num">% de la parte</div><div class="pn-num">Acum.</div></div>'
+    + filas + '</div>'
 }
 
 function plnPoblarSelectorMes(){
