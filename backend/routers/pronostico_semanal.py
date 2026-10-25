@@ -31,12 +31,13 @@ DISCREPAN los métodos, no cuál acierta. Se ordena por kg de diferencia (dif pp
 programados), que es lo que pesa en la semana, no por pp crudos.
 """
 import time
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from typing import Optional
 
 from fastapi import APIRouter, Query
 
 from backend.core import run, historial_rechazo_partes, tasa_shrunk
+from backend.plan_corex import _proceso_partes
 
 # La tasa de la Torre usa historia que ya no cambia (rechazo congelado) y la consulta
 # agrega ~1 año de tickets: se recalcula a lo más una vez por hora.
@@ -186,3 +187,144 @@ def pronostico_semanal(periodo: Optional[int] = Query(default=None, description=
 
     return {"semanas": resumenes,
             "detalle": {**res, "defectos": defectos, "top_80": top, "vs_torre": _comparar(filas)}}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Plan semanal: programado vs moldeado/vaciado por parte (2026-10-25)
+# ══════════════════════════════════════════════════════════════════════════════
+# Programa: gamamega_01_programaperiodo con Periodo YYYYWW (semana ISO; contra el vaciado
+# real empata mejor con desfase 0 que con ±1). Avance real: piezas VACIADAS de
+# betamega_00_ticketsconvaciadodirecto (completa jul-oct) -- NO piezas terminadas
+# (betamega_08.FHrLIMP, criterio del seguimiento mensual), que hoy registra 30-190 piezas
+# por semana contra ~900 vaciadas. Moldeadas (betamega_aleks_idtickethistorial.FHrMoldeo)
+# como dato adicional. FHrVaciado es hora de registro en lote: sirve a nivel semana.
+#
+# % cumplimiento = Σ mín(vaciadas, programadas) / Σ programadas: lo vaciado de más de una
+# parte no compensa lo que faltó de otra; lo vaciado de partes fuera del programa se
+# reporta aparte. Semana en curso: se compara contra lo esperado a la fecha (programa ×
+# días transcurridos / 6, lunes a sábado).
+# Semana 202640: partes repetidas con valores distintos (cargas duplicadas en Corex) -- se
+# toma el mayor y se marca la semana.
+_PLAN_MIN_PERIODO = 202630
+_DIAS_SEMANA = 6
+
+
+def _programa_semanal() -> dict:
+    rows = run("""
+        SELECT Periodo, TRIM(No_Parte) AS no_parte, nPzasProg, KgsPzasProgAsProgProd AS kg
+        FROM gamamega_01_programaperiodo WHERE Periodo >= :p
+    """, {"p": _PLAN_MIN_PERIODO})
+    out: dict = {}
+    for r in rows:
+        sem = out.setdefault(r["Periodo"], {"partes": {}, "duplicada": False})
+        n = int(r["nPzasProg"] or 0)
+        prev = sem["partes"].get(r["no_parte"])
+        if prev is not None:
+            if prev["prog"] != n:
+                sem["duplicada"] = True
+            if prev["prog"] >= n:
+                continue
+        sem["partes"][r["no_parte"]] = {"prog": n, "kg": float(r["kg"] or 0)}
+    return out
+
+
+_REAL_CACHE: dict = {}
+_REAL_TTL_SEG = 1800  # ticketsconvaciadodirecto sin índice en FHrVaciado: ~30 s por consulta
+
+
+def _real_semanal(d1: date, d2: date) -> tuple:
+    """({(semana ISO, parte): vaciadas}, {(semana ISO, parte): moldeadas})"""
+    hit = _REAL_CACHE.get((d1, d2))
+    if hit and time.time() - hit[0] < _REAL_TTL_SEG:
+        return hit[1]
+    out = _real_semanal_bd(d1, d2)
+    _REAL_CACHE.clear()
+    _REAL_CACHE[(d1, d2)] = (time.time(), out)
+    return out
+
+
+def precalentar_plan_semanal():
+    prog = _programa_semanal()
+    if prog:
+        _real_semanal(_rango_semana(min(prog))[0], _rango_semana(max(prog))[1])
+
+
+def _real_semanal_bd(d1: date, d2: date) -> tuple:
+    params = {"d": datetime.combine(d1, datetime.min.time()), "h": datetime.combine(d2, datetime.max.time())}
+    vac = run("""
+        SELECT YEARWEEK(FHrVaciado, 3) AS w, TRIM(no_parte) AS p, COUNT(*) AS n
+        FROM betamega_00_ticketsconvaciadodirecto WHERE FHrVaciado BETWEEN :d AND :h GROUP BY w, p
+    """, params)
+    mol = run("""
+        SELECT YEARWEEK(FHrMoldeo, 3) AS w, TRIM(no_parte) AS p, COUNT(*) AS n
+        FROM betamega_aleks_idtickethistorial WHERE FHrMoldeo BETWEEN :d AND :h GROUP BY w, p
+    """, params)
+    return ({(r["w"], r["p"]): int(r["n"]) for r in vac}, {(r["w"], r["p"]): int(r["n"]) for r in mol})
+
+
+def _avance_semana(periodo: int) -> Optional[float]:
+    """Fracción de la semana transcurrida (lunes-sábado); None si ya cerró o no empieza."""
+    ini, _ = _rango_semana(periodo)
+    hoy = date.today()
+    dias = (hoy - ini).days + 1
+    if dias < 1:
+        return 0.0
+    if dias > 7:
+        return None
+    return min(dias, _DIAS_SEMANA) / _DIAS_SEMANA
+
+
+@router.get("/api/plan-semanal")
+def plan_semanal(periodo: Optional[int] = Query(default=None, description="YYYYWW; por omisión la semana en curso")):
+    prog = _programa_semanal()
+    if not prog:
+        return {"semanas": [], "detalle": None}
+    periodos = sorted(prog)
+    d1 = _rango_semana(periodos[0])[0]
+    d2 = _rango_semana(periodos[-1])[1]
+    vac, mol = _real_semanal(d1, d2)
+
+    semanas = []
+    for p in periodos:
+        partes = prog[p]["partes"]
+        tp = sum(x["prog"] for x in partes.values())
+        en_prog = sum(min(x["prog"], vac.get((p, k), 0)) for k, x in partes.items())
+        vac_total = sum(n for (w, _), n in vac.items() if w == p)
+        fuera = sum(n for (w, k), n in vac.items() if w == p and k not in partes)
+        ini, fin = _rango_semana(p)
+        av = _avance_semana(p)
+        semanas.append({
+            "periodo": p, "semana": p % 100, "desde": ini.isoformat(), "hasta": fin.isoformat(),
+            "partes": len(partes), "piezas_prog": tp, "vaciadas_en_programa": en_prog,
+            "vaciadas_total": vac_total, "vaciadas_fuera_programa": fuera,
+            "moldeadas_total": sum(n for (w, _), n in mol.items() if w == p),
+            "pct_cumplimiento": round(en_prog / tp * 100, 1) if tp else None,
+            "en_curso": av is not None, "avance_semana": av,
+            "carga_duplicada": prog[p]["duplicada"],
+        })
+
+    if periodo not in prog:
+        iso = date.today().isocalendar()
+        actual = iso[0] * 100 + iso[1]
+        periodo = max((p for p in periodos if p <= actual), default=periodos[-1])
+    sem = next(s for s in semanas if s["periodo"] == periodo)
+    partes = prog[periodo]["partes"]
+    procesos = _proceso_partes(list(partes))
+    av = sem["avance_semana"]
+    filas = []
+    for k, x in partes.items():
+        v = vac.get((periodo, k), 0)
+        esperado = x["prog"] * av if av is not None else x["prog"]
+        pct = round(v / x["prog"] * 100, 1) if x["prog"] else None
+        ratio = v / esperado if esperado else None
+        filas.append({
+            "no_parte": k, "proceso": procesos.get(k), "programadas": x["prog"],
+            "moldeadas": mol.get((periodo, k), 0), "vaciadas": v, "pct_cumplimiento": pct,
+            "esperadas_a_la_fecha": round(esperado, 1) if av is not None else None,
+            "estado": None if ratio is None else "VERDE" if ratio >= 1 else "AMBAR" if ratio >= 0.8 else "ROJO",
+        })
+    filas.sort(key=lambda f: (f["vaciadas"] / f["programadas"] if f["programadas"] else 9, -f["programadas"]))
+    fuera = sorted(({"no_parte": k, "vaciadas": n} for (w, k), n in vac.items() if w == periodo and k not in partes),
+                   key=lambda f: -f["vaciadas"])
+    return {"semanas": semanas, "detalle": {**sem, "partes_detalle": filas, "fuera_programa": fuera[:20],
+                                             "n_partes_fuera_programa": len(fuera)}}
