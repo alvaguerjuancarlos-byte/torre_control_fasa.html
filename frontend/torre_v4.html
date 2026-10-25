@@ -783,8 +783,10 @@ function renderMainCharts() {
   if (_pronData.pronostico.length) {
     const p0 = _pronData.pronostico[0]
     const conf = p0.confianza==='alta'?'★★★':p0.confianza==='media'?'★★☆':'★☆☆'
+    const vac = hist.filter(h => h.fuente === 'vaciado')
+    const vacNota = vac.length ? ` · ${vac[0].label}–${vac[vac.length-1].label}: piezas vaciadas, rechazo sin dato confiable` : ''
     document.getElementById('charts-sub').textContent =
-      `Año ${EAnio} · ${hist.length} meses · hasta ${_pronData.max_date} · Estimado ${p0.label}: ${p0.n_piezas_est.toLocaleString('es-MX')} pzas · ${p0.rate_est}% tasa · confianza ${conf}`
+      `Año ${EAnio} · ${hist.length} meses · hasta ${_pronData.max_date}${vacNota} · Estimado ${p0.label}: ${p0.n_piezas_est.toLocaleString('es-MX')} pzas · ${p0.rate_est}% tasa · confianza ${conf}`
   }
 }
 
@@ -813,9 +815,17 @@ function svgProduccion(historico, pronostico) {
 
   // Historical bars (sobre la sombra del período elegido arriba)
   let bars = svgResalte(historico, i => PL + i * slotW, slotW, PT, BH)
+  // Meses sin rechazo confiable (fuente "vaciado", 2026-10-25): tono distinto; si el vaciado
+  // registrado es incompleto (< 50 % de lo moldeado) solo contorno + leyenda "incompleto".
   historico.forEach((h, i) => {
     const x = X(i), bh = (h.n_piezas / maxN) * BH, y = Y(h.n_piezas)
-    bars += `<rect x="${x}" y="${y}" width="${barW}" height="${bh}" rx="2" fill="#93C5FD"/>`
+    if (h.vaciado_incompleto) {
+      bars += `<rect x="${x}" y="${y}" width="${barW}" height="${bh}" rx="2" fill="none" stroke="#818CF8" stroke-width="1" stroke-dasharray="3,2"><title>${h.label}: ${h.n_piezas.toLocaleString('es-MX')} vaciadas registradas de ${(h.n_moldeadas||0).toLocaleString('es-MX')} moldeadas -- registro de vaciado incompleto</title></rect>`
+      bars += `<text x="${x+barW/2}" y="${y-3}" text-anchor="middle" font-size="8" fill="#6366F1">incompleto</text>`
+    } else {
+      const fill = h.fuente === 'vaciado' ? '#A5B4FC' : '#93C5FD'
+      bars += `<rect x="${x}" y="${y}" width="${barW}" height="${bh}" rx="2" fill="${fill}"><title>${h.label}: ${h.n_piezas.toLocaleString('es-MX')} ${h.fuente === 'vaciado' ? 'piezas vaciadas (rechazo sin dato)' : 'piezas'}</title></rect>`
+    }
   })
 
   // Dashed estimated line through historical + into forecast (retrospective model estimates)
@@ -875,6 +885,11 @@ function svgProduccion(historico, pronostico) {
     legend += `<rect x="${lx3}" y="${ly}" width="${lh}" height="${lh}" rx="1" fill="#93C5FD" opacity=".9" stroke="#1D4ED8" stroke-width="0.8"/>`
       + `<text x="${lx3+11}" y="${ly+7}" font-size="9" fill="#1D4ED8">Real 20${String(pronostico[0]?.anio||25).slice(2)}</text>`
   }
+  if (historico.some(h => h.fuente === 'vaciado')) {
+    const lx4 = PL + 8  // a la izquierda, donde no hay barras altas ni etiquetas del estimado
+    legend += `<rect x="${lx4}" y="${ly}" width="${lh}" height="${lh}" rx="1" fill="#A5B4FC"/>`
+      + `<text x="${lx4+11}" y="${ly+7}" font-size="9" fill="#6366F1">Vaciadas (rechazo sin dato)</text>`
+  }
 
   return `<svg width="100%" viewBox="0 0 ${VW} ${VH}" style="display:block;overflow:visible">
     ${yax}${bars}${xlbls}${legend}
@@ -885,7 +900,7 @@ function svgProduccion(historico, pronostico) {
 function svgRechazo(historico, pronostico) {
   const VW=720, VH=120, PL=36, PR=12, PT=8, PB=24
   const BW=VW-PL-PR, BH=VH-PT-PB
-  const allRates = [...historico.map(h=>h.rate), ...pronostico.flatMap(p=>[p.rate_est, p.rate_real])].filter(v=>v>0)
+  const allRates = [...historico.map(h=>h.rate), ...historico.map(h=>h.rate_est), ...pronostico.flatMap(p=>[p.rate_est, p.rate_real])].filter(v=>v>0)
   const maxR = allRates.length ? Math.max(...allRates) * 1.15 : 20
   const N = historico.length + pronostico.length
   const slotW = BW / N
@@ -903,25 +918,28 @@ function svgRechazo(historico, pronostico) {
     svg += `<text x="${PL-3}" y="${y+4}" text-anchor="end" font-size="9" fill="#9CA3AF">${v}%</text>`
   })
 
-  // Historical line + area
-  let linePath = '', areaPath = ''
+  // Historical line + area, cortada en los meses sin rechazo confiable (rate null, 2026-10-25):
+  // antes se dibujaban como 0 % y parecía que el rechazo había desaparecido.
+  const segs = []
+  let seg = []
   historico.forEach((h, i) => {
-    const x = X(i), y = Y(h.rate)
-    linePath  += (i===0 ? `M${x},${y}` : ` L${x},${y}`)
-    areaPath  += (i===0 ? `M${x},${PT+BH}` : '') + ` L${x},${y}`
+    if (h.rate == null) { if (seg.length) segs.push(seg); seg = [] }
+    else seg.push({ x: X(i), y: Y(h.rate) })
   })
-  // Close area
-  const lastX = X(historico.length - 1)
-  areaPath += ` L${lastX},${PT+BH} Z`
-
-  svg += `<path d="${areaPath}" fill="#FCA5A5" opacity=".2"/>`
-  svg += `<path d="${linePath}" fill="none" stroke="#EF4444" stroke-width="1.8" stroke-linejoin="round"/>`
-
-  // Historical dots
-  historico.forEach((h, i) => {
-    const x = X(i), y = Y(h.rate)
-    svg += `<circle cx="${x}" cy="${y}" r="2.5" fill="#EF4444"/>`
+  if (seg.length) segs.push(seg)
+  segs.forEach(s => {
+    const line = s.map((p, k) => `${k === 0 ? 'M' : 'L'}${p.x},${p.y}`).join(' ')
+    const area = `M${s[0].x},${PT+BH} ` + s.map(p => `L${p.x},${p.y}`).join(' ') + ` L${s[s.length-1].x},${PT+BH} Z`
+    svg += `<path d="${area}" fill="#FCA5A5" opacity=".2"/>`
+    svg += `<path d="${line}" fill="none" stroke="#EF4444" stroke-width="1.8" stroke-linejoin="round"/>`
+    s.forEach(p => { svg += `<circle cx="${p.x}" cy="${p.y}" r="2.5" fill="#EF4444"/>` })
   })
+  const sinDato = historico.map((h, i) => h.rate == null ? i : -1).filter(i => i >= 0)
+  if (sinDato.length) {
+    const x0 = X(sinDato[0]) - slotW / 2, x1 = X(sinDato[sinDato.length - 1]) + slotW / 2
+    svg += `<rect x="${x0.toFixed(1)}" y="${PT}" width="${(x1 - x0).toFixed(1)}" height="${BH}" fill="none" stroke="#D1D5DB" stroke-dasharray="3,3"/>`
+    svg += `<text x="${((x0 + x1) / 2).toFixed(1)}" y="${(PT + BH / 2 + 3).toFixed(1)}" text-anchor="middle" font-size="9" fill="#9CA3AF">rechazo sin dato confiable</text>`
+  }
 
   const gap = (slotW - barW) / 2
 
@@ -1134,13 +1152,7 @@ async function initPronostico() {
     _pronData   = data
     _pronLoaded = true
     _pronYear   = EAnio
-    if (!isHist && data.pronostico.length) {
-      const p    = data.pronostico[0]
-      const conf = p.confianza==='alta'?'★★★':p.confianza==='media'?'★★☆':'★☆☆'
-      document.getElementById('charts-sub').textContent =
-        `Últimos ${data.ventana}m · hasta ${data.max_date} · Estimado ${p.label}: ${p.n_piezas_est.toLocaleString('es-MX')} pzas · ${p.rate_est}% tasa · confianza ${conf}`
-    }
-    renderMainCharts()
+    renderMainCharts()   // también escribe el subtítulo (charts-sub)
     if (document.getElementById('ch-v-det').classList.contains('active')) {
       renderDetalle80(_pronData.partes_80)
     }

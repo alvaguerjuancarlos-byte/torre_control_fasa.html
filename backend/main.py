@@ -846,10 +846,64 @@ def v2_pronostico(ventana: int = 12, periodos: int = 3, year: int = 0):
         GROUP BY mk, No_Parte
     """, {"d": h_ini, "h": h_fin}))
 
+    # ── Meses sin rechazo confiable (2026-10-25) ──────────────────
+    # Desde jul-2026 betamega_03 solo ve una fracción de los tickets (hueco de la liga
+    # ticket→vaciado, tema #1 a IT) y bRechazo está congelado: la gráfica mostraba ~0 piezas
+    # y 0 % de rechazo. Para esos meses (misma regla que Beta/simulaciones:
+    # core.meses_rechazo_no_confiables) las piezas, toneladas y coladas salen de piezas
+    # VACIADAS (betamega_00_ticketsconvaciadodirecto, completa) y el rechazo queda en None
+    # ("sin dato"), nunca 0. Base ~8 % menor que tickets (piezas físicas, sin tickets heredados).
+    # Si el vaciado registrado es < 50 % de lo moldeado (aleks) el mes se marca incompleto
+    # (julio-2026: 394 vaciadas vs 4,364 moldeadas) y no entra al promedio del pronóstico.
+    no_conf = set(meses_rechazo_no_confiables(h_ini, h_fin))
+    vac_agg: dict = {}
+    if no_conf:
+        for r in run("""
+            SELECT DATE_FORMAT(FHrVaciado,'%Y-%m') AS mk, TRIM(no_parte) AS no_parte,
+                   COUNT(*) AS n, COUNT(DISTINCT CONCAT(Colada,'-',Horno)) AS col
+            FROM betamega_00_ticketsconvaciadodirecto
+            WHERE FHrVaciado BETWEEN :d AND :h
+            GROUP BY mk, TRIM(no_parte)
+        """, {"d": h_ini, "h": h_fin}):
+            if r["mk"] not in no_conf:
+                continue
+            v = vac_agg.setdefault(r["mk"], {"n": 0, "tons": 0.0, "mold": 0, "col": 0})
+            v["n"] += int(r["n"] or 0)
+            v["tons"] += ((lookup.get(r["no_parte"]) or {}).get("peso_kgs", 0) or 0) * int(r["n"] or 0) / 1000
+        # coladas distintas por mes (no se pueden sumar por parte)
+        for r in run("""
+            SELECT DATE_FORMAT(FHrVaciado,'%Y-%m') AS mk, COUNT(DISTINCT CONCAT(Colada,'-',Horno)) AS col
+            FROM betamega_00_ticketsconvaciadodirecto WHERE FHrVaciado BETWEEN :d AND :h GROUP BY mk
+        """, {"d": h_ini, "h": h_fin}):
+            if r["mk"] in vac_agg:
+                vac_agg[r["mk"]]["col"] = int(r["col"] or 0)
+        for r in run("""
+            SELECT DATE_FORMAT(FHrMoldeo,'%Y-%m') AS mk, COUNT(DISTINCT IdTicket) AS n
+            FROM betamega_aleks_idtickethistorial WHERE FHrMoldeo BETWEEN :d AND :h GROUP BY mk
+        """, {"d": h_ini, "h": h_fin}):
+            if r["mk"] in vac_agg:
+                vac_agg[r["mk"]]["mold"] = int(r["n"] or 0)
+
     # ── Historico list ────────────────────────────────────────────
     historico = []
     for m in months:
         mk = f"{m.year}-{m.month:02d}"
+        if mk in no_conf:
+            v = vac_agg.get(mk, {"n": 0, "tons": 0.0, "mold": 0, "col": 0})
+            historico.append({
+                "anio": m.year, "mes": m.month,
+                "label": f"{MESES[m.month]} {str(m.year)[2:]}",
+                "n_piezas":    v["n"],
+                "n_rechazos":  None,
+                "rate":        None,
+                "coladas":     v["col"],
+                "tons":        round(v["tons"], 1),
+                "tons_rech":   None,
+                "fuente":      "vaciado",
+                "n_moldeadas": v["mold"],
+                "vaciado_incompleto": bool(v["mold"]) and v["n"] < 0.5 * v["mold"],
+            })
+            continue
         agg = hist_agg.get(mk, {"n": 0, "rec": 0, "col": 0})
         t   = tons_agg.get(mk, {"tons": 0.0, "tons_rech": 0.0})
         n, rec = agg["n"], agg["rec"]
@@ -862,6 +916,7 @@ def v2_pronostico(ventana: int = 12, periodos: int = 3, year: int = 0):
             "coladas":     agg["col"],
             "tons":        round(t["tons"], 1),
             "tons_rech":   round(t["tons_rech"], 1),
+            "fuente":      "tickets",
         })
 
     # ── Forecast: proximo mes ─────────────────────────────────────
@@ -905,10 +960,15 @@ def v2_pronostico(ventana: int = 12, periodos: int = 3, year: int = 0):
 
     # ── Shrinkage Bayesiano sobre tasas mensuales (congruente con simulación) ──
     K_SHRINK = 75
-    _tot_n   = sum(h["n_piezas"]   for h in historico)
-    _tot_rec = sum(h["n_rechazos"] for h in historico)
+    # Solo meses con rechazo confiable entran a la tasa (los de vaciado traen n_rechazos None)
+    _conf = [h for h in historico if h["n_rechazos"] is not None]
+    _tot_n   = sum(h["n_piezas"]   for h in _conf)
+    _tot_rec = sum(h["n_rechazos"] for h in _conf)
     _global_rate = _tot_rec / _tot_n if _tot_n else 0.15
     for h in historico:
+        if h["n_rechazos"] is None:
+            h["rate_shrunk"] = None
+            continue
         n = h["n_piezas"]
         w = n / (n + K_SHRINK) if n else 0
         raw = h["n_rechazos"] / n if n else _global_rate
@@ -925,16 +985,22 @@ def v2_pronostico(ventana: int = 12, periodos: int = 3, year: int = 0):
 
     # ── Promedio ponderado por recencia del horizonte visible ────────────────
     # decay=0.88: el mes más reciente pesa 1.0, cada mes atrás pesa 12% menos.
+    # Volumen: todos los meses con piezas salvo vaciado incompleto. Tasa: solo meses confiables
+    # (la tasa ponderada se aplica después al volumen ponderado).
     _decay = 0.88
-    _active = [h for h in historico if h["n_piezas"] > 0]
-    if _active:
-        _wts  = [_decay ** (len(_active) - 1 - i) for i in range(len(_active))]
-        _W    = sum(_wts)
-        _wt_n    = sum(h["n_piezas"]   * w for h, w in zip(_active, _wts)) / _W
-        _wt_rec  = sum(h["rate_shrunk"] / 100 * h["n_piezas"] * w for h, w in zip(_active, _wts)) / _W
-        _wt_tons = sum(h["tons"]        * w for h, w in zip(_active, _wts)) / _W
-    else:
-        _wt_n = _wt_rec = _wt_tons = 0.0
+
+    def _pond(meses, f):
+        if not meses:
+            return 0.0
+        wts = [_decay ** (len(meses) - 1 - i) for i in range(len(meses))]
+        return sum(f(h) * w for h, w in zip(meses, wts)) / sum(wts)
+
+    _act_n = [h for h in historico if h["n_piezas"] > 0 and not h.get("vaciado_incompleto")]
+    _act_r = [h for h in historico if h["n_piezas"] > 0 and h["rate_shrunk"] is not None]
+    _wt_n    = _pond(_act_n, lambda h: h["n_piezas"])
+    _wt_tons = _pond(_act_n, lambda h: h["tons"])
+    _wt_rate = _pond(_act_r, lambda h: h["rate_shrunk"] / 100) if _act_r else _global_rate
+    _wt_rec  = _wt_rate * _wt_n
 
     periodos = max(0, min(3, int(periodos)))
     pronostico = []
