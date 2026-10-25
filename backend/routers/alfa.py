@@ -348,23 +348,31 @@ def _tasa_rechazo_2025_batch(no_partes: list) -> dict:
 
 
 def _ritmo_real_partes_batch(no_partes: list, dias: int, referencia: str) -> dict:
-    """Piezas terminadas/día reciente por parte, en batch -- mismo criterio que
-    _ritmo_parte() de Alfa (FHrLIMP, ver arriba), sin hacer N queries
-    individuales para las ~138 partes del plan."""
+    """Piezas VACIADAS/día reciente por parte, en batch (seguimiento mensual y Riesgo del Plan).
+
+    Cambio 2026-10-25: antes contaba piezas terminadas (betamega_08.FHrLIMP, mismo criterio
+    que _ritmo_parte() de Alfa), pero esa tabla hoy solo registra una fracción de lo que se
+    produce -- en 14 días: 256 piezas de 14 partes contra 1,893 vaciadas de 123 partes en
+    betamega_00_ticketsconvaciadodirecto (completa jul-oct). Con FHrLIMP casi todo el plan
+    salía "sin ritmo" y los días estimados se inflaban ~7x. Vaciado es también el criterio del
+    plan semanal (routers/pronostico_semanal.py). _ritmo_parte() de Alfa sigue en FHrLIMP
+    porque además calcula ciclo por etapa; pendiente migrarlo aparte."""
     if not no_partes:
         return {}
     ref_dt = datetime.fromisoformat(referencia)
     desde_dt = ref_dt - timedelta(days=dias)
     placeholders = ",".join(f":p{i}" for i in range(len(no_partes)))
-    params = {f"p{i}": p for i, p in enumerate(no_partes)}
+    params = {f"p{i}": p.strip() for i, p in enumerate(no_partes)}
     params.update({"d": desde_dt, "h": ref_dt})
     rows = run(f"""
-        SELECT No_Parte AS no_parte, COUNT(*) AS piezas
-        FROM betamega_08_ticketrutacritica
-        WHERE No_Parte IN ({placeholders}) AND FHrLIMP BETWEEN :d AND :h
-        GROUP BY No_Parte
+        SELECT TRIM(no_parte) AS no_parte, COUNT(*) AS piezas
+        FROM betamega_00_ticketsconvaciadodirecto
+        WHERE TRIM(no_parte) IN ({placeholders}) AND FHrVaciado BETWEEN :d AND :h
+        GROUP BY TRIM(no_parte)
     """, params)
-    return {r["no_parte"]: round(int(r["piezas"]) / dias, 2) for r in rows}
+    por_parte = {r["no_parte"]: round(int(r["piezas"]) / dias, 2) for r in rows}
+    # Devuelve con la llave original del plan (puede traer espacios al final)
+    return {p: por_parte[p.strip()] for p in no_partes if p.strip() in por_parte}
 
 
 @router.get("/api/programa/seguimiento")

@@ -3640,8 +3640,10 @@ function simRenderTable(items) {
     <b>Producción neta esperada:</b> Kg Buenos del plan × (1 − tasa de rechazo histórica 2025 de esa parte,
     <code>gamamega_01_riesgodefectoparte</code>) — mismo campo que usa el pronóstico histórico de abajo, aplicado
     ahora al plan en vez de a producción real pasada.
-    <b>Ritmo real:</b> piezas terminadas recientes (<code>betamega_08_ticketrutacritica</code>), mismo motor que Agente Alfa.
-    <b>Días estimados:</b> saldo pendiente ÷ ritmo real reciente — mismo cálculo que la proyección de Agente Alfa.
+    <b>Ritmo real:</b> piezas vaciadas por día en los últimos 14 días (<code>betamega_00_ticketsconvaciadodirecto</code>), mismo criterio
+    que el plan semanal. Desde oct-2026 ya no se usan piezas terminadas (<code>betamega_08_ticketrutacritica</code>): esa tabla solo
+    registra ~1 de cada 7 piezas producidas.
+    <b>Días estimados:</b> saldo pendiente ÷ ritmo real reciente.
   </div>
 
 </section>
@@ -4904,7 +4906,7 @@ function plnRenderRitmos(d){
     const objLV = rows.find(function(r){ return r.proceso === p && r.tipo_dia === 'LV' })
     const realVal = real[p]
     return '<div class="pn-kpi"><div class="kl">Ritmo real ' + p + '</div><div class="kv">' + (realVal != null ? realVal : '—')
-      + '<span style="font-size:11px;font-weight:400"> pzas/día</span></div>'
+      + '<span style="font-size:11px;font-weight:400"> vaciadas/día</span></div>'
       + '<div class="ks">objetivo: ' + (objLV ? plnFmt(objLV.moldes_dia, 0) : '—') + ' moldes/día (L-V)</div></div>'
   }).join('')
 }
