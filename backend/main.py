@@ -4112,6 +4112,11 @@ def produccion_retornos_mensual(anios: str = Query(default="2023,2024,2025,2026"
 
     Endpoint aparte de /produccion/tonelaje-mensual a propósito: tarda 20-30 s y no debe frenar
     las barras de la tarjeta; el frontend lo pide en paralelo y pinta la franja al llegar.
+
+    Fecha de la colada (2026-10-25): FechaInicial de coladaprocesodemoras y, para las coladas
+    que no están ahí (hueco 18-ago al 29-sep-2026), el primer moldeo en
+    betamega_aleks_idtickethistorial -- mismo criterio que _coladas_kg_mensual (Rendimiento
+    Metálico). Antes septiembre-2026 salía 20 % con solo 8 coladas.
     """
     lista_anios = sorted({a.strip() for a in anios.split(",") if a.strip().isdigit()}) or ["2026"]
     key = ",".join(lista_anios)
@@ -4119,37 +4124,49 @@ def produccion_retornos_mensual(anios: str = Query(default="2023,2024,2025,2026"
     if hit and time.time() - hit[0] < _RETORNOS_TTL_SEG:
         return hit[1]
 
-    rows = run("""
-        SELECT YEAR(dm.FechaInicial) AS anio, MONTH(dm.FechaInicial) AS mes,
-               COUNT(*) AS coladas, SUM(c.kg_ret) AS kg_ret, SUM(c.kg_carga) AS kg_carga
-        FROM betamega_00_coladaprocesodemoras dm
-        JOIN (
+    cargas = run("""
+        SELECT IdColada,
+               SUM(CASE WHEN es_ret = 1 THEN kg ELSE 0 END) AS kg_ret,
+               SUM(kg) AS kg_carga
+        FROM (
             SELECT IdColada,
-                   SUM(CASE WHEN es_ret = 1 THEN kg ELSE 0 END) AS kg_ret,
-                   SUM(kg) AS kg_carga
-            FROM (
-                SELECT IdColada,
-                       MAX(UPPER(TRIM(Descripcion)) LIKE 'RETORNO%') AS es_ret,
-                       MAX(KgsReal) AS kg
-                FROM betamega_00_cargasmetalicas
-                GROUP BY IdColada, Tipo, Clave, Descripcion
-            ) x
-            GROUP BY IdColada
-        ) c ON c.IdColada = dm.idColada
-        WHERE YEAR(dm.FechaInicial) IN ({})
-        GROUP BY anio, mes
-    """.format(key))
+                   MAX(UPPER(TRIM(Descripcion)) LIKE 'RETORNO%') AS es_ret,
+                   MAX(KgsReal) AS kg
+            FROM betamega_00_cargasmetalicas
+            GROUP BY IdColada, Tipo, Clave, Descripcion
+        ) x
+        GROUP BY IdColada
+    """, {})
+    fecha = {r["idColada"]: r["FechaInicial"] for r in run("""
+        SELECT idColada, FechaInicial FROM betamega_00_coladaprocesodemoras
+        WHERE YEAR(FechaInicial) IN ({})
+    """.format(key), {})}
+    for r in run("""
+        SELECT IdColada, MIN(FHrMoldeo) AS f FROM betamega_aleks_idtickethistorial
+        WHERE IdColada > 0 AND YEAR(FHrMoldeo) IN ({}) GROUP BY IdColada
+    """.format(key), {}):
+        fecha.setdefault(r["IdColada"], r["f"])
+
+    agg: dict = {}
+    for c in cargas:
+        f = fecha.get(c["IdColada"])
+        if not f or str(f.year) not in lista_anios:
+            continue
+        a = agg.setdefault(f"{f.year}-{f.month:02d}", {"coladas": 0, "kg_ret": 0.0, "kg_carga": 0.0})
+        a["coladas"] += 1
+        a["kg_ret"] += float(c["kg_ret"] or 0)
+        a["kg_carga"] += float(c["kg_carga"] or 0)
     out = {
         "limite_pct": 30,
         "definicion": "provisional: materiales 'RETORNO*' / kg reales de carga (sin rebaba cribada)",
         "meses": {
-            "{}-{}".format(r["anio"], str(r["mes"]).zfill(2)): {
-                "coladas":  int(r["coladas"]),
-                "kg_ret":   round(float(r["kg_ret"] or 0), 0),
-                "kg_carga": round(float(r["kg_carga"] or 0), 0),
-                "pct_retornos": round(float(r["kg_ret"] or 0) / float(r["kg_carga"]) * 100, 1) if r["kg_carga"] else None,
+            mk: {
+                "coladas":  a["coladas"],
+                "kg_ret":   round(a["kg_ret"], 0),
+                "kg_carga": round(a["kg_carga"], 0),
+                "pct_retornos": round(a["kg_ret"] / a["kg_carga"] * 100, 1) if a["kg_carga"] else None,
             }
-            for r in rows
+            for mk, a in sorted(agg.items())
         },
     }
     _RETORNOS_CACHE[key] = (time.time(), out)
