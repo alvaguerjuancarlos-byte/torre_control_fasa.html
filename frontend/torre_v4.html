@@ -144,6 +144,12 @@ main{padding:16px 20px;max-width:1100px;margin:0 auto}
   border-radius:var(--border-radius-lg);padding:1rem 1.25rem;margin-bottom:12px}
 .mc{background:var(--color-background-secondary);border-radius:var(--border-radius-md);
   padding:10px 12px}.mc p{margin:0}
+/* Tarjetas de KPI de Ejecutivo: rejilla de ancho parejo, grupos con título y notas al pie (2026-10-25) */
+.kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px}
+.kpi-grupo{font-size:11px;font-weight:600;color:var(--color-text-tertiary);text-transform:uppercase;
+  letter-spacing:.04em;margin:10px 0 6px}
+.kpi-grupo:first-child{margin-top:0}
+.kpi-notas{font-size:10.5px;color:var(--color-text-tertiary);margin-top:8px;line-height:1.5}
 .bar2{height:8px;background:var(--color-background-secondary);border-radius:4px;overflow:hidden}
 .crow{display:grid;grid-template-columns:1.7fr 0.7fr 1fr 1fr;align-items:center;
   gap:8px;padding:6px 10px;border-radius:var(--border-radius-md);font-size:13px}
@@ -229,7 +235,7 @@ main{padding:16px 20px;max-width:1100px;margin:0 auto}
       <div style="font-size:14px;font-weight:600;color:var(--color-text-primary)">Rendimiento Metálico y Costo de Calidad</div>
       <div id="ton-sub" style="font-size:11px;color:var(--color-text-tertiary);margin-top:2px">Cargando…</div>
     </div>
-    <div id="ton-kpis" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px"></div>
+    <div id="ton-kpis" style="margin-bottom:14px"></div>
     <div id="ton-chart" style="min-height:150px"></div>
     <div id="ton-horno" style="margin-top:12px"></div>
   </div>
@@ -1473,7 +1479,7 @@ function eRender(){
     cards = mc('Tasa de rechazo','sin dato','secondary','registro de rechazo detenido desde 9-jul-2026')
   } else {
     const gap=Math.max(rate-m.target,0), lo=gap*m.tonPt*m.cLo, hi=gap*m.tonPt*m.cHi
-    cards = mc('vs meta (7%)',(gap>0?'+':'')+(Math.round(gap*100)/100)+' pts',gap>0?'danger':'success',eM(lo)+'–'+eM(hi)+' /año'+(notaSin ? ' · '+notaSin : ''))
+    cards = mc('vs meta (7%)',(gap>0?'+':'')+(Math.round(gap*100)/100)+' pts',gap>0?'danger':'success',eM(lo)+'–'+eM(hi)+' /año')
   }
   if(EG==='anual'){
     cards+=mc('mejor mes',D.best.lbl+' · '+eP(D.best.rate),'success','')
@@ -1485,7 +1491,7 @@ function eRender(){
     const da=rate-m.avg;cards+=mc('vs promedio '+EAnio,(da>0?'+':'')+(Math.round(da*100)/100)+' pts',da>0?'danger':'success','prom. '+eP(m.avg))
   }
   cards+=mc('Piezas del período',(cur.n||0).toLocaleString('en-US'),'secondary',
-    !sinMeses.length ? 'tickets' : rate == null ? 'piezas vaciadas' : 'tickets + vaciadas en '+sinMeses.join(', '))
+    !sinMeses.length ? 'tickets' : rate == null ? 'piezas vaciadas' : 'tickets y vaciadas')
   cards+=mc('Coladas del período',(cur.coladas||0).toLocaleString('en-US'),'secondary','coladas únicas')
 
   let par = !fams.length && rate == null
@@ -1499,7 +1505,8 @@ function eRender(){
   })
 
   document.getElementById('eDash').innerHTML=
-    '<div class="card2"><p style="font-size:12px;color:var(--color-text-secondary);margin:0 0 10px;font-weight:500">Período · '+hl+'</p>'
+    '<div class="card2"><p style="font-size:12px;color:var(--color-text-secondary);margin:0 0 10px;font-weight:500">Período · '+hl
+      +(notaSin && rate != null ? '<span style="font-weight:400;color:var(--color-text-tertiary)"> · tasa con meses confiables; '+notaSin+'</span>' : '')+'</p>'
     +'<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px">'+cards+'</div></div>'
     +'<div class="card2"><p style="font-size:14px;font-weight:500;margin:0 0 10px">Familias de defecto · '+hl+'</p><div style="display:flex;flex-direction:column;gap:10px">'+par+'</div></div>'
     +eScatterCard()
@@ -1695,16 +1702,39 @@ function eScatterSVG(parts, rateAnio) {
     s += `<circle cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="${r}" fill="${c}" opacity="0.55" stroke="${c}" stroke-width="0.5"><title>${p.no_parte}&#10;Rechazo: ${p.rate.toFixed(1)}%&#10;Piezas: ${p.n.toLocaleString('es-MX')}&#10;Ton. rechazadas: ${p.tons_rech.toFixed(1)} t&#10;Meses activa: ${p.meses_activa}/12</title></circle>`
   })
 
-  // Puntos etiquetados encima
+  // Puntos etiquetados encima (todas las burbujas primero, etiquetas al final para que queden arriba)
   topParts.forEach(p => {
     const cx=X(p.n), cy=Y(p.rate), r=R(p.tons_rech), c=dotColor(p)
     s += `<circle cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="${r}" fill="${c}" opacity="0.9" stroke="white" stroke-width="1.5"><title>${p.no_parte}&#10;Rechazo: ${p.rate.toFixed(1)}%&#10;Piezas: ${p.n.toLocaleString('es-MX')}&#10;Ton. rechazadas: ${p.tons_rech.toFixed(1)} t&#10;Meses activa: ${p.meses_activa}/12</title></circle>`
-    let lx=cx, ly=cy-r-3, anchor='middle'
-    if (lx < PL+65)        { lx=cx+r+3; ly=cy+4; anchor='start' }
-    else if (lx > VW-PR-65){ lx=cx-r-3; ly=cy+4; anchor='end' }
-    if (ly < PT+10)          ly=cy+r+10
-    s += `<text x="${lx.toFixed(1)}" y="${ly.toFixed(1)}"     font-size="8.5" fill="#1a1a1a" text-anchor="${anchor}" font-weight="600">${p.no_parte}</text>`
-    s += `<text x="${lx.toFixed(1)}" y="${(ly+10).toFixed(1)}" font-size="8"   fill="#6b7280" text-anchor="${anchor}">${p.rate.toFixed(1)}% · ${p.tons_rech.toFixed(1)}t</text>`
+  })
+  // Etiquetas sin encimarse (JC 2026-10-25, "las etiquetas se ven raras"): cada una prueba arriba,
+  // abajo, derecha e izquierda de su burbuja y se queda con la primera posición que no choca con
+  // otra etiqueta ni se sale del área; si ninguna sirve, sube en escalones. Contorno blanco
+  // (paint-order stroke) para leerse sobre las burbujas. Ancho estimado por número de caracteres.
+  // Los rótulos de cuadrante (CRÍTICO/MONITOREAR arriba, REFERENCIA/EN META abajo) también ocupan lugar
+  const rotulo = (xc, yb, w) => ({ x0: xc - w/2, x1: xc + w/2, y0: yb - 10, y1: yb + 3 })
+  const ocupadas = [
+    rotulo((qX+VW-PR)/2, PT+13, 50), rotulo((PL+qX)/2, PT+13, 64),
+    rotulo((qX+VW-PR)/2, VH-PB-7, 62), rotulo((PL+qX)/2, VH-PB-7, 50),
+  ]
+  const choca = b => b.x0 < PL || b.x1 > VW-PR || b.y0 < PT || b.y1 > VH-PB
+    || ocupadas.some(o => b.x0 < o.x1 && b.x1 > o.x0 && b.y0 < o.y1 && b.y1 > o.y0)
+  topParts.forEach(p => {
+    const cx=X(p.n), cy=Y(p.rate), r=R(p.tons_rech)
+    const sub = `${p.rate.toFixed(1)}% · ${p.tons_rech.toFixed(1)}t`
+    const w = Math.max(p.no_parte.length * 5.3, sub.length * 4.4) + 4
+    const caja = (lx, ly, a) => {
+      const x0 = a === 'middle' ? lx - w/2 : a === 'start' ? lx : lx - w
+      return { lx, ly, a, x0, x1: x0 + w, y0: ly - 9, y1: ly + 13 }
+    }
+    const cands = [caja(cx, cy-r-14, 'middle'), caja(cx, cy+r+10, 'middle'),
+                   caja(cx+r+4, cy-3, 'start'), caja(cx-r-4, cy-3, 'end')]
+    for (let k = 1; k <= 4; k++) cands.push(caja(cx, cy-r-14-k*22, 'middle'), caja(cx, cy+r+10+k*22, 'middle'))
+    const b = cands.find(c => !choca(c)) || cands[0]
+    ocupadas.push(b)
+    const halo = 'paint-order="stroke" stroke="#fff" stroke-width="3" stroke-linejoin="round"'
+    s += `<text x="${b.lx.toFixed(1)}" y="${b.ly.toFixed(1)}" font-size="8.5" fill="#1a1a1a" text-anchor="${b.a}" font-weight="600" ${halo}>${p.no_parte}</text>`
+    s += `<text x="${b.lx.toFixed(1)}" y="${(b.ly+10).toFixed(1)}" font-size="8" fill="#6b7280" text-anchor="${b.a}" ${halo}>${sub}</text>`
   })
 
   // Leyenda 2 filas × 2 columnas dentro del viewBox
@@ -1788,15 +1818,6 @@ function tonRangoMeses(){
   return [mIni, mFin]
 }
 
-function mcNuevo(label,val,sub){
-  return '<div class="mc" style="position:relative;background:var(--amber-bg);'
-    +'border:1px dashed var(--amber);border-radius:8px;padding:8px 10px">'
-    +'<span style="position:absolute;top:-8px;right:8px;font-size:9px;font-weight:700;'
-    +'letter-spacing:.03em;color:#fff;background:var(--amber);padding:1px 6px;border-radius:99px">nuevo</span>'
-    +'<p style="font-size:12px;color:var(--color-text-secondary)">'+label+'</p>'
-    +'<p style="font-size:18px;font-weight:500;margin-top:2px;color:#8a5a12">'+val+'</p>'
-    +(sub?'<p style="font-size:12px;color:var(--color-text-secondary);margin-top:2px">'+sub+'</p>':'')+'</div>'
-}
 
 function tonEtiquetaPeriodo(){
   if (_tonG === 'anual') return String(EAnio)
@@ -1835,8 +1856,8 @@ function renderTonelaje(){
     // no hay con qué dibujar las barras de tonelaje -- pero piso_ia.rechazo sí está vivo, así que
     // el costo de no-calidad se muestra solo (sin bars, sin tabla por horno).
     sub.textContent = 'Producción total sin verificar para ' + tonEtiquetaPeriodo() + ' (cscmega_* congelada desde 2025-12-29) · mostrando solo costo de no-calidad'
-    kpisEl.innerHTML = mcNuevo('Costo de no-calidad', '$'+Math.round(costoNocTotal).toLocaleString('es-MX'),
-      nocMeses.length + ' mes(es) con dato · piso_ia.rechazo × costo/ton')
+    kpisEl.innerHTML = '<div class="kpi-grid">' + mc('Costo de no-calidad', '$'+Math.round(costoNocTotal).toLocaleString('es-MX'), 'danger',
+      nocMeses.length + ' mes(es) con dato') + '</div>'
     chartEl.innerHTML = svgCostoNocSolo(nocMeses)
     hornoEl.innerHTML = ''
     return
@@ -1883,19 +1904,35 @@ function renderTonelaje(){
   sub.textContent = 'Peso real de colada (c_Kilos) repartido por pieza · ' + tonEtiquetaPeriodo() + ' · ' + meses.length + ' meses'
     + (mSin.length ? ' · ' + sinTxt + ': metal cargado de coladas/cargas, rechazo sin dato confiable' : '')
 
-  kpisEl.innerHTML =
-    mc('Ton. brutas coladas', tot.ton_brutos.toLocaleString('es-MX')+' t', 'secondary', 'metal cargado al horno')
+  // Look & feel (JC 2026-10-25, "las etiquetas se ven raras"): un solo estilo de tarjeta (sin el
+  // ámbar punteado "nuevo"), rejilla de ancho parejo en dos grupos, toneladas sin decimales y las
+  // aclaraciones UNA vez al pie con asterisco en vez de repetidas en cada tarjeta.
+  const t0 = v => Math.round(v).toLocaleString('es-MX') + ' t'
+  const usd = v => '$' + Math.round(v).toLocaleString('es-MX')
+  const ast1 = baseTxt ? '*' : ''                 // OK/rechazo/% solo con meses confiables
+  const ast2 = (nocCobertura || nocMetodo) ? '†' : ''  // costos: cobertura parcial y/o método 2026
+  const prod = mc('Ton. brutas coladas', t0(tot.ton_brutos), 'secondary', 'metal cargado al horno')
     + (mConf.length
-      ? mc('Ton. producto OK', tot.ton_producto_ok.toLocaleString('es-MX')+' t', 'success', baseTxt)
-        + mc('Ton. rechazo', tot.ton_rechazo.toLocaleString('es-MX')+' t', 'danger', baseTxt)
-        + mc('% rechazo (kg)', pctRech+'%', pctRech>=15?'danger':pctRech>=7?'warning':'success', baseTxt || 'ponderado por peso')
-      : mc('Producto OK / rechazo', 'sin dato', 'secondary', 'registro de rechazo detenido desde 9-jul-2026'))
-    + (pctRet != null ? mcNuevo('% retornos en carga', pctRet+'%', 'límite plan PC-1 ≤ '+retLim+'% · definición provisional') : '')
-    + (tonProdVerificada && costoProdTotal ? mcNuevo('Costo de producción', '$'+Math.round(costoProdTotal).toLocaleString('es-MX'),
-        nocCobertura + '$'+Math.round(costoProdTotal/tonProdVerificadaTotal).toLocaleString('es-MX')+'/ton promedio') : '')
-    + (costoNocTotal ? mcNuevo('Costo de no-calidad', '$'+Math.round(costoNocTotal).toLocaleString('es-MX'),
-        nocCobertura + (tonProdVerificada && costoProdTotal ? (costoNocTotal/costoProdTotal*100).toFixed(1)+'% del costo de producción' : 'piso_ia.rechazo × costo/ton') + nocMetodo) : '')
-    + (costoNocTotal && tonProdVerificada ? mcNuevo('Costo no-calidad / Ton', '$'+Math.round(costoNocTotal/tonProdVerificadaTotal).toLocaleString('es-MX'), nocCobertura + 'por ton. producida') : '')
+      ? mc('Ton. producto OK'+ast1, t0(tot.ton_producto_ok), 'success', '')
+        + mc('Ton. rechazo'+ast1, t0(tot.ton_rechazo), 'danger', '')
+        + mc('% rechazo (kg)'+ast1, pctRech+'%', pctRech>=15?'danger':pctRech>=7?'warning':'success', 'ponderado por peso')
+      : mc('Producto OK / rechazo', 'sin dato', 'secondary', 'rechazo detenido desde 9-jul-2026'))
+    + (pctRet != null ? mc('% retornos en carga', pctRet+'%', pctRet > retLim ? 'danger' : 'success', 'límite PC-1 ≤ '+retLim+'%') : '')
+  const cost = (tonProdVerificada && costoProdTotal ? mc('Costo de producción'+ast2, usd(costoProdTotal), 'primary',
+        usd(costoProdTotal/tonProdVerificadaTotal)+'/t promedio') : '')
+    + (costoNocTotal ? mc('Costo de no-calidad'+ast2, usd(costoNocTotal), 'danger',
+        tonProdVerificada && costoProdTotal ? (costoNocTotal/costoProdTotal*100).toFixed(1)+'% del costo de producción' : 'rechazo × costo/t') : '')
+    + (costoNocTotal && tonProdVerificada ? mc('No-calidad por tonelada'+ast2, usd(costoNocTotal/tonProdVerificadaTotal), 'danger', 'por t producida') : '')
+  const notas = [
+    ast1 ? '* Solo meses con rechazo confiable (' + sinTxt + ' sin dato: registro de rechazo detenido desde 9-jul-2026).' : '',
+    ast2 ? '† ' + (nocCobertura ? nocCobertura.replace(/ · $/, '').replace(/^solo/, 'Cubre solo') + '.' : '')
+      + (nocMetodo ? ' 2026: rechazo interno, incluye maquinado y prueba (2025 solo producción).' : '') : '',
+    pctRet != null ? '% retornos: definición provisional (materiales "RETORNO…").' : '',
+  ].filter(Boolean)
+  kpisEl.innerHTML =
+    '<div class="kpi-grupo">Producción y calidad</div><div class="kpi-grid">' + prod + '</div>'
+    + (cost ? '<div class="kpi-grupo">Costos</div><div class="kpi-grid">' + cost + '</div>' : '')
+    + (notas.length ? '<div class="kpi-notas">' + notas.join('<br>') + '</div>' : '')
 
   chartEl.innerHTML = svgTonelaje(meses, nocPorMes, retPorMes, retLim)
 
