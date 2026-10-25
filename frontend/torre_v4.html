@@ -1858,6 +1858,12 @@ function renderTonelaje(){
   }
   const pctRech = tot.ton_brutos_conf ? Math.round(tot.ton_rechazo/tot.ton_brutos_conf*1000)/10 : null
   const sinTxt = mSin.length ? MESES_CORTOS[mSin[0].mes-1] + (mSin.length > 1 ? '–' + MESES_CORTOS[mSin[mSin.length-1].mes-1] : '') : ''
+  // Los costos (piso_ia.rechazo, congelada 9-mar-2026) cubren menos meses que las toneladas: si el
+  // período tiene más meses que la serie de costos, las tarjetas de costo dicen cuáles cubren
+  // (JC 2026-10-25: "Año 2026" y "1T 2026" mostraban el mismo costo sin explicar por qué).
+  const nocCobertura = nocMeses.length && nocMeses.length < meses.length
+    ? 'solo ' + MESES_CORTOS[nocMeses[0].mes-1] + (nocMeses.length > 1 ? '–' + MESES_CORTOS[nocMeses[nocMeses.length-1].mes-1] : '') + ' ' + EAnio + ' · '
+    : ''
   const baseTxt = mSin.length && mConf.length ? 'solo meses con rechazo confiable (' + sinTxt + ' sin dato)' : ''
 
   // % retornos en la carga (ver /produccion/retornos-mensual): ponderado por kg del período;
@@ -1884,10 +1890,10 @@ function renderTonelaje(){
       : mc('Producto OK / rechazo', 'sin dato', 'secondary', 'registro de rechazo detenido desde 9-jul-2026'))
     + (pctRet != null ? mcNuevo('% retornos en carga', pctRet+'%', 'límite plan PC-1 ≤ '+retLim+'% · definición provisional') : '')
     + (tonProdVerificada && costoProdTotal ? mcNuevo('Costo de producción', '$'+Math.round(costoProdTotal).toLocaleString('es-MX'),
-        '$'+Math.round(costoProdTotal/tonProdVerificadaTotal).toLocaleString('es-MX')+'/ton promedio') : '')
+        nocCobertura + '$'+Math.round(costoProdTotal/tonProdVerificadaTotal).toLocaleString('es-MX')+'/ton promedio') : '')
     + (costoNocTotal ? mcNuevo('Costo de no-calidad', '$'+Math.round(costoNocTotal).toLocaleString('es-MX'),
-        tonProdVerificada && costoProdTotal ? (costoNocTotal/costoProdTotal*100).toFixed(1)+'% del costo de producción' : 'piso_ia.rechazo × costo/ton') : '')
-    + (costoNocTotal && tonProdVerificada ? mcNuevo('Costo no-calidad / Ton', '$'+Math.round(costoNocTotal/tonProdVerificadaTotal).toLocaleString('es-MX'), 'por ton. producida') : '')
+        nocCobertura + (tonProdVerificada && costoProdTotal ? (costoNocTotal/costoProdTotal*100).toFixed(1)+'% del costo de producción' : 'piso_ia.rechazo × costo/ton')) : '')
+    + (costoNocTotal && tonProdVerificada ? mcNuevo('Costo no-calidad / Ton', '$'+Math.round(costoNocTotal/tonProdVerificadaTotal).toLocaleString('es-MX'), nocCobertura + 'por ton. producida') : '')
 
   chartEl.innerHTML = svgTonelaje(meses, nocPorMes, retPorMes, retLim)
 
