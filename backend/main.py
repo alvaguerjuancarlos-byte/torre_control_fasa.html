@@ -442,6 +442,97 @@ def _tons_mensuales(d_ini: str, d_fin: str) -> Dict[str, dict]:
             for r in rows}
 
 
+# ── Meses sin rechazo confiable: producción desde piezas VACIADAS (2026-10-25) ─────────────
+# Desde jul-2026 betamega_03 (y todo lo derivado de ticketsorigen) solo ve una fracción de los
+# tickets -- hueco de la liga ticket→vaciado, tema #1 a IT -- y bRechazo está congelado. Para
+# los meses de core.meses_rechazo_no_confiables, Ejecutivo toma la producción de fuentes
+# completas y deja el rechazo en None ("sin dato"), nunca 0. Lo usan /v2/ejecutivo/pronostico
+# (Piezas producidas), /v2/ejecutivo/resumen-anual (Período) y /produccion/tonelaje-mensual.
+
+def _vaciado_mensual(d_ini: str, d_fin: str, meses: set) -> dict:
+    """{'YYYY-MM': {n, col, tons, mold, incompleto}} para los meses pedidos.
+    n = piezas vaciadas (ticketsconvaciadodirecto; base ~8 % menor que tickets: piezas físicas,
+    sin tickets heredados); col = coladas (Colada-Horno distintas); tons = n × PesoKgs del
+    modelo; mold = piezas moldeadas (aleks). incompleto = vaciado < 50 % de lo moldeado
+    (julio-2026: 394 vaciadas vs 4,364 moldeadas -- el registro de vaciado también falla ahí)."""
+    if not meses:
+        return {}
+    lookup = _PARTE_LOOKUP or {}
+    out: dict = {mk: {"n": 0, "col": 0, "tons": 0.0, "mold": 0} for mk in meses}
+    for r in run("""
+        SELECT DATE_FORMAT(FHrVaciado,'%Y-%m') AS mk, TRIM(no_parte) AS no_parte, COUNT(*) AS n
+        FROM betamega_00_ticketsconvaciadodirecto
+        WHERE FHrVaciado BETWEEN :d AND :h GROUP BY mk, TRIM(no_parte)
+    """, {"d": d_ini, "h": d_fin}):
+        if r["mk"] in out:
+            out[r["mk"]]["n"] += int(r["n"] or 0)
+            out[r["mk"]]["tons"] += ((lookup.get(r["no_parte"]) or {}).get("peso_kgs", 0) or 0) * int(r["n"] or 0) / 1000
+    for r in run("""
+        SELECT DATE_FORMAT(FHrVaciado,'%Y-%m') AS mk, COUNT(DISTINCT CONCAT(Colada,'-',Horno)) AS col
+        FROM betamega_00_ticketsconvaciadodirecto WHERE FHrVaciado BETWEEN :d AND :h GROUP BY mk
+    """, {"d": d_ini, "h": d_fin}):
+        if r["mk"] in out:
+            out[r["mk"]]["col"] = int(r["col"] or 0)
+    for r in run("""
+        SELECT DATE_FORMAT(FHrMoldeo,'%Y-%m') AS mk, COUNT(DISTINCT IdTicket) AS n
+        FROM betamega_aleks_idtickethistorial WHERE FHrMoldeo BETWEEN :d AND :h GROUP BY mk
+    """, {"d": d_ini, "h": d_fin}):
+        if r["mk"] in out:
+            out[r["mk"]]["mold"] = int(r["n"] or 0)
+    for v in out.values():
+        v["tons"] = round(v["tons"], 1)
+        v["incompleto"] = bool(v["mold"]) and v["n"] < 0.5 * v["mold"]
+    return out
+
+
+def _coladas_kg_mensual(d_ini: str, d_fin: str, meses: set) -> dict:
+    """{'YYYY-MM': {coladas, kg, por_horno: {horno: {coladas, kg}}}} -- metal cargado por colada
+    para los meses pedidos. Kilos y horno (numeración Horno124, la misma de betamega_03) de
+    betamega_00_coladaprocesodemoras; las coladas que faltan ahí (hueco 18-ago al 29-sep-2026)
+    se completan con los kg reales de betamega_00_cargasmetalicas, fechadas por el primer moldeo
+    de la colada en betamega_aleks_idtickethistorial y sin horno ("s/h"). En may-jun 2026 las dos
+    fuentes difieren ~2 % en kg."""
+    if not meses:
+        return {}
+    out: dict = {mk: {"coladas": 0, "kg": 0.0, "por_horno": {}} for mk in meses}
+
+    def _sumar(mk, horno, kg):
+        if mk not in out:
+            return
+        o = out[mk]
+        o["coladas"] += 1
+        o["kg"] += kg
+        h = o["por_horno"].setdefault(horno, {"coladas": 0, "kg": 0.0})
+        h["coladas"] += 1
+        h["kg"] += kg
+
+    vistas = set()
+    for r in run("""
+        SELECT idColada, DATE_FORMAT(FechaInicial,'%Y-%m') AS mk, Horno124 AS horno, Kilos
+        FROM betamega_00_coladaprocesodemoras
+        WHERE FechaInicial BETWEEN :d AND :h AND Kilos > 0
+    """, {"d": d_ini, "h": d_fin}):
+        vistas.add(r["idColada"])
+        _sumar(r["mk"], str(r["horno"]), float(r["Kilos"]))
+    faltan = {r["IdColada"]: r["mk"] for r in run("""
+        SELECT IdColada, DATE_FORMAT(MIN(FHrMoldeo),'%Y-%m') AS mk
+        FROM betamega_aleks_idtickethistorial
+        WHERE FHrMoldeo BETWEEN :d AND :h AND IdColada > 0 GROUP BY IdColada
+    """, {"d": d_ini, "h": d_fin}) if r["IdColada"] not in vistas and r["mk"] in out}
+    if faltan:
+        # Acotado al rango de IdColada: deduplicar cargasmetalicas completa tarda 20-30 s
+        for r in run("""
+            SELECT IdColada, SUM(kg) AS kg FROM
+              (SELECT IdColada, Tipo, Clave, Descripcion, MAX(KgsReal) AS kg
+               FROM betamega_00_cargasmetalicas WHERE IdColada BETWEEN :a AND :b
+               GROUP BY IdColada, Tipo, Clave, Descripcion) x
+            GROUP BY IdColada
+        """, {"a": min(faltan), "b": max(faltan)}):
+            if r["IdColada"] in faltan and r["kg"]:
+                _sumar(faltan[r["IdColada"]], "s/h", float(r["kg"]))
+    return out
+
+
 @app.get("/v2/ejecutivo/resumen-anual")
 def v2_resumen_anual(anio: int = Query(default=2025)):
     """
@@ -569,21 +660,54 @@ def v2_resumen_anual(anio: int = Query(default=2025)):
             },
             "fams": [{"f": f["familia"],
                       "pct": round(f["n"]/total_fam*100,1),
-                      "n": int(f["n"])} for f in fams if f["familia"] != "Otros"]
+                      "n": int(f["n"])} for f in fams if f["familia"] != "Otros"],
+            "mes": mes_num + 1, "fuente": "tickets",
         })
+
+    # ── Meses sin rechazo confiable (2026-10-25, ver _vaciado_mensual) ────────
+    # Piezas y coladas de vaciado; rate/r/fams en None/vacío ("sin dato"), nunca 0.
+    # Trimestre y año calculan la tasa SOLO con meses confiables y listan los que faltan.
+    no_conf = set(meses_rechazo_no_confiables(d_ini, d_fin))
+    if no_conf:
+        vac = _vaciado_mensual(d_ini, d_fin, no_conf)
+        # Coladas: demoras + cargas (completo aun con el vaciado incompleto de julio: 760 vs 64)
+        col_kg = _coladas_kg_mensual(d_ini, d_fin, no_conf)
+        vacio = {"col": 0, "pz": 0, "r": 0}
+        mensual = [m for m in mensual if f"{anio}-{m['mes']:02d}" not in no_conf]
+        for mk in sorted(no_conf):
+            v = vac[mk]
+            if not v["n"] and not v["mold"]:
+                continue
+            mes_num = int(mk[5:7])
+            mensual.append({
+                "lbl": MES_LBLS[mes_num - 1], "rate": None, "n": v["n"], "r": None,
+                "coladas": col_kg[mk]["coladas"] or v["col"], "tons": v["tons"], "tons_rech": None,
+                "fusion_min": 0.0, "ciclo_min": 0.0,
+                "cat": {k: dict(vacio) for k in ("aceptada", "en_objetivo", "fuera_objetivo", "grave")},
+                "fams": [], "mes": mes_num, "fuente": "vaciado",
+                "n_moldeadas": v["mold"], "vaciado_incompleto": v["incompleto"],
+            })
+        mensual.sort(key=lambda m: m["mes"])
+
+    def _tasa(meses):
+        """(rate, meses sin rechazo) con solo los meses confiables del grupo."""
+        conf = [m for m in meses if m["r"] is not None]
+        n_c, r_c = sum(m["n"] for m in conf), sum(m["r"] for m in conf)
+        sin = [m["lbl"] for m in meses if m["r"] is None]
+        return (round(r_c / n_c * 100, 2) if n_c else None), r_c if conf else None, sin
 
     # ── Trimestral ───────────────────────────────────────────────────────────
     Q_LBLS = ["1Q","2Q","3Q","4Q"]
     trimestral = []
     for q in range(4):
-        mq = mensual[q*3:(q+1)*3]
+        # Por número de mes, no por posición: con meses faltantes el slice [q*3:(q+1)*3] se corría
+        mq = [m for m in mensual if (m["mes"] - 1) // 3 == q]
         if not mq: continue
         n_t = sum(m["n"] for m in mq)
-        r_t = sum(m["r"] for m in mq)
         c_t = sum(m["coladas"] for m in mq)
-        rate_t = round(r_t/n_t*100,2) if n_t else 0
+        rate_t, r_t, sin_t = _tasa(mq)
         tons_t = round(sum(m["tons"] for m in mq), 1)
-        tons_rech_t = round(sum(m["tons_rech"] for m in mq), 1)
+        tons_rech_t = round(sum(m["tons_rech"] or 0 for m in mq), 1)
         mq_f = [m for m in mq if m["fusion_min"] > 0]
         mq_c = [m for m in mq if m["ciclo_min"] > 0]
         fusion_t = round(sum(m["fusion_min"] for m in mq_f)/len(mq_f), 1) if mq_f else 0
@@ -596,6 +720,7 @@ def v2_resumen_anual(anio: int = Query(default=2025)):
         cat_t = {k: {"col": sum(m["cat"][k]["col"] for m in mq), "pz": sum(m["cat"][k]["pz"] for m in mq), "r": sum(m["cat"][k]["r"] for m in mq)} for k in ("aceptada","en_objetivo","fuera_objetivo","grave")}
         trimestral.append({
             "lbl": Q_LBLS[q], "rate": rate_t, "n": n_t, "r": r_t, "coladas": c_t,
+            "meses_sin_rechazo": sin_t,
             "tons": tons_t, "tons_rech": tons_rech_t,
             "fusion_min": fusion_t, "ciclo_min": ciclo_t, "cat": cat_t,
             "fams": [{"f":k,"pct":round(v/tot_fac*100,1),"n":v}
@@ -604,10 +729,10 @@ def v2_resumen_anual(anio: int = Query(default=2025)):
 
     # ── Anual ────────────────────────────────────────────────────────────────
     n_a = sum(m["n"] for m in mensual)
-    r_a = sum(m["r"] for m in mensual)
+    rate_a, r_a, sin_a = _tasa(mensual)
     c_a = sum(m["coladas"] for m in mensual)
     tons_a = round(sum(m["tons"] for m in mensual), 1)
-    tons_rech_a = round(sum(m["tons_rech"] for m in mensual), 1)
+    tons_rech_a = round(sum(m["tons_rech"] or 0 for m in mensual), 1)
     ma_f = [m for m in mensual if m["fusion_min"] > 0]
     ma_c = [m for m in mensual if m["ciclo_min"] > 0]
     fusion_a = round(sum(m["fusion_min"] for m in ma_f)/len(ma_f), 1) if ma_f else 0
@@ -622,7 +747,8 @@ def v2_resumen_anual(anio: int = Query(default=2025)):
         "lbl": str(anio), "n": n_a, "r": r_a, "coladas": c_a,
         "tons": tons_a, "tons_rech": tons_rech_a,
         "fusion_min": fusion_a, "ciclo_min": ciclo_a, "cat": cat_a,
-        "rate": round(r_a/n_a*100,2) if n_a else 0,
+        "rate": rate_a,
+        "meses_sin_rechazo": sin_a,
         "fams": [{"f":k,"pct":round(v/tot_an*100,1),"n":v}
                  for k,v in sorted(fam_an.items(),key=lambda x:-x[1])]
     }
@@ -732,7 +858,7 @@ def v2_resumen_anual(anio: int = Query(default=2025)):
     """, {"d": d_ini, "h": d_fin})
 
     # ── Best / worst mes ─────────────────────────────────────────────────────
-    rates = [(m["lbl"], m["rate"]) for m in mensual if m["n"] >= 100]
+    rates = [(m["lbl"], m["rate"]) for m in mensual if m["n"] >= 100 and m["rate"] is not None]
     best  = min(rates, key=lambda x: x[1]) if rates else ("—", 0)
     worst = max(rates, key=lambda x: x[1]) if rates else ("—", 0)
 
@@ -740,7 +866,7 @@ def v2_resumen_anual(anio: int = Query(default=2025)):
         "meta": {
             "target": 7, "bandLo": 5, "bandHi": 7,
             "tonPt": 87.6, "cLo": 711, "cHi": 1185,
-            "avg": round(r_a/n_a*100,2) if n_a else 13.3
+            "avg": rate_a if rate_a is not None else 13.3
         },
         "mensual": mensual,
         "trimestral": trimestral,
@@ -846,50 +972,18 @@ def v2_pronostico(ventana: int = 12, periodos: int = 3, year: int = 0):
         GROUP BY mk, No_Parte
     """, {"d": h_ini, "h": h_fin}))
 
-    # ── Meses sin rechazo confiable (2026-10-25) ──────────────────
-    # Desde jul-2026 betamega_03 solo ve una fracción de los tickets (hueco de la liga
-    # ticket→vaciado, tema #1 a IT) y bRechazo está congelado: la gráfica mostraba ~0 piezas
-    # y 0 % de rechazo. Para esos meses (misma regla que Beta/simulaciones:
-    # core.meses_rechazo_no_confiables) las piezas, toneladas y coladas salen de piezas
-    # VACIADAS (betamega_00_ticketsconvaciadodirecto, completa) y el rechazo queda en None
-    # ("sin dato"), nunca 0. Base ~8 % menor que tickets (piezas físicas, sin tickets heredados).
-    # Si el vaciado registrado es < 50 % de lo moldeado (aleks) el mes se marca incompleto
-    # (julio-2026: 394 vaciadas vs 4,364 moldeadas) y no entra al promedio del pronóstico.
+    # ── Meses sin rechazo confiable: piezas vaciadas, rechazo None (ver _vaciado_mensual) ──
+    # Antes la gráfica mostraba jul-oct 2026 con ~0 piezas y 0 % de rechazo, y esos meses
+    # jalaban hacia abajo el estimado. Los incompletos no entran al volumen del pronóstico.
     no_conf = set(meses_rechazo_no_confiables(h_ini, h_fin))
-    vac_agg: dict = {}
-    if no_conf:
-        for r in run("""
-            SELECT DATE_FORMAT(FHrVaciado,'%Y-%m') AS mk, TRIM(no_parte) AS no_parte,
-                   COUNT(*) AS n, COUNT(DISTINCT CONCAT(Colada,'-',Horno)) AS col
-            FROM betamega_00_ticketsconvaciadodirecto
-            WHERE FHrVaciado BETWEEN :d AND :h
-            GROUP BY mk, TRIM(no_parte)
-        """, {"d": h_ini, "h": h_fin}):
-            if r["mk"] not in no_conf:
-                continue
-            v = vac_agg.setdefault(r["mk"], {"n": 0, "tons": 0.0, "mold": 0, "col": 0})
-            v["n"] += int(r["n"] or 0)
-            v["tons"] += ((lookup.get(r["no_parte"]) or {}).get("peso_kgs", 0) or 0) * int(r["n"] or 0) / 1000
-        # coladas distintas por mes (no se pueden sumar por parte)
-        for r in run("""
-            SELECT DATE_FORMAT(FHrVaciado,'%Y-%m') AS mk, COUNT(DISTINCT CONCAT(Colada,'-',Horno)) AS col
-            FROM betamega_00_ticketsconvaciadodirecto WHERE FHrVaciado BETWEEN :d AND :h GROUP BY mk
-        """, {"d": h_ini, "h": h_fin}):
-            if r["mk"] in vac_agg:
-                vac_agg[r["mk"]]["col"] = int(r["col"] or 0)
-        for r in run("""
-            SELECT DATE_FORMAT(FHrMoldeo,'%Y-%m') AS mk, COUNT(DISTINCT IdTicket) AS n
-            FROM betamega_aleks_idtickethistorial WHERE FHrMoldeo BETWEEN :d AND :h GROUP BY mk
-        """, {"d": h_ini, "h": h_fin}):
-            if r["mk"] in vac_agg:
-                vac_agg[r["mk"]]["mold"] = int(r["n"] or 0)
+    vac_agg = _vaciado_mensual(h_ini, h_fin, no_conf)
 
     # ── Historico list ────────────────────────────────────────────
     historico = []
     for m in months:
         mk = f"{m.year}-{m.month:02d}"
         if mk in no_conf:
-            v = vac_agg.get(mk, {"n": 0, "tons": 0.0, "mold": 0, "col": 0})
+            v = vac_agg[mk]
             historico.append({
                 "anio": m.year, "mes": m.month,
                 "label": f"{MESES[m.month]} {str(m.year)[2:]}",
@@ -897,11 +991,11 @@ def v2_pronostico(ventana: int = 12, periodos: int = 3, year: int = 0):
                 "n_rechazos":  None,
                 "rate":        None,
                 "coladas":     v["col"],
-                "tons":        round(v["tons"], 1),
+                "tons":        v["tons"],
                 "tons_rech":   None,
                 "fuente":      "vaciado",
                 "n_moldeadas": v["mold"],
-                "vaciado_incompleto": bool(v["mold"]) and v["n"] < 0.5 * v["mold"],
+                "vaciado_incompleto": v["incompleto"],
             })
             continue
         agg = hist_agg.get(mk, {"n": 0, "rec": 0, "col": 0})
@@ -3948,12 +4042,36 @@ def produccion_tonelaje_mensual(anios: str = Query(default="2024,2025")):
             "kg_prom_colada": float(r["kg_prom_colada"] or 0),
         }
 
+    # Meses sin rechazo confiable (2026-10-25): betamega_03 no ve las coladas de jul-oct 2026
+    # (el encabezado de colada además se quedó en 2026-08-17), así que la tarjeta salía en 4-67 t.
+    # Para esos meses el metal cargado sale de _coladas_kg_mensual (demoras + cargas) y producto
+    # OK/rechazo quedan en None: sin rechazo confiable no hay cómo partir los kilos.
+    for y in lista_anios:
+        y_ini, y_fin = f"{y}-01-01 00:00:00", f"{y}-12-31 23:59:59"
+        nc = set(meses_rechazo_no_confiables(y_ini, y_fin))
+        for mk, v in _coladas_kg_mensual(y_ini, y_fin, nc).items():
+            if not v["coladas"]:
+                meses.pop(mk, None)
+                continue
+            meses[mk] = {
+                "anio": int(mk[:4]), "mes": int(mk[5:7]), "fuente": "coladas",
+                "coladas": v["coladas"], "kg_brutos": round(v["kg"]),
+                "total_piezas": None, "piezas_ok": None, "piezas_rech": None,
+                "kg_producto_ok": None, "kg_rechazo": None,
+                "por_horno": {h: {"coladas": x["coladas"], "kg_brutos": round(x["kg"]),
+                                  "kg_producto_ok": None, "kg_rechazo": None,
+                                  "kg_prom_colada": round(x["kg"] / x["coladas"]) if x["coladas"] else 0}
+                              for h, x in v["por_horno"].items()},
+            }
+
     resumen = []
     for m in sorted(meses.values(), key=lambda x: (x["anio"], x["mes"])):
         m["ton_brutos"]      = round(m["kg_brutos"] / 1000, 2)
-        m["ton_producto_ok"] = round(m["kg_producto_ok"] / 1000, 2)
-        m["ton_rechazo"]     = round(m["kg_rechazo"] / 1000, 2)
-        m["pct_rechazo_kg"]  = round(m["kg_rechazo"] / m["kg_brutos"] * 100, 1) if m["kg_brutos"] else 0
+        sin = m["kg_rechazo"] is None
+        m["ton_producto_ok"] = None if sin else round(m["kg_producto_ok"] / 1000, 2)
+        m["ton_rechazo"]     = None if sin else round(m["kg_rechazo"] / 1000, 2)
+        m["pct_rechazo_kg"]  = None if sin else (round(m["kg_rechazo"] / m["kg_brutos"] * 100, 1) if m["kg_brutos"] else 0)
+        m.setdefault("fuente", "tickets")
         resumen.append(m)
 
     total_anual = {}
@@ -3962,8 +4080,8 @@ def produccion_tonelaje_mensual(anios: str = Query(default="2024,2025")):
         if y not in total_anual:
             total_anual[y] = {"ton_brutos": 0.0, "ton_producto_ok": 0.0, "ton_rechazo": 0.0}
         total_anual[y]["ton_brutos"]      = round(total_anual[y]["ton_brutos"]      + m["ton_brutos"], 2)
-        total_anual[y]["ton_producto_ok"] = round(total_anual[y]["ton_producto_ok"] + m["ton_producto_ok"], 2)
-        total_anual[y]["ton_rechazo"]     = round(total_anual[y]["ton_rechazo"]     + m["ton_rechazo"], 2)
+        total_anual[y]["ton_producto_ok"] = round(total_anual[y]["ton_producto_ok"] + (m["ton_producto_ok"] or 0), 2)
+        total_anual[y]["ton_rechazo"]     = round(total_anual[y]["ton_rechazo"]     + (m["ton_rechazo"] or 0), 2)
 
     return {
         "metodo": "peso_pieza = c_Kilos / total_piezas por colada. kg_ok = piezas_ok * peso_pieza.",
