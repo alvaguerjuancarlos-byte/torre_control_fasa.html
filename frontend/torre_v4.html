@@ -1864,6 +1864,8 @@ function renderTonelaje(){
   const nocCobertura = nocMeses.length && nocMeses.length < meses.length
     ? 'solo ' + MESES_CORTOS[nocMeses[0].mes-1] + (nocMeses.length > 1 ? '–' + MESES_CORTOS[nocMeses[nocMeses.length-1].mes-1] : '') + ' ' + EAnio + ' · '
     : ''
+  // 2026: rechazo con costo de betamega_01 (rechazo interno, incluye maquinado/prueba); 2025: piso_ia (solo Producción)
+  const nocMetodo = nocMeses.some(m => m.metodo_rechazo === 'betamega_01_interno') ? ' · rechazo interno (incl. maquinado/prueba)' : ''
   const baseTxt = mSin.length && mConf.length ? 'solo meses con rechazo confiable (' + sinTxt + ' sin dato)' : ''
 
   // % retornos en la carga (ver /produccion/retornos-mensual): ponderado por kg del período;
@@ -1892,7 +1894,7 @@ function renderTonelaje(){
     + (tonProdVerificada && costoProdTotal ? mcNuevo('Costo de producción', '$'+Math.round(costoProdTotal).toLocaleString('es-MX'),
         nocCobertura + '$'+Math.round(costoProdTotal/tonProdVerificadaTotal).toLocaleString('es-MX')+'/ton promedio') : '')
     + (costoNocTotal ? mcNuevo('Costo de no-calidad', '$'+Math.round(costoNocTotal).toLocaleString('es-MX'),
-        nocCobertura + (tonProdVerificada && costoProdTotal ? (costoNocTotal/costoProdTotal*100).toFixed(1)+'% del costo de producción' : 'piso_ia.rechazo × costo/ton')) : '')
+        nocCobertura + (tonProdVerificada && costoProdTotal ? (costoNocTotal/costoProdTotal*100).toFixed(1)+'% del costo de producción' : 'piso_ia.rechazo × costo/ton') + nocMetodo) : '')
     + (costoNocTotal && tonProdVerificada ? mcNuevo('Costo no-calidad / Ton', '$'+Math.round(costoNocTotal/tonProdVerificadaTotal).toLocaleString('es-MX'), nocCobertura + 'por ton. producida') : '')
 
   chartEl.innerHTML = svgTonelaje(meses, nocPorMes, retPorMes, retLim)
