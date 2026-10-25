@@ -140,6 +140,8 @@ const catalogos = [
   fila(9, '**Llenar `idItaca`, `idTension` e `idArenas`** en `betamega_02_pks_idticketsidmuestras`.',
     'Más del 80% de los tickets de 2026 con `idItaca`.', 'IT', PARC,
     '`idItaca` pasó de 41 a 1,123 tickets en 2026 (10–18% en ago–sep; octubre 18). `idTension` e `idArenas` siguen vacíos.'),
+  fila(18, '**Tipo de rechazo en `betamega_01_rechazosbyidticket`** (Producción / Maquinado / Prueba, el campo `tipo_rech` de `piso_ia.rechazo`). El costo de no-calidad se calcula solo con rechazo de Producción (maquinado y prueba ya traen costo adicional). `piso_ia.rechazo` se congeló el 9-mar-2026 y `betamega_01` no trae ese campo, así que desde 2026 se usa todo el rechazo interno (~7% más toneladas: 1,201.8 t contra 1,119.2 t en 2025). No se puede separar por defecto.',
+    'Columna `tipo_rech` en `betamega_01` para todo rechazo interno desde 2025, que cuadre con `piso_ia.rechazo` en 2025 (6,308 Producción, 302 Maquinado, 4 Prueba).', 'IT', PEND, 'Nueva (25-oct).'),
 ];
 const reglas = [
   fila(10, '**Tolerancias y límites.** Tolerancia de ferroaleaciones en cargas (hoy 0 en el 100%); base de `betamega_07_cargametalicosprc`; límites de AFS (48–54) y de granulometría (% retenido malla 14, 16 y PAN) en `variablesdecontrol`.',
@@ -162,7 +164,7 @@ const infra = [
 
 const doc1 = doc([
   ...titulo('Temas pendientes con IT, Calidad y CSC', 'Torre de Control FASA · corte 25 de octubre de 2026 · Preparado por Juan Carlos Alvarez (MindBridge)'),
-  P('Hay **17 temas abiertos**. Ninguno está cerrado y 3 tienen avance parcial (5, 6 y 9). Los tres primeros son los más urgentes: sin ellos la Torre no tiene rechazo real, puntos de control ni piezas terminadas de julio en adelante.'),
+  P('Hay **18 temas abiertos**. Ninguno está cerrado y 3 tienen avance parcial (5, 6 y 9). Los tres primeros son los más urgentes: sin ellos la Torre no tiene rechazo real, puntos de control ni piezas terminadas de julio en adelante.'),
   P('Cada tema trae un criterio para darlo por resuelto y el estado verificado contra la base de datos el 25-oct-2026. El detalle de las mediciones está en la auditoría de datos de la misma fecha.'),
   H2('A. Urgentes: bloquean rechazo, puntos de control y avance'),
   table(W1, urgentes), SP(),
@@ -268,7 +270,7 @@ const doc2 = doc([
   B('**Retornos en carga:** en 2026 el retorno promedio es 32% contra el límite de 30% del Plan de Control; julio llegó a 40% (tema 13).'),
   B('**Estabilidad del servidor.** Durante las pruebas MySQL cortó conexiones dos veces bajo consultas pesadas (errores 2003 y 2013). Tablas grandes sin índices útiles: `itaca_acqresults` (8.9 millones de filas, ningún índice) y `ticketsconvaciadodirecto` (sin índice en `FHrVaciado`); una consulta simple tarda de 12 a 30 s. Conviene que IT evalúe índices en esas columnas (tema 17).'),
   H1('6. Estado de los temas pendientes'),
-  P('De 17 temas, **0 resueltos, 3 con avance parcial** (5 duplicados, 6 tickets con varios registros, 9 `idItaca`) y 14 sin avance, incluidos los 5 agregados después del 13-oct (13 a 17). El detalle y los criterios de aceptación están en el documento "Temas pendientes con IT, Calidad y CSC" del 25-oct-2026.'),
+  P('De 18 temas, **0 resueltos, 3 con avance parcial** (5 duplicados, 6 tickets con varios registros, 9 `idItaca`) y 15 sin avance, incluidos los 6 agregados después del 13-oct (13 a 18). El detalle y los criterios de aceptación están en el documento "Temas pendientes con IT, Calidad y CSC" del 25-oct-2026.'),
 ], false, 'Auditoría de datos — actualización 25-oct-2026');
 
 (async () => {
