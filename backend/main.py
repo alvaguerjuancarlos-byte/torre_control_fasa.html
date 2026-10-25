@@ -24,10 +24,19 @@ from backend.core import (
     _buscar_protocolos, _REDISENO_COMBOS, _referencia_actual_flujo,
     historial_rechazo_partes, tasa_shrunk,
     QUIM_SELECT_SQL, evaluar_quimica, meses_rechazo_no_confiables,
-    cargas_por_colada, resumen_carga,
+    cargas_por_colada, resumen_carga, itaca_por_coladas, _itaca_copas,
 )
 
 app = FastAPI(title="Torre de Control FASA", version="0.1.0")
+
+
+@app.on_event("startup")
+def _precalentar_itaca():
+    # PC-3: el primer barrido de itaca_acqresults (sin índices) tarda ~20 s; se hace en un hilo
+    # al arrancar para que la primera vista de Control del Proceso no lo pague.
+    import threading
+    hoy = datetime.now().date()
+    threading.Thread(target=lambda: _itaca_copas(hoy - timedelta(days=3), hoy), daemon=True).start()
 
 app.add_middleware(
     CORSMiddleware,
@@ -3000,9 +3009,8 @@ def v3_gestion_coladas(
 ):
     """
     Lista de coladas en la ventana con los 7 carriles pre-evaluados.
-    PC-3 es GRIS estructural (sin fuente integrada en ia_fasa); PC-1 (desde
-    2026-10-13, betamega_00_cargasmetalicas), PC-2, PC-4, PC-5, PC-6 y PC-7 se
-    evalúan en vivo.
+    Los 7 se evalúan en vivo: PC-1 desde 2026-10-13 (betamega_00_cargasmetalicas),
+    PC-3 desde 2026-10-25 (itaca_acqresults ligado por hora, ver core.itaca_por_coladas).
 
     Sin `referencia` cae a "ahora" (2026-09-23: antes caía a un string fijo
     "2025-12-19T08:00" -- inofensivo mientras _evaluar_coladas_ventana() leía de
@@ -3179,6 +3187,9 @@ def v3_carriles_colada(id_colada: int):
     comps_carga = cargas_por_colada([id_colada]).get(id_colada, [])
     carga = resumen_carga(comps_carga)
 
+    # PC-3: copa ITACA final antes de liberar (liga por hora, regla en core.py)
+    itaca = itaca_por_coladas([id_colada]).get(id_colada, {})
+
     carriles_out = []
     for c in CARRILES:
         if c.id_pc == "PC-1":
@@ -3204,6 +3215,15 @@ def v3_carriles_colada(id_colada: int):
                 "valores":        {k: float(q[k]) for k in ("C","Si","Mg","S","P","Mn") if quim_disponible and q.get(k) is not None},
                 "fuera_de_spec":  [k for k, v in quim_elem.items() if v == "FAIL"],
             }
+        elif c.id_pc == "PC-3":
+            ev = evaluar_carril(c, itaca.get("score"), itaca.get("ts"), id_colada)
+            if itaca:
+                ev["detalle"] = {
+                    **itaca,
+                    "ts": str(itaca["ts"]),
+                    "nota": "Límites provisionales (≥70 / ≥50): el estándar TBL-OPE-IIP no está en la BD. "
+                            "Copa ligada a la colada por hora, no por llave.",
+                }
         elif c.id_pc == "PC-4":
             ev = evaluar_carril(c, pct_temp_ok, tr.get("ts_primer_vaci"), id_colada)
             ev["detalle"] = {

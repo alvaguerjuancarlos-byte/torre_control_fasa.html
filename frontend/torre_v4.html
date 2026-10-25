@@ -2434,6 +2434,23 @@ function renderCarril(c){
         if(fuera) detalleHtml+=`<div class="carril-detalle" style="color:var(--red-chip)">${fuera}</div>`
         if(d.nota_mg) detalleHtml+=`<div class="carril-detalle" style="font-style:italic;color:var(--muted)">* ${d.nota_mg}</div>`
       }
+    } else if(c.id_pc==='PC-3'){
+      if(d.alertas){
+        // Alertas ITACA 0-100 (100 = sin riesgo); mismos cortes que la regla de core.py (≥70 / ≥50)
+        const chip=(k,v,califica)=>{
+          const col=!califica?'#9CA3AF':v>=70?'#1D9E75':v>=50?'#F59E0B':'#EF4444'
+          return `<span style="background:${col};color:#fff;padding:1px 6px;border-radius:4px;font-size:11px;font-weight:700"${califica?'':' title="otra escala — informativa, no califica"'}>${k} ${Math.round(v)}</span>`
+        }
+        const hora=(d.ts||'').slice(11,16)
+        const rep=d.n_copas>1?` · ${d.n_copas-1} re-prueba${d.n_copas>2?'s':''} antes`:''
+        const te=d.te&&d.te.calcC!=null?` · C ${d.te.calcC} / Si ${d.te.calcSi} / CE ${d.te.calcCeq}`:''
+        detalleHtml=`<div class="carril-detalle">Copa final ${hora}${rep}${te}${d.peor?` · peor: <strong>${d.peor}</strong>`:''}</div>`
+        detalleHtml+=`<div class="carril-detalle" style="display:flex;flex-wrap:wrap;gap:4px;align-items:center">`
+          +Object.entries(d.alertas).map(([k,v])=>chip(k,v,true)).join(' ')
+          +' '+Object.entries(d.informativas||{}).map(([k,v])=>chip(k,v,false)).join(' ')+`</div>`
+        if(d.asignacion_ambigua) detalleHtml+=`<div class="carril-detalle" style="color:#B45309">Dos hornos abiertos a esa hora — la copa se asignó a la colada que se liberó primero.</div>`
+        if(d.nota) detalleHtml+=`<div class="carril-detalle" style="font-style:italic;color:var(--muted)">${d.nota}</div>`
+      }
     } else if(c.id_pc==='PC-4'){
       if(d.n_tickets){
         const avg=d.temp_avg!=null?`${d.temp_avg} °C`:'—'

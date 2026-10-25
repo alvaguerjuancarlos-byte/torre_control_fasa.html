@@ -17,6 +17,7 @@ aquí, nunca al revés (evita import circular).
 """
 
 import os
+import time
 from pathlib import Path
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Tuple, List
@@ -151,10 +152,13 @@ CARRILES: List[CarrilControl] = [
         "P-02", 10, "activo",
     ),
     CarrilControl(
-        "PC-3", "inoculación / fading",
-        "sin fuente integrada en ia_fasa",
-        None, "inicio_vaciado",
-        "tiempo desde inoculación ≤ ventana de fading por aleación", "P-03", 5, "gris_sin_dato",
+        "PC-3", "calidad metalúrgica — análisis térmico ITACA (copa final antes de liberar)",
+        "ia_fasa.itaca_acqresults (alertas 0-100, copa de análisis), ligada a la colada por hora",
+        VentanaControl("completitud", 70.0, 50.0, "pct"),
+        "fin_fusion",
+        "peor alerta entre Porosity, MacroShrinkage, Cementite, Nodularization, InverseChill "
+        "(100 = sin riesgo) ; ≥70→VERDE ; ≥50→ÁMBAR ; <50→ROJO",
+        "P-03", 10, "activo",
     ),
     CarrilControl(
         "PC-4", "temperatura de vaciado (% tickets en rango)",
@@ -391,6 +395,117 @@ def resumen_carga(comps: list) -> dict:
     }
 
 
+# PC-3: análisis térmico ITACA (2026-10-25). itaca_acqresults es formato largo (una fila por
+# código) sin índices ni llave a colada: una muestra = (aResDate, aResNum), aResNum es un
+# consecutivo que se reinicia cada día. Cada análisis son dos copas a segundos de distancia:
+# la de telurio (solidifica blanca, da calcC/calcSi/calcCeq) y la de análisis (trae los
+# ALERT de metalurgia). Plan de Control OPE-FUS-010: "por copa, cada colada, Ítaca".
+#
+# La liga betamega_02_pks_idticketsidmuestras.idItaca está en ~0.6 % de tickets -- inútil.
+# Se liga por HORA: la copa se toma 10-15 min antes de liberar (validado oct-2026), así que
+# a cada copa le toca la colada ya en horno que se libera primero después de ella (≤40 min).
+# Cubre ~85 % de coladas. Con varias copas, la última es el veredicto (las previas son
+# re-pruebas tras corregir). Con dos hornos abiertos a la vez la asignación puede ser
+# ambigua (~7 %) -- se marca, no se oculta.
+#
+# ALERT: 100 = sin riesgo, validado contra rechazo real abr-jun 2026 (750 coladas: Porosity
+# baja → rechupe 4.2 % vs 0.2 % alta). Regla elegida por JC (opción A): peor de las 5
+# alertas de PC3_ALERTAS ; ~65 % VERDE / 14 % ÁMBAR / 21 % ROJO en oct-2026. GraphiteExpansion
+# y HypoEutecticHyper viven en otra escala (medianas 50 y 21): se muestran, no califican.
+# Límites PROVISIONALES: el estándar real (TBL-OPE-IIP-001/002/003) no está en la BD.
+# El fading de 13 min (OPE-FUS-021) NO es medible: FHrVaciado es hora de registro en lote.
+PC3_ALERTAS = ["Porosity", "MacroShrinkage", "Cementite", "Nodularization", "InverseChill"]
+PC3_INFO = ["GraphiteExpansion", "HypoEutecticHyper"]
+_PC3_TE = ["calcC", "calcSi", "calcCeq"]
+_PC3_VENTANA_MIN = 40
+
+# itaca_acqresults no tiene índices (8.9M filas): cualquier consulta es barrido completo,
+# 6-16 s. Caché por aResDate: un día cerrado ya no cambia (se guarda indefinido, tope de
+# días); el día en curso se relee cada 5 min (llega ~1 copa cada 10 min).
+_ITACA_DIA_CACHE: Dict[object, tuple] = {}
+_ITACA_HOY_TTL_SEG = 300
+_ITACA_MAX_DIAS = 120
+
+
+def _itaca_copas(d1, d2) -> list:
+    """Copas ITACA (análisis y telurio) pivoteadas, de aResDate d1 a d2, ordenadas por hora."""
+    hoy = datetime.now().date()
+    dias = [d1 + timedelta(days=i) for i in range((d2 - d1).days + 1)]
+    faltan = [d for d in dias if d not in _ITACA_DIA_CACHE
+              or (d >= hoy and time.time() - _ITACA_DIA_CACHE[d][0] > _ITACA_HOY_TTL_SEG)]
+    if faltan:
+        codigos = PC3_ALERTAS + PC3_INFO + _PC3_TE
+        piv = ",".join(f"MAX(CASE WHEN aResCode='{k}' THEN aResValue END) AS `{k}`" for k in codigos)
+        rows = run(f"""
+            SELECT aResDate, aResNum, MIN(DataIns) AS ts, MAX(aResCode = 'Cementite') AS es_analisis, {piv}
+            FROM itaca_acqresults
+            WHERE aResDate IN ({",".join("'" + d.isoformat() + "'" for d in faltan)})
+            GROUP BY aResDate, aResNum
+            HAVING MAX(aResCode IN ('Cementite', 'calcC')) = 1
+        """, {})
+        por_dia: Dict[object, list] = {d: [] for d in faltan}
+        for r in rows:
+            k = r["aResDate"].date() if isinstance(r["aResDate"], datetime) else r["aResDate"]
+            por_dia.setdefault(k, []).append(r)
+        for d, lst in por_dia.items():
+            _ITACA_DIA_CACHE[d] = (time.time(), lst)
+        for d in sorted(_ITACA_DIA_CACHE)[:-_ITACA_MAX_DIAS]:
+            _ITACA_DIA_CACHE.pop(d, None)
+    return sorted((c for d in dias for c in _ITACA_DIA_CACHE.get(d, (0, []))[1]), key=lambda c: c["ts"])
+
+
+def itaca_por_coladas(ids: list) -> Dict[int, dict]:
+    """Copa ITACA final (y nº de re-pruebas) por idColada, ligada por hora contra betamega_00_coladaprocesodemoras."""
+    ids = [int(i) for i in ids if i]
+    if not ids:
+        return {}
+    propias = run(f"""
+        SELECT idColada, FechaInicial, FechaLiberado FROM betamega_00_coladaprocesodemoras
+        WHERE idColada IN ({",".join(str(i) for i in ids)}) AND FechaLiberado IS NOT NULL
+    """, {})
+    if not propias:
+        return {}
+    lo = min(r["FechaInicial"] or r["FechaLiberado"] for r in propias) - timedelta(minutes=_PC3_VENTANA_MIN)
+    hi = max(r["FechaLiberado"] for r in propias)
+    # Las coladas del otro horno compiten por las mismas copas: se asigna contra todas.
+    todas = run("""
+        SELECT idColada, FechaInicial, FechaLiberado FROM betamega_00_coladaprocesodemoras
+        WHERE FechaLiberado BETWEEN :lo AND :hi2 AND FechaInicial IS NOT NULL
+    """, {"lo": lo, "hi2": hi + timedelta(hours=2)})
+    copas = [c for c in _itaca_copas(lo.date(), hi.date()) if lo <= c["ts"] <= hi]
+    te = [c for c in copas if not c["es_analisis"]]
+    margen = timedelta(minutes=5)
+    asignadas: Dict[int, list] = {}
+    for c in copas:
+        if not c["es_analisis"]:
+            continue
+        cand = [x for x in todas if x["FechaInicial"] - margen <= c["ts"] <= x["FechaLiberado"]
+                and (x["FechaLiberado"] - c["ts"]).total_seconds() <= _PC3_VENTANA_MIN * 60]
+        if cand:
+            best = min(cand, key=lambda x: x["FechaLiberado"])
+            asignadas.setdefault(best["idColada"], []).append((c, len(cand) > 1))
+    out = {}
+    for cid in ids:
+        lst = asignadas.get(cid)
+        if not lst:
+            continue
+        c, ambigua = lst[-1]
+        par = min((t for t in te if abs((t["ts"] - c["ts"]).total_seconds()) <= 120),
+                  key=lambda t: abs((t["ts"] - c["ts"]).total_seconds()), default=None)
+        alertas = {k: round(float(c[k]), 1) for k in PC3_ALERTAS if c[k] is not None}
+        out[cid] = {
+            "ts": c["ts"],
+            "n_copas": len(lst),
+            "asignacion_ambigua": ambigua,
+            "alertas": alertas,
+            "informativas": {k: round(float(c[k]), 1) for k in PC3_INFO if c[k] is not None},
+            "te": {k: round(float(par[k]), 2) for k in _PC3_TE if par and par[k] is not None},
+            "score": min(alertas.values()) if alertas else None,
+            "peor": min(alertas, key=alertas.get) if alertas else None,
+        }
+    return out
+
+
 # PC-2: columnas de la cadena viva de química (betamega_02_pks_idticketsidmuestras ->
 # corex_test.vistaanalisisquimicoparaitaca -> corex_test.clases). El elemento "C" de la
 # vista mapea a Ct_* en clases (C_* no existe; Ce_* es Carbono Equivalente, otro campo).
@@ -590,9 +705,11 @@ def _evaluar_coladas_ventana(referencia: str, horas: int) -> list:
     etapa_idx = {r["id_colada"]: r for r in etapa_batch}
 
     carga_idx = cargas_por_colada([c["id_colada"] for c in coladas])
+    itaca_idx = itaca_por_coladas([c["id_colada"] for c in coladas])
 
     pc1 = next(c for c in CARRILES if c.id_pc == "PC-1")
     pc2 = next(c for c in CARRILES if c.id_pc == "PC-2")
+    pc3 = next(c for c in CARRILES if c.id_pc == "PC-3")
     pc4 = next(c for c in CARRILES if c.id_pc == "PC-4")
     pc5 = next(c for c in CARRILES if c.id_pc == "PC-5")
     pc6 = next(c for c in CARRILES if c.id_pc == "PC-6")
@@ -626,6 +743,8 @@ def _evaluar_coladas_ventana(referencia: str, horas: int) -> list:
         carga = resumen_carga(carga_idx.get(cid, []))
         ev1 = evaluar_carril(pc1, carga["pct_ok"], col["inicio_fusion"], cid)
         ev2 = evaluar_carril(pc2, pct_quim,    None,                    cid)
+        it  = itaca_idx.get(cid, {})
+        ev3 = evaluar_carril(pc3, it.get("score"), it.get("ts"),         cid)
         ev4 = evaluar_carril(pc4, pct_temp,    tr.get("ts_primer_vaci"), cid)
         ev5 = evaluar_carril(pc5, pct_cumple5, None,                    cid)
         ev6 = evaluar_carril(pc6, pct_rec,     r.get("ts_ultimo"),       cid)
@@ -648,7 +767,7 @@ def _evaluar_coladas_ventana(referencia: str, horas: int) -> list:
             etapa = "Sin datos"
 
         estados = {
-            "PC-1": ev1["estado"], "PC-2": ev2["estado"], "PC-3": "GRIS",
+            "PC-1": ev1["estado"], "PC-2": ev2["estado"], "PC-3": ev3["estado"],
             "PC-4": ev4["estado"], "PC-5": ev5["estado"],
             "PC-6": ev6["estado"], "PC-7": ev7["estado"],
         }
