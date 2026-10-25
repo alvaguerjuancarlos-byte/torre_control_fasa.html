@@ -3569,6 +3569,7 @@ function simRenderTable(items) {
   <div id="pps-kpis" class="pln-kpis-grid"></div>
   <div id="pps-defectos"></div>
   <div id="pps-top"></div>
+  <div id="pps-vs"></div>
   <div class="pn-hint">Haz clic en una barra para ver esa semana. Rechazo esperado = kg programados × tasa de CSC por parte y defecto. No se compara contra rechazo real: el registro de rechazo está detenido desde el 9-jul-2026.</div>
 
   <!-- Sección secundaria: pronóstico histórico de rechazo (se conserva, colapsada) -->
@@ -4684,6 +4685,34 @@ function ppsRenderDetalle(d){
     + '<div class="pn-combos-wrap2" style="max-height:360px;overflow-y:auto">'
     + '<div class="pn-combos-head" style="grid-template-columns:130px 1fr 70px 90px 80px 70px;position:sticky;top:0"><div>No. parte</div><div>Defecto</div><div class="pn-num">Pzas prog.</div><div class="pn-num">Kg esperados</div><div class="pn-num">% de la parte</div><div class="pn-num">Acum.</div></div>'
     + filas + '</div>'
+  ppsRenderVsTorre(d)
+}
+
+// CSC vs Torre: % que espera CSC por parte contra la tasa shrunk de la Torre (la de Riesgo del Plan)
+function ppsRenderVsTorre(d){
+  const v = d.vs_torre
+  if (!v) { document.getElementById('pps-vs').innerHTML = ''; return }
+  const cols = '130px 60px 80px 70px 70px 70px 80px 1fr'
+  const fila = x => {
+    const rel = x.dif_pp != null && Math.abs(x.dif_pp) >= v.umbral_pp
+    const col = !rel ? 'var(--muted)' : x.dif_pp < 0 ? '#1D4ED8' : '#B91C1C'
+    const hist = x.piezas_historia ? plnFmt(x.piezas_historia, 0) + ' pzas' + (x.peso_propio < 0.5 ? ' · poca historia' : '') : 'sin historia (= planta)'
+    return '<div class="pn-combos-row" style="grid-template-columns:' + cols + (rel ? '' : ';opacity:.75') + '"><div class="mono">' + x.no_parte + '</div>'
+      + '<div class="pn-num">' + x.piezas_prog + '</div><div class="pn-num">' + plnFmt(x.kg_prog, 0) + '</div>'
+      + '<div class="pn-num">' + (x.pct_csc != null ? x.pct_csc + '%' : '—') + '</div><div class="pn-num">' + x.pct_torre + '%</div>'
+      + '<div class="pn-num" style="color:' + col + ';font-weight:' + (rel ? 700 : 400) + '">' + (x.dif_pp > 0 ? '+' : '') + x.dif_pp + '</div>'
+      + '<div class="pn-num" style="color:' + col + '">' + (x.kg_dif > 0 ? '+' : '') + plnFmt(x.kg_dif, 0) + '</div>'
+      + '<div style="font-size:10.5px;color:var(--muted)">' + hist + '</div></div>'
+  }
+  document.getElementById('pps-vs').innerHTML =
+    '<div class="pn-section-title">CSC vs Torre · por parte · semana ' + d.semana + '</div>'
+    + '<div style="font-size:12px;margin-bottom:6px">Semana completa: CSC espera <b>' + d.pct_esperado + '%</b>, la Torre <b>' + v.pct_torre_semana + '%</b> ('
+    + plnFmt(v.kg_rechazo_torre / 1000) + ' t). <b>' + v.n_partes_dif_relevante + '</b> de ' + v.partes.length + ' partes difieren ' + v.umbral_pp + ' puntos o más.'
+    + ' <span style="color:#B91C1C">Rojo</span> = la Torre espera más rechazo que CSC; <span style="color:#1D4ED8">azul</span> = espera menos.</div>'
+    + '<div class="pn-combos-wrap2" style="max-height:360px;overflow-y:auto">'
+    + '<div class="pn-combos-head" style="grid-template-columns:' + cols + ';position:sticky;top:0"><div>No. parte</div><div class="pn-num">Pzas</div><div class="pn-num">Kg prog.</div><div class="pn-num">% CSC</div><div class="pn-num">% Torre</div><div class="pn-num">Dif. pp</div><div class="pn-num">Kg dif.</div><div>Historia Torre (12 m)</div></div>'
+    + v.partes.map(fila).join('') + '</div>'
+    + '<div style="font-size:10.5px;color:var(--muted);margin-top:6px">Tasa Torre = rechazo real de la parte en 12 meses (sin jul–oct 2026, registro detenido) ajustado hacia el promedio de planta (' + v.tasa_planta_pct + '%) cuando tiene poca historia; misma tasa que Riesgo del Plan. Ordenado por kg de diferencia en la semana. Ambas tasas usan historia anterior al 9-jul: la diferencia indica dónde discrepan los métodos, no cuál acierta.</div>'
 }
 
 function plnPoblarSelectorMes(){

@@ -33,10 +33,12 @@ app = FastAPI(title="Torre de Control FASA", version="0.1.0")
 @app.on_event("startup")
 def _precalentar_itaca():
     # PC-3: el primer barrido de itaca_acqresults (sin índices) tarda ~20 s; se hace en un hilo
-    # al arrancar para que la primera vista de Control del Proceso no lo pague.
+    # al arrancar para que la primera vista de Control del Proceso no lo pague. Igual la tasa
+    # de la Torre del pronóstico semanal (~16 s en frío, 1 año de tickets).
     import threading
     hoy = datetime.now().date()
     threading.Thread(target=lambda: _itaca_copas(hoy - timedelta(days=3), hoy), daemon=True).start()
+    threading.Thread(target=_pronostico_semanal_router_module._tasas_torre, daemon=True).start()
 
 app.add_middleware(
     CORSMiddleware,
