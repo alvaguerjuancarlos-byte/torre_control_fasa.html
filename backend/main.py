@@ -36,11 +36,21 @@ def _precalentar_itaca():
     # al arrancar para que la primera vista de Control del Proceso no lo pague. Igual la tasa
     # de la Torre del pronóstico semanal (~16 s en frío, 1 año de tickets) y el vaciado real
     # del plan semanal (~30 s, ticketsconvaciadodirecto sin índice).
+    # En UN hilo y en secuencia, no en paralelo: es la BD de producción de FASA y lanzar los
+    # barridos a la vez la saturaba (cortes 2003/2013 durante pruebas del 2026-10-25).
     import threading
     hoy = datetime.now().date()
-    threading.Thread(target=lambda: _itaca_copas(hoy - timedelta(days=3), hoy), daemon=True).start()
-    threading.Thread(target=_pronostico_semanal_router_module._tasas_torre, daemon=True).start()
-    threading.Thread(target=_pronostico_semanal_router_module.precalentar_plan_semanal, daemon=True).start()
+
+    def _secuencia():
+        for paso in (lambda: _itaca_copas(hoy - timedelta(days=3), hoy),
+                     _pronostico_semanal_router_module._tasas_torre,
+                     _pronostico_semanal_router_module.precalentar_plan_semanal,
+                     _alfa_router_module.precalentar_alfa):
+            try:
+                paso()
+            except Exception:
+                pass  # un precalentado fallido solo hace más lenta la primera consulta
+    threading.Thread(target=_secuencia, daemon=True).start()
 
 app.add_middleware(
     CORSMiddleware,

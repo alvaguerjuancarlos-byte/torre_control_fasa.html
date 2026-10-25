@@ -15,9 +15,19 @@ Alfa ahora responde "¿vamos a cumplir la entrega de esta parte/cliente?" cruzan
 
 Incluye también Plan de Producción Mensual — comparte _referencia_actual_flujo
 con Alfa y estaban co-ubicados en el main.py original.
+
+MIGRACIÓN 2026-10-25 — conteos a piezas VACIADAS: betamega_08_ticketrutacritica casi dejó de
+registrar (solo ~9 % de lo vaciado desde el 12-oct aparece ahí; FHrDESM en cero desde la
+semana 40). Ritmo, clientes con actividad y partes de un cliente cuentan ahora piezas de
+betamega_00_ticketsconvaciadodirecto (completa). Ciclo molde→vaciado = FHrVaciado (vdir) −
+FHrMoldeo (betamega_aleks_idtickethistorial), unidos por ticket (mediana ~3.8 h en oct-2026).
+Vaciado→desmoldeo y desmoldeo→limpieza solo existen en betamega_08: se siguen calculando ahí
+pero con su muestra (n) a la vista y None si no alcanza UMBRAL_PIEZAS_RITMO_CONFIABLE --
+nunca un promedio de 3 piezas presentado como ciclo de planta.
 """
 
 import math
+import time
 from datetime import datetime, timedelta
 from typing import Optional
 from fastapi import APIRouter, HTTPException, Query
@@ -32,6 +42,52 @@ router = APIRouter(tags=["alfa"])
 # devolvía igual, sin aviso (ej. ritmo_diario_prom=0.4 por 1 pieza en 14 días se leía como
 # "va lento" cuando en realidad es "casi sin muestra").
 UMBRAL_PIEZAS_RITMO_CONFIABLE = 5
+
+# Ciclo molde→vaciado por ticket (vdir ⋈ aleks): el join tarda 10-45 s por mes (sin índices
+# útiles, BD de producción compartida). Caché por DÍA de vaciado: un día cerrado no cambia y
+# se guarda (tope _MV_MAX_DIAS); el día en curso se relee a los 30 min. Así el cuello de
+# botella (ventana + 4 ventanas de baseline) y el ritmo por parte reutilizan lo ya leído en
+# vez de volver a barrer la tabla en cada consulta.
+_MV_DIA: dict = {}
+_MV_TTL_HOY_SEG = 1800
+_MV_MAX_DIAS = 200
+
+
+def _molde_vaciado(desde_dt: datetime, hasta_dt: datetime) -> list:
+    """[(no_parte, horas molde→vaciado)] de piezas vaciadas en la ventana, transiciones 0-72 h."""
+    hoy = datetime.now().date()
+    dias = [desde_dt.date() + timedelta(days=i) for i in range((hasta_dt.date() - desde_dt.date()).days + 1)]
+    faltan = [d for d in dias if d not in _MV_DIA
+              or (d >= hoy and time.time() - _MV_DIA[d][0] > _MV_TTL_HOY_SEG)]
+    if faltan:
+        rows = run("""
+            SELECT TRIM(v.no_parte) AS no_parte, v.FHrVaciado AS ts,
+                   TIMESTAMPDIFF(MINUTE, a.FHrMoldeo, v.FHrVaciado) / 60.0 AS h
+            FROM betamega_00_ticketsconvaciadodirecto v
+            JOIN betamega_aleks_idtickethistorial a ON a.IdTicket = v.idTicket
+            WHERE v.FHrVaciado BETWEEN :d AND :h
+              AND TIMESTAMPDIFF(HOUR, a.FHrMoldeo, v.FHrVaciado) BETWEEN 0 AND 72
+        """, {"d": datetime.combine(min(faltan), datetime.min.time()),
+              "h": datetime.combine(max(faltan), datetime.max.time())})
+        por_dia: dict = {d: [] for d in faltan}
+        for r in rows:
+            if r["h"] is not None and r["ts"].date() in por_dia:
+                por_dia[r["ts"].date()].append((r["no_parte"], r["ts"], float(r["h"])))
+        for d, lst in por_dia.items():
+            _MV_DIA[d] = (time.time(), lst)
+        for d in sorted(_MV_DIA)[:-_MV_MAX_DIAS]:
+            _MV_DIA.pop(d, None)
+    return [(p, h) for d in dias for p, ts, h in _MV_DIA.get(d, (0, []))[1] if desde_dt <= ts <= hasta_dt]
+
+
+def precalentar_alfa():
+    """Llena la caché molde→vaciado para la ventana más usada (cuello de botella, 7 + 28 días)."""
+    ref = datetime.fromisoformat(_referencia_actual_flujo())
+    _molde_vaciado(ref - timedelta(days=35), ref)
+
+
+def _prom(vals: list) -> Optional[float]:
+    return round(sum(vals) / len(vals), 2) if len(vals) >= UMBRAL_PIEZAS_RITMO_CONFIABLE else None
 
 
 def _resolver_proceso_cliente(no_partes: list) -> dict:
@@ -52,19 +108,21 @@ def _resolver_proceso_cliente(no_partes: list) -> dict:
 
 @router.get("/api/alfa/clientes")
 def alfa_clientes(dias: int = Query(default=90, le=90)):
-    """Clientes con actividad de flujo real (betamega_08_ticketrutacritica) en los
-    últimos `dias` días (default 90), ordenados por piezas -- para el selector de
-    descubrimiento del tab Alfa (JC señaló que escribir el No_Parte a ciegas no era
-    usable). Tope de 90 días, mismo criterio que partes_de_cliente/evaluar."""
+    """Clientes con piezas vaciadas en los últimos `dias` días (default 90), ordenados
+    por piezas -- para el selector de descubrimiento del tab Alfa (JC señaló que escribir
+    el No_Parte a ciegas no era usable). Tope de 90 días, mismo criterio que
+    partes_de_cliente/evaluar."""
     referencia = _referencia_actual_flujo()
     ref_dt = datetime.fromisoformat(referencia)
     desde_dt = ref_dt - timedelta(days=dias)
     rows = run("""
-        SELECT c.Cliente AS cliente, COUNT(*) AS piezas
-        FROM betamega_08_ticketrutacritica r
-        JOIN corex_test.modelos m ON m.NoParte = r.No_Parte
+        SELECT c.Cliente AS cliente, SUM(v.n) AS piezas
+        FROM (SELECT TRIM(no_parte) AS no_parte, COUNT(*) AS n
+              FROM betamega_00_ticketsconvaciadodirecto
+              WHERE FHrVaciado BETWEEN :d AND :h GROUP BY TRIM(no_parte)) v
+        JOIN (SELECT NoParte, MAX(IdCliente) AS IdCliente FROM corex_test.modelos GROUP BY NoParte) m
+          ON m.NoParte = v.no_parte
         JOIN corex_test.clientes c ON c.IdCliente = m.IdCliente
-        WHERE r.FHrLIMP BETWEEN :d AND :h
         GROUP BY c.Cliente
         ORDER BY piezas DESC
     """, {"d": desde_dt, "h": ref_dt})
@@ -73,20 +131,24 @@ def alfa_clientes(dias: int = Query(default=90, le=90)):
 
 @router.get("/api/alfa/partes-cliente")
 def alfa_partes_cliente(cliente: str = Query(...), dias: int = Query(default=14, le=90)):
-    """Partes de un cliente con ritmo real reciente -- puebla la lista clickeable
+    """Partes de un cliente con piezas vaciadas recientes -- puebla la lista clickeable
     que reemplaza la búsqueda a ciegas por No_Parte."""
     referencia = _referencia_actual_flujo()
     ref_dt = datetime.fromisoformat(referencia)
     desde_dt = ref_dt - timedelta(days=dias)
     rows = run("""
-        SELECT r.No_Parte AS no_parte, NULLIF(m.area, '') AS proceso, COUNT(*) AS piezas
-        FROM betamega_08_ticketrutacritica r
-        JOIN corex_test.modelos m ON m.NoParte = r.No_Parte
+        SELECT v.no_parte, NULLIF(m.area, '') AS proceso, v.n AS piezas
+        FROM (SELECT TRIM(no_parte) AS no_parte, COUNT(*) AS n
+              FROM betamega_00_ticketsconvaciadodirecto
+              WHERE FHrVaciado BETWEEN :d AND :h GROUP BY TRIM(no_parte)) v
+        JOIN (SELECT NoParte, MAX(IdCliente) AS IdCliente, MAX(area) AS area
+              FROM corex_test.modelos GROUP BY NoParte) m ON m.NoParte = v.no_parte
         JOIN corex_test.clientes c ON c.IdCliente = m.IdCliente
-        WHERE c.Cliente = :cli AND r.FHrLIMP BETWEEN :d AND :h
-        GROUP BY r.No_Parte, m.area
+        WHERE c.Cliente = :cli
         ORDER BY piezas DESC
     """, {"cli": cliente, "d": desde_dt, "h": ref_dt})
+    # modelos.area vacío en ~60 % de lo producido: se completa con programa3dias (plan_corex)
+    procesos = plan_corex._proceso_partes([r["no_parte"] for r in rows if not r["proceso"]])
     return {
         "cliente": cliente,
         "dias": dias,
@@ -94,7 +156,7 @@ def alfa_partes_cliente(cliente: str = Query(...), dias: int = Query(default=14,
         "partes": [
             {
                 "no_parte": r["no_parte"],
-                "proceso": r["proceso"],
+                "proceso": r["proceso"] or procesos.get(r["no_parte"]),
                 "piezas": int(r["piezas"]),
                 "ritmo_diario_prom": round(int(r["piezas"]) / dias, 2),
             }
@@ -104,46 +166,50 @@ def alfa_partes_cliente(cliente: str = Query(...), dias: int = Query(default=14,
 
 
 def _ritmo_parte(no_parte: str, dias: int, referencia: str) -> dict:
-    """Ritmo real de una parte: piezas terminadas (FHrLIMP, equivalente a bLIMP=1)
-    por día en la ventana, y tiempo de ciclo real por etapa (promedio en horas,
-    filtrado a transiciones de 0-72h -- mismo criterio que ya usa PC-5 para
-    descartar timestamps con huecos de meses, que existen y son ~1-7% de los casos)."""
+    """Ritmo real de una parte: piezas VACIADAS por día en la ventana (ver MIGRACIÓN
+    2026-10-25 arriba), y tiempo de ciclo real por etapa (promedio en horas, transiciones
+    de 0-72 h -- mismo criterio que PC-5 para descartar timestamps con huecos de meses).
+    Cada etapa trae su muestra en ciclo_muestra; con menos de UMBRAL_PIEZAS_RITMO_CONFIABLE
+    el promedio sale None."""
     ref_dt = datetime.fromisoformat(referencia)
     desde_dt = ref_dt - timedelta(days=dias)
+    np_ = no_parte.strip()
 
     serie = run("""
-        SELECT DATE(FHrLIMP) AS dia, COUNT(*) AS piezas
-        FROM betamega_08_ticketrutacritica
-        WHERE No_Parte = :np AND FHrLIMP BETWEEN :d AND :h
-        GROUP BY DATE(FHrLIMP) ORDER BY dia
-    """, {"np": no_parte, "d": desde_dt, "h": ref_dt})
+        SELECT DATE(FHrVaciado) AS dia, COUNT(*) AS piezas
+        FROM betamega_00_ticketsconvaciadodirecto
+        WHERE TRIM(no_parte) = :np AND FHrVaciado BETWEEN :d AND :h
+        GROUP BY DATE(FHrVaciado) ORDER BY dia
+    """, {"np": np_, "d": desde_dt, "h": ref_dt})
     total = sum(int(r["piezas"]) for r in serie)
 
-    ciclo = run("""
+    mv = [h for p, h in _molde_vaciado(desde_dt, ref_dt) if p == np_]
+    # Etapas posteriores al vaciado: solo betamega_08 las registra (muestra chica, ver arriba)
+    b08 = run("""
         SELECT
-          ROUND(AVG(CASE WHEN TIMESTAMPDIFF(HOUR, FHrMOLD, FHrVACI) BETWEEN 0 AND 72
-                     THEN TIMESTAMPDIFF(MINUTE, FHrMOLD, FHrVACI)/60.0 END), 1) AS h_molde_vaciado,
-          ROUND(AVG(CASE WHEN TIMESTAMPDIFF(HOUR, FHrVACI, FHrDESM) BETWEEN 0 AND 72
-                     THEN TIMESTAMPDIFF(MINUTE, FHrVACI, FHrDESM)/60.0 END), 1) AS h_vaciado_desmoldeo,
-          ROUND(AVG(CASE WHEN TIMESTAMPDIFF(HOUR, FHrDESM, FHrLIMP) BETWEEN 0 AND 72
-                     THEN TIMESTAMPDIFF(MINUTE, FHrDESM, FHrLIMP)/60.0 END), 1) AS h_desmoldeo_limpieza
+          TIMESTAMPDIFF(MINUTE, FHrVACI, FHrDESM)/60.0 AS h_vd,
+          TIMESTAMPDIFF(MINUTE, FHrDESM, FHrLIMP)/60.0 AS h_dl
         FROM betamega_08_ticketrutacritica
-        WHERE No_Parte = :np AND FHrLIMP BETWEEN :d AND :h
+        WHERE No_Parte = :np AND (FHrDESM BETWEEN :d AND :h OR FHrLIMP BETWEEN :d AND :h)
     """, {"np": no_parte, "d": desde_dt, "h": ref_dt})
-    c = ciclo[0] if ciclo else {}
+    vd = [float(r["h_vd"]) for r in b08 if r["h_vd"] is not None and 0 <= float(r["h_vd"]) <= 72]
+    dl = [float(r["h_dl"]) for r in b08 if r["h_dl"] is not None and 0 <= float(r["h_dl"]) <= 72]
 
     return {
         "referencia": referencia,
         "dias": dias,
-        "serie_terminadas": [{"dia": str(r["dia"]), "piezas": int(r["piezas"])} for r in serie],
-        "total_terminadas": total,
+        "serie_vaciadas": [{"dia": str(r["dia"]), "piezas": int(r["piezas"])} for r in serie],
+        "total_vaciadas": total,
         "muestra_suficiente": total >= UMBRAL_PIEZAS_RITMO_CONFIABLE,
         "ritmo_diario_prom": round(total / dias, 2) if dias else None,
         "ciclo_horas": {
-            "molde_a_vaciado":     float(c["h_molde_vaciado"])     if c.get("h_molde_vaciado")     is not None else None,
-            "vaciado_a_desmoldeo": float(c["h_vaciado_desmoldeo"]) if c.get("h_vaciado_desmoldeo") is not None else None,
-            "desmoldeo_a_limpieza": float(c["h_desmoldeo_limpieza"]) if c.get("h_desmoldeo_limpieza") is not None else None,
+            "molde_a_vaciado":      _prom(mv),
+            "vaciado_a_desmoldeo":  _prom(vd),
+            "desmoldeo_a_limpieza": _prom(dl),
         },
+        "ciclo_muestra": {"molde_a_vaciado": len(mv), "vaciado_a_desmoldeo": len(vd), "desmoldeo_a_limpieza": len(dl)},
+        "nota_ciclo": "Desmoldeo y limpieza solo se registran en betamega_08_ticketrutacritica, que hoy "
+                      "captura ~9 % de las piezas; sin muestra suficiente salen sin dato.",
     }
 
 
@@ -179,6 +245,8 @@ def _saldo_pendiente_parte(no_parte: str) -> Optional[dict]:
 def alfa_evaluar(no_parte: str = Query(...), dias: int = Query(default=14, le=90)):
     referencia = _referencia_actual_flujo()
     pc = _resolver_proceso_cliente([no_parte]).get(no_parte, {})
+    if not pc.get("proceso"):  # modelos.area vacío: se completa con programa3dias (plan_corex)
+        pc = {**pc, "proceso": plan_corex._proceso_partes([no_parte]).get(no_parte)}
     ritmo = _ritmo_parte(no_parte, dias, referencia)
     saldo = _saldo_pendiente_parte(no_parte)
 
@@ -201,68 +269,88 @@ def alfa_evaluar(no_parte: str = Query(...), dias: int = Query(default=14, le=90
 
 
 _CUELLO_UMBRAL_RATIO = 1.3  # heurística inicial (reciente >= 1.3x el baseline) -- ajustar con el piso
+_CUELLO_MIN_MUESTRA = 20    # piezas por (proceso, etapa) en cada ventana para comparar promedios
 
 @router.get("/api/alfa/cuello-botella")
 def alfa_cuello_botella(dias: int = Query(default=7, le=30)):
     """Compara el tiempo de ciclo real reciente (últimos `dias`) contra un
     baseline de las 4 ventanas anteriores, por proceso (AF1/AF2/AF3) y etapa.
     Sin concepto de 'turno' todavía -- no hay horarios de turno definidos en
-    el código, queda pendiente si se quiere ese nivel de detalle."""
+    el código, queda pendiente si se quiere ese nivel de detalle.
+
+    2026-10-25: molde→vaciado sale de vdir ⋈ aleks (completa); vaciado→desmoldeo y
+    desmoldeo→limpieza de betamega_08 (~9 % de las piezas). Cada (proceso, etapa) exige
+    _CUELLO_MIN_MUESTRA piezas en las dos ventanas; si no, va a etapas_sin_dato en vez de
+    comparar dos promedios de 3 piezas. Proceso = plan_corex._proceso_partes (modelos.area
+    completado con programa3dias: modelos.area solo cubre ~38 % de lo producido)."""
     referencia = _referencia_actual_flujo()
     ref_dt = datetime.fromisoformat(referencia)
     reciente_desde = ref_dt - timedelta(days=dias)
     baseline_desde = reciente_desde - timedelta(days=dias * 4)
 
-    def _ciclo_por_proceso(desde_dt, hasta_dt):
-        rows = run("""
-            SELECT m.area AS proceso,
-                   ROUND(AVG(CASE WHEN TIMESTAMPDIFF(HOUR, r.FHrMOLD, r.FHrVACI) BETWEEN 0 AND 72
-                              THEN TIMESTAMPDIFF(MINUTE, r.FHrMOLD, r.FHrVACI)/60.0 END), 2) AS h_molde_vaciado,
-                   ROUND(AVG(CASE WHEN TIMESTAMPDIFF(HOUR, r.FHrVACI, r.FHrDESM) BETWEEN 0 AND 72
-                              THEN TIMESTAMPDIFF(MINUTE, r.FHrVACI, r.FHrDESM)/60.0 END), 2) AS h_vaciado_desmoldeo,
-                   ROUND(AVG(CASE WHEN TIMESTAMPDIFF(HOUR, r.FHrDESM, r.FHrLIMP) BETWEEN 0 AND 72
-                              THEN TIMESTAMPDIFF(MINUTE, r.FHrDESM, r.FHrLIMP)/60.0 END), 2) AS h_desmoldeo_limpieza,
-                   COUNT(*) AS n
-            FROM betamega_08_ticketrutacritica r
-            JOIN corex_test.modelos m ON m.NoParte = r.No_Parte
-            WHERE r.FHrLIMP BETWEEN :d AND :h AND m.area IN ('AF1','AF2','AF3')
-            GROUP BY m.area
+    def _muestras(desde_dt, hasta_dt) -> list:
+        """[(no_parte, etapa, horas)]"""
+        b08 = run("""
+            SELECT No_Parte AS no_parte,
+                   CASE WHEN FHrDESM BETWEEN :d AND :h THEN TIMESTAMPDIFF(MINUTE, FHrVACI, FHrDESM)/60.0 END AS h_vd,
+                   CASE WHEN FHrLIMP BETWEEN :d AND :h THEN TIMESTAMPDIFF(MINUTE, FHrDESM, FHrLIMP)/60.0 END AS h_dl
+            FROM betamega_08_ticketrutacritica
+            WHERE FHrDESM BETWEEN :d AND :h OR FHrLIMP BETWEEN :d AND :h
         """, {"d": desde_dt, "h": hasta_dt})
-        return {r["proceso"]: r for r in rows}
+        muestras = [(p, "molde_a_vaciado", h) for p, h in _molde_vaciado(desde_dt, hasta_dt)]
+        for r in b08:
+            for etapa, col in (("vaciado_a_desmoldeo", "h_vd"), ("desmoldeo_a_limpieza", "h_dl")):
+                if r[col] is not None and 0 <= float(r[col]) <= 72:
+                    muestras.append(((r["no_parte"] or "").strip(), etapa, float(r[col])))
+        return muestras
 
-    reciente = _ciclo_por_proceso(reciente_desde, ref_dt)
-    baseline = _ciclo_por_proceso(baseline_desde, reciente_desde)
+    m_rec, m_base = _muestras(reciente_desde, ref_dt), _muestras(baseline_desde, reciente_desde)
+    procesos = plan_corex._proceso_partes(sorted({p for p, _, _ in m_rec + m_base}))
 
-    etapas = [("molde_a_vaciado", "h_molde_vaciado"),
-              ("vaciado_a_desmoldeo", "h_vaciado_desmoldeo"),
-              ("desmoldeo_a_limpieza", "h_desmoldeo_limpieza")]
-    cuellos = []
-    procesos_sin_dato = []
+    def _por_proceso(muestras) -> dict:
+        """{(proceso, etapa): [horas]}"""
+        out: dict = {}
+        for p, etapa, h in muestras:
+            proc = procesos.get(p)
+            if proc in ("AF1", "AF2", "AF3"):
+                out.setdefault((proc, etapa), []).append(h)
+        return out
+
+    reciente, baseline = _por_proceso(m_rec), _por_proceso(m_base)
+
+    cuellos, etapas_sin_dato = [], []
     for proceso in ("AF1", "AF2", "AF3"):
-        r, b = reciente.get(proceso), baseline.get(proceso)
-        if not r or not b or not r.get("n"):
-            procesos_sin_dato.append(proceso)
-            continue
-        for etapa_label, col in etapas:
-            hr, hb = r.get(col), b.get(col)
-            if hr is None or hb is None or hb <= 0:
+        for etapa in ("molde_a_vaciado", "vaciado_a_desmoldeo", "desmoldeo_a_limpieza"):
+            r, b = reciente.get((proceso, etapa), []), baseline.get((proceso, etapa), [])
+            if len(r) < _CUELLO_MIN_MUESTRA or len(b) < _CUELLO_MIN_MUESTRA:
+                etapas_sin_dato.append({"proceso": proceso, "etapa": etapa,
+                                        "n_reciente": len(r), "n_baseline": len(b)})
                 continue
-            ratio = round(float(hr) / float(hb), 2)
+            hr, hb = sum(r) / len(r), sum(b) / len(b)
+            if hb <= 0:
+                continue
+            ratio = round(hr / hb, 2)
             if ratio >= _CUELLO_UMBRAL_RATIO:
                 cuellos.append({
-                    "proceso": proceso, "etapa": etapa_label,
-                    "horas_reciente": float(hr), "horas_baseline": float(hb),
-                    "ratio": ratio, "n_piezas_reciente": int(r["n"]),
+                    "proceso": proceso, "etapa": etapa,
+                    "horas_reciente": round(hr, 2), "horas_baseline": round(hb, 2),
+                    "ratio": ratio, "n_piezas_reciente": len(r),
                 })
     cuellos.sort(key=lambda x: -x["ratio"])
+    sin_dato_proc = [p for p in ("AF1", "AF2", "AF3")
+                     if sum(1 for e in etapas_sin_dato if e["proceso"] == p) == 3]
 
     return {
         "referencia": referencia,
         "dias": dias,
         "ventana_baseline_dias": dias * 4,
         "umbral_ratio": _CUELLO_UMBRAL_RATIO,
+        "min_muestra": _CUELLO_MIN_MUESTRA,
         "cuellos_de_botella": cuellos,
-        "procesos_sin_dato": procesos_sin_dato,
+        "procesos_sin_dato": sin_dato_proc,
+        "etapas_sin_dato": etapas_sin_dato,
+        "nota": "Molde→vaciado con todas las piezas vaciadas; desmoldeo y limpieza solo con lo que "
+                "registra betamega_08 (~9 % de las piezas desde oct-2026).",
     }
 
 
@@ -355,8 +443,7 @@ def _ritmo_real_partes_batch(no_partes: list, dias: int, referencia: str) -> dic
     produce -- en 14 días: 256 piezas de 14 partes contra 1,893 vaciadas de 123 partes en
     betamega_00_ticketsconvaciadodirecto (completa jul-oct). Con FHrLIMP casi todo el plan
     salía "sin ritmo" y los días estimados se inflaban ~7x. Vaciado es también el criterio del
-    plan semanal (routers/pronostico_semanal.py). _ritmo_parte() de Alfa sigue en FHrLIMP
-    porque además calcula ciclo por etapa; pendiente migrarlo aparte."""
+    plan semanal (routers/pronostico_semanal.py) y de _ritmo_parte() (ver MIGRACIÓN arriba)."""
     if not no_partes:
         return {}
     ref_dt = datetime.fromisoformat(referencia)

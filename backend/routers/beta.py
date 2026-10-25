@@ -125,8 +125,8 @@ def beta_riesgo_alto(limit: int = Query(default=20, le=200), dias: Optional[int]
     """Partes con criticidad histórica alta (2023+2025, fija -- ver PERIODO_CRITICIDAD).
     Sin `dias`: las más críticas de TODA la historia, sin importar si siguen en producción.
     Con `dias`: la misma tasa histórica, pero la LISTA se acota a partes con producción real
-    en los últimos `dias` días (mismo criterio/tabla que usa Alfa para ritmo,
-    betamega_08_ticketrutacritica.FHrLIMP) -- JC pidió esto 2026-10-03: el % de rechazo no
+    en los últimos `dias` días (mismo criterio/tabla que usa Alfa para ritmo: piezas vaciadas
+    de betamega_00_ticketsconvaciadodirecto desde 2026-10-25) -- JC pidió esto 2026-10-03: el % de rechazo no
     puede ser "del trimestre" (no existe esa granularidad en la fuente), pero SÍ tiene sentido
     que la lista solo muestre partes que de verdad se están fabricando ahora, no piezas
     descontinuadas que siguen apareciendo por su historial viejo."""
@@ -138,14 +138,16 @@ def beta_riesgo_alto(limit: int = Query(default=20, le=200), dias: Optional[int]
         referencia = _referencia_actual_flujo()
         ref_dt = datetime.fromisoformat(referencia)
         desde_dt = ref_dt - timedelta(days=dias)
+        # 2026-10-25: actividad = piezas VACIADAS (ticketsconvaciadodirecto), mismo cambio que
+        # Alfa -- betamega_08.FHrLIMP hoy registra ~1 de cada 7 piezas y dejaba ~14 partes activas.
         activas_row = run("""
-            SELECT COUNT(DISTINCT No_Parte) AS n FROM betamega_08_ticketrutacritica
-            WHERE FHrLIMP BETWEEN :d AND :h
+            SELECT COUNT(DISTINCT TRIM(no_parte)) AS n FROM betamega_00_ticketsconvaciadodirecto
+            WHERE FHrVaciado BETWEEN :d AND :h
         """, {"d": desde_dt, "h": ref_dt})
         n_partes_activas = int(activas_row[0]["n"]) if activas_row else 0
-        filtro_actividad = """AND No_Parte IN (
-            SELECT DISTINCT No_Parte FROM betamega_08_ticketrutacritica
-            WHERE FHrLIMP BETWEEN :d AND :h
+        filtro_actividad = """AND TRIM(No_Parte) IN (
+            SELECT DISTINCT TRIM(no_parte) FROM betamega_00_ticketsconvaciadodirecto
+            WHERE FHrVaciado BETWEEN :d AND :h
         )"""
         params["d"] = desde_dt
         params["h"] = ref_dt

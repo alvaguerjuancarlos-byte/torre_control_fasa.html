@@ -5510,7 +5510,7 @@ async function flPintarRiesgoBeta(piezas){
   <div id="af-cuellos"><div class="loading-msg">Cargando…</div></div>
 
   <div class="cr-foot" style="margin-top:24px">
-    <b>Ritmo:</b> piezas terminadas (FHrLIMP) por día en betamega_08_ticketrutacritica. <b>Ciclo real por etapa:</b> promedio
+    <b>Ritmo:</b> piezas vaciadas por día (betamega_00_ticketsconvaciadodirecto) — desde oct-2026 ya no piezas terminadas: betamega_08_ticketrutacritica registra ~1 de cada 7 piezas. <b>Ciclo real por etapa:</b> molde→vaciado con todas las piezas vaciadas (hora de moldeo de betamega_aleks_idtickethistorial); desmoldeo y limpieza solo con lo que registra betamega_08. Promedio
     en horas, filtrado a transiciones de 0-72h entre etapas consecutivas — hay huecos de meses en ~1-7% de
     los tickets (probable rezago de escaneo, no proceso real) que se descartan con el mismo criterio que ya
     usa PC-5. <b>Proceso/cliente:</b> corex_test.modelos.area + clientes — autoritativo, ~el 50% de los
@@ -5832,7 +5832,7 @@ async function afEvaluar(){
   result.innerHTML = '<div class="loading-msg">Evaluando…</div>'
   const d = await apiFetch('/api/alfa/evaluar?no_parte=' + encodeURIComponent(np) + '&dias=' + afDias(90))
   if (!d) { result.style.display = 'none'; result.innerHTML = ''; msg.textContent = 'Error consultando el agente.'; return }
-  if (!d.proceso && !d.cliente && d.ritmo.total_terminadas === 0) {
+  if (!d.proceso && !d.cliente && d.ritmo.total_vaciadas === 0) {
     result.style.display = 'none'; result.innerHTML = ''
     msg.textContent = 'Sin actividad de flujo registrada para esta parte.'
     return
@@ -5846,20 +5846,23 @@ function afRenderResultado(d){
     : '<span class="af-badge sin">Sin proceso asignado</span>'
   const clienteTxt = d.cliente || 'Cliente no resuelto'
 
-  const serie = d.ritmo.serie_terminadas
+  const serie = d.ritmo.serie_vaciadas
   const max = Math.max(1, ...serie.map(function(s){ return s.piezas }))
   const barsHtml = serie.length
     ? '<div class="af-bars">' + serie.map(function(s){
         return '<div class="af-bar" style="height:' + Math.max(2, s.piezas / max * 60) + 'px" title="' + s.dia + ': ' + s.piezas + ' piezas"></div>'
       }).join('') + '</div>'
-    : '<div class="loading-msg">Sin piezas terminadas en la ventana.</div>'
+    : '<div class="loading-msg">Sin piezas vaciadas en la ventana.</div>'
 
-  const c = d.ritmo.ciclo_horas
-  const statsHtml = '<div class="af-stats">'
-    + '<div class="af-stat"><div class="af-stat-label">Molde → Vaciado</div><div class="af-stat-val">' + (c.molde_a_vaciado != null ? c.molde_a_vaciado + ' h' : '—') + '</div></div>'
-    + '<div class="af-stat"><div class="af-stat-label">Vaciado → Desmoldeo</div><div class="af-stat-val">' + (c.vaciado_a_desmoldeo != null ? c.vaciado_a_desmoldeo + ' h' : '—') + '</div></div>'
-    + '<div class="af-stat"><div class="af-stat-label">Desmoldeo → Limpieza</div><div class="af-stat-val">' + (c.desmoldeo_a_limpieza != null ? c.desmoldeo_a_limpieza + ' h' : '—') + '</div></div>'
-    + '</div>'
+  const c = d.ritmo.ciclo_horas, cm = d.ritmo.ciclo_muestra || {}
+  // Cada etapa con su muestra: desmoldeo/limpieza solo los registra betamega_08 (~9 % de las piezas)
+  const etapa = function(lbl, k){
+    return '<div class="af-stat"><div class="af-stat-label">' + lbl + '</div><div class="af-stat-val">' + (c[k] != null ? c[k] + ' h' : 'sin dato') + '</div>'
+      + '<div style="font-size:10px;color:var(--muted)">' + (cm[k] != null ? cm[k] + ' piezas' : '') + '</div></div>'
+  }
+  const statsHtml = '<div class="af-stats">' + etapa('Molde → Vaciado', 'molde_a_vaciado')
+    + etapa('Vaciado → Desmoldeo', 'vaciado_a_desmoldeo') + etapa('Desmoldeo → Limpieza', 'desmoldeo_a_limpieza') + '</div>'
+    + (d.ritmo.nota_ciclo ? '<div class="af-periodo-nota">' + d.ritmo.nota_ciclo + '</div>' : '')
 
   let saldoHtml
   if (d.saldo_pendiente) {
@@ -5876,7 +5879,7 @@ function afRenderResultado(d){
   return '<div class="af-card">'
     + '<div class="af-head"><span class="af-parte">' + d.no_parte + '</span>' + procBadge + '</div>'
     + '<div class="af-meta">' + clienteTxt + '</div>'
-    + '<div class="af-section-title">Ritmo real · ' + d.ritmo.ritmo_diario_prom + ' piezas/día en promedio (' + d.ritmo.total_terminadas + ' en ' + d.ritmo.dias + ' días)</div>'
+    + '<div class="af-section-title">Ritmo real · ' + d.ritmo.ritmo_diario_prom + ' piezas vaciadas/día en promedio (' + d.ritmo.total_vaciadas + ' en ' + d.ritmo.dias + ' días)</div>'
     + '<div class="af-periodo-nota">Ventana: hasta ' + fmtDt(d.ritmo.referencia) + ' (último día con volumen real, no necesariamente "hoy")</div>'
     + barsHtml
     + '<div class="af-section-title">Tiempo de ciclo real por etapa</div>'
@@ -5887,9 +5890,14 @@ function afRenderResultado(d){
 }
 
 function _notaSinDato(d){
-  if (!d || !d.procesos_sin_dato || !d.procesos_sin_dato.length) return ''
-  return '<div class="af-periodo-nota">Sin datos suficientes en la ventana para evaluar: '
-    + d.procesos_sin_dato.join(', ') + ' — no significa que estén sanos, falta muestra.</div>'
+  if (!d || !d.etapas_sin_dato || !d.etapas_sin_dato.length) return ''
+  // Agrupado por etapa: desmoldeo/limpieza quedan sin muestra en los 3 procesos (betamega_08)
+  const ETQ = {molde_a_vaciado:'Molde → Vaciado', vaciado_a_desmoldeo:'Vaciado → Desmoldeo', desmoldeo_a_limpieza:'Desmoldeo → Limpieza'}
+  const porEtapa = {}
+  d.etapas_sin_dato.forEach(function(e){ (porEtapa[e.etapa] = porEtapa[e.etapa] || []).push(e.proceso) })
+  return '<div class="af-periodo-nota">Sin muestra suficiente (mín. ' + (d.min_muestra || 20) + ' piezas por ventana) para evaluar: '
+    + Object.keys(porEtapa).map(function(k){ return (ETQ[k] || k) + ' (' + porEtapa[k].join(', ') + ')' }).join(' · ')
+    + ' — no significa que estén sanos, falta muestra.' + (d.nota ? ' ' + d.nota : '') + '</div>'
 }
 
 async function afCargarCuellos(){

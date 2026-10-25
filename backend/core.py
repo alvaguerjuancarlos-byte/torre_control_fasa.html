@@ -903,7 +903,37 @@ def _referencia_actual_flujo() -> str:
     hasta hoy). Ancla en FHrVaciado, no en FechaInicial -- mismo motivo que
     _evaluar_coladas_ventana() arriba: el encabezado de colada de betamega_03
     (FechaInicial/Kilos/Status) está pegado en 2026-08-17 aunque el ticket-level
-    esté vivo."""
+    esté vivo.
+
+    2026-10-25: ancla en el último día con >= 5 piezas VACIADAS de
+    betamega_00_ticketsconvaciadodirecto (completa), porque Alfa, Beta y el seguimiento del plan
+    ya cuentan vaciadas -- y betamega_03 tiene el hueco de cobertura jul-oct. Se busca solo en
+    los últimos 30 días (0.7 s; un MAX() sobre toda la tabla, sin índice en FHrVaciado, tarda
+    ~12 s, y la consulta vieja sobre betamega_03 ~15 s). Si no hay vaciado reciente se usa la
+    lógica anterior. Caché de 10 min: la llaman todos los endpoints de Alfa/Beta/Plan y en frío
+    la BD de producción tarda hasta ~13 s en contestarla."""
+    hit = _REF_FLUJO_CACHE.get("ref")
+    if hit and time.time() - hit[0] < _REF_FLUJO_TTL_SEG:
+        return hit[1]
+    ref = _referencia_actual_flujo_bd()
+    _REF_FLUJO_CACHE["ref"] = (time.time(), ref)
+    return ref
+
+
+_REF_FLUJO_CACHE: Dict[str, tuple] = {}
+_REF_FLUJO_TTL_SEG = 600
+
+
+def _referencia_actual_flujo_bd() -> str:
+    dias = run("""
+        SELECT DATE(FHrVaciado) AS dia, COUNT(*) AS n, MAX(FHrVaciado) AS mx
+        FROM betamega_00_ticketsconvaciadodirecto
+        WHERE FHrVaciado >= NOW() - INTERVAL 30 DAY
+        GROUP BY DATE(FHrVaciado)
+    """, {})
+    densos = [d["mx"] for d in dias if int(d["n"] or 0) >= 5 and d["mx"]]
+    if densos:
+        return max(densos).strftime("%Y-%m-%dT%H:%M")
     row = run("""
         SELECT MAX(b.FHrVaciado) AS mx FROM betamega_03_coladasproceso b
         JOIN (

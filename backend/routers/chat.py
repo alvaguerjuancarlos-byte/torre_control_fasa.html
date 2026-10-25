@@ -38,7 +38,7 @@ HORIZONTES = {
 def evaluar_parte(no_parte: str, dias: int = 14) -> str:
     """Ritmo real, ciclo por etapa, proceso/cliente y proyección de entrega para una parte.
     Trae "muestra_suficiente" (bool) -- si viene false, la pieza/ventana tiene muy pocas
-    piezas terminadas para ser representativa: dilo y recomienda ampliar el horizonte
+    piezas vaciadas para ser representativa: dilo y recomienda ampliar el horizonte
     (mes->trimestre->semestre->año), y si el horizonte pedido no era ya el máximo, considera
     volver a llamar esta misma tool con un `dias` mayor en el mismo turno. TOPE TÉCNICO: 90
     días -- si el horizonte seleccionado pide más (semestre/año), usa dias=90 y acláralo.
