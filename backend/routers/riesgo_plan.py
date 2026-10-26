@@ -75,7 +75,7 @@ def riesgo_plan(
     partes = [f["parte"] for f in filas_plan]
 
     # ── Tasa shrunk por parte (misma ventana/lógica que /v2/gestion/riesgo-partes) ──
-    hasta = datetime.utcnow().date()
+    hasta = datetime.now().date()  # local: utcnow() da mañana después de las 18:00
     desde = date(hasta.year, hasta.month, 1)
     for _ in range(ventana):
         desde = date(desde.year - 1, 12, 1) if desde.month == 1 else date(desde.year, desde.month - 1, 1)

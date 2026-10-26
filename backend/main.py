@@ -3535,7 +3535,7 @@ def v2_pedidos_lista(
     """
     if not hasta:
         row = run("SELECT MAX(fecha) AS mx FROM piso_ia.fdbase", {})
-        hasta_dt = row[0]["mx"] if row and row[0]["mx"] else datetime.utcnow().date()
+        hasta_dt = row[0]["mx"] if row and row[0]["mx"] else datetime.now().date()
     else:
         hasta_dt = datetime.fromisoformat(hasta).date()
     desde_dt = datetime.fromisoformat(desde).date() if desde else hasta_dt - timedelta(days=90)

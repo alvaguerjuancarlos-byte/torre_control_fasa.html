@@ -199,7 +199,7 @@ CARRILES: List[CarrilControl] = [
 def evaluar_pc7(pct_ci, inicio_fusion, id_colada: int) -> dict:
     """PC-7: cierre en tiempo. Verde si ≥95% bLIMP; sino evalúa días transcurridos."""
     pc7 = next(c for c in CARRILES if c.id_pc == "PC-7")
-    now = datetime.utcnow()
+    now = datetime.now()  # hora local, como las fechas de la BD (ver evaluar_carril)
     key = ("PC-7", id_colada)
 
     def _base(estado, motivo=None, dias=None):
@@ -244,7 +244,10 @@ def evaluar_carril(
     id_colada: int,
     motivo_sin_dato: Optional[str] = None,
 ) -> dict:
-    now = datetime.utcnow()
+    # Hora LOCAL, no utcnow(): la BD guarda hora de Ciudad de México sin zona (system_time_zone
+    # America/Mexico_City) y los ts de detección vienen de ahí. Con utcnow() cada latencia
+    # salía 6 h inflada (corregido 2026-10-26).
+    now = datetime.now()
     key = (carril.id_pc, id_colada)
 
     def _gris(motivo: str, valor=None):
