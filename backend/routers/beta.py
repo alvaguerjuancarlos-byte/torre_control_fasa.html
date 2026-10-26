@@ -21,7 +21,7 @@ from typing import Optional
 from fastapi import APIRouter, Query
 
 from backend.core import (run, _evaluar_coladas_ventana, _buscar_protocolos, _REDISENO_COMBOS,
-                          _referencia_actual_flujo, UMBRAL_PIEZAS_MES_CONFIABLE)
+                          _referencia_actual_flujo, UMBRAL_PIEZAS_MES_CONFIABLE, piezas_de_coladas)
 
 router = APIRouter(prefix="/api/beta", tags=["beta"])
 
@@ -254,19 +254,19 @@ def beta_criticas(
     if not rojas_pc6:
         return {"referencia": referencia, "horas": horas, "n_criticas": 0, "criticas": []}
 
-    # Defecto dominante desde betamega_03 por c_IdColada (id real). Antes cscmega_01 por
-    # u_Colada: congelada, borrada por IT en 2026-10, y u_Colada se recicla.
-    id_str = ",".join(str(int(c["id_colada"])) for c in rojas_pc6)
-    rows = run(f"""
-        SELECT c_IdColada AS id_colada, nomDefecto, No_Parte, COUNT(*) AS n
-        FROM betamega_03_coladasproceso
-        WHERE c_IdColada IN ({id_str}) AND bRechazo = 1 AND nomDefecto IS NOT NULL
-        GROUP BY c_IdColada, nomDefecto, No_Parte
-        ORDER BY c_IdColada, n DESC
-    """, {})
+    # Defecto dominante por IdColada sobre las mismas piezas que califican PC-6
+    # (core.piezas_de_coladas: aleks + betamega_01). Antes betamega_03, con el hueco jul-oct;
+    # antes cscmega_01 por u_Colada, borrada por IT en 2026-10 (y u_Colada se recicla).
     top_idx = {}
-    for r in rows:
-        top_idx.setdefault(r["id_colada"], {"defecto": r["nomDefecto"], "no_parte": r["No_Parte"]})
+    for cid, piezas in piezas_de_coladas([c["id_colada"] for c in rojas_pc6]).items():
+        combos = {}
+        for p in piezas:
+            if p["bRechazo"] and p["nomDefecto"]:
+                k = (p["nomDefecto"], p["no_parte"])
+                combos[k] = combos.get(k, 0) + 1
+        if combos:
+            defecto, no_parte = max(combos, key=combos.get)
+            top_idx[cid] = {"defecto": defecto, "no_parte": no_parte}
 
     partes = list({v["no_parte"] for v in top_idx.values() if v["no_parte"]})
     riesgo_map = _riesgo_lote_partes(partes)

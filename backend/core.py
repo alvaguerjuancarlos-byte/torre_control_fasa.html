@@ -17,6 +17,8 @@ aquí, nunca al revés (evita import circular).
 """
 
 import os
+import re
+import threading
 import time
 from pathlib import Path
 from datetime import datetime, timedelta
@@ -240,6 +242,7 @@ def evaluar_carril(
     señal_valor: Optional[float],
     ts_señal,           # datetime | str | None
     id_colada: int,
+    motivo_sin_dato: Optional[str] = None,
 ) -> dict:
     now = datetime.utcnow()
     key = (carril.id_pc, id_colada)
@@ -262,7 +265,7 @@ def evaluar_carril(
     if carril.disponibilidad != "activo":
         return _gris(MOTIVOS_GRIS.get(carril.disponibilidad, carril.disponibilidad))
     if señal_valor is None:
-        return _gris("sin dato en el período evaluado")
+        return _gris(motivo_sin_dato or "sin dato en el período evaluado")
     if carril.ventana_de_control is None:
         return _gris("ventana de control no definida por Calidad", valor=señal_valor)
 
@@ -539,263 +542,516 @@ def evaluar_quimica(q: dict) -> dict:
     return out
 
 
-def _evaluar_coladas_ventana(referencia: str, horas: int) -> list:
-    """
-    Evalúa los 7 carriles (PC-1..PC-7) para cada colada en la ventana [referencia-horas, referencia].
-    Compartida por /v3/gestion/coladas, /v3/gestion/alertas y /api/beta/criticas para
-    que los tres usen exactamente la misma lógica de evaluación (evita que diverjan).
+# ══════════════════════════════════════════════════════════════════════════════
+# COLADAS DESDE FUENTES COMPLETAS (2026-10-26)
+# ══════════════════════════════════════════════════════════════════════════════
+# Control del Proceso armaba la lista de coladas y casi todos sus PCs sobre
+# betamega_03_coladasproceso, que desde jul-2026 trae ~1 % de los tickets (ticketsorigen
+# sin liga a vaciado, auditoría 13-oct): ago-oct salían ~20 coladas al mes contra ~700
+# reales. Ahora:
+#   - Colada y sus piezas: betamega_aleks_idtickethistorial (ticket -> IdColada, completa;
+#     mismo conteo de piezas que b03 en 168/188 coladas de may-2026, en el resto aleks trae
+#     más) + hora de vaciado de betamega_00_ticketsconvaciadodirecto.
+#   - Encabezado (fusión, kilos, horno): betamega_00_coladaprocesodemoras. Su Horno124 es la
+#     misma numeración (1/2/4) que vdir.Horno y que el Note del espectrómetro (su Horno no:
+#     1/2/3). La colada entra a la ventana por FechaLiberado; sin fila en demoras (hueco
+#     18-ago -> 29-sep) por su primer vaciado.
+#   - PC-2: análisis FINAL ligado por el Note del SpectroMAX, ver quimica_por_coladas().
+#   - PC-4/5/6/7 siguen en las únicas fuentes que existen (b06 temperatura, b08 desmoldeo y
+#     limpieza, b01 rechazo), pero solo califican si cubren al menos COBERTURA_MIN_PCT de las
+#     piezas de la colada; si no, GRIS con la muestra a la vista. Un color calculado con 1 de
+#     7 piezas no representa a la colada.
+#   - PC-6 además queda GRIS en meses de rechazo no confiable (meses_rechazo_no_confiables):
+#     bRechazo=0 ahí no significa "sin rechazo".
+COBERTURA_MIN_PCT = 50.0
 
-    MIGRACIÓN (2026-09-23): fuente cambiada de cscmega_03coladacargametalica/
-    cscmega_01rechazosbyidticket/cscmega_08ruta (las 3 congeladas desde 2025-12-29/
-    dic-2025) a betamega_03_coladasproceso/betamega_08_ticketrutacritica (vivas hasta
-    hoy). betamega_03 ya trae idTicket+bRechazo+No_Parte en la misma fila (a diferencia
-    de cscmega_03+cscmega_01 que requerían join), así que ya no hace falta la tabla de
-    rechazo aparte -- solo betamega_08 para las columnas de etapa (bMOLD/bVACI/bDESM/bLIMP).
+_NOCONF_CACHE: Dict[Tuple[str, str], tuple] = {}
+_NOCONF_TTL_SEG = 3600
 
-    Detalle importante: betamega_03 tiene dos partes con distinta frescura -- los campos
-    de TICKET (idTicket, FHrVaciado, bRechazo, No_Parte) están vivos hasta hoy, pero los
-    de ENCABEZADO DE COLADA (Kilos, Status, FechaInicial, FechaLiberado) dependen de otra
-    tabla fuente que se quedó pegada en 2026-08-17 -- para coladas más recientes que esa
-    fecha esos 4 campos salen NULL. Por eso la ventana se ancla en FHrVaciado (vivo), no
-    en FechaInicial, y inicio_fusion/fin_fusion caen a MIN/MAX(FHrVaciado) cuando
-    FechaInicial/FechaLiberado son NULL (aproximación pedida por JC, sin marcarla aparte
-    en la UI -- ver conversación 2026-09-23).
 
-    Las llaves de los índices por colada (rec_idx/cierre_idx/molde5_idx/etapa_idx/sku_idx)
-    se cambiaron de u_Colada a id_colada (c_IdColada): u_Colada es un consecutivo que se
-    recicla (ver nota de Tonelaje en 2026-09-06), c_IdColada es el identificador real único
-    y betamega_03 lo trae en cada fila -- evita el riesgo de mezclar dos coladas reales que
-    compartan número de colada dentro de la misma ventana.
-    """
-    ref_dt = datetime.fromisoformat(referencia)
-    desde_dt = ref_dt - timedelta(hours=horas)
-    d = desde_dt.strftime("%Y-%m-%d %H:%M:%S")
-    h = ref_dt.strftime("%Y-%m-%d %H:%M:%S")
+def meses_no_confiables_cache(d: str, h: str) -> set:
+    """meses_rechazo_no_confiables() de los meses que toca [d, h], con caché de 1 h (~3 s en frío)."""
+    k = (d[:7], h[:7])
+    hit = _NOCONF_CACHE.get(k)
+    if hit and time.time() - hit[0] < _NOCONF_TTL_SEG:
+        return hit[1]
+    meses = set(meses_rechazo_no_confiables(d[:7] + "-01 00:00:00", h))
+    _NOCONF_CACHE[k] = (time.time(), meses)
+    return meses
 
-    coladas = run("""
-        SELECT c_IdColada AS id_colada,
-               MAX(Colada) AS u_colada,
-               MAX(Horno)  AS horno,
-               COALESCE(MIN(FechaInicial), MIN(FHrVaciado))  AS inicio_fusion,
-               COALESCE(MAX(FechaLiberado), MAX(FHrVaciado)) AS fin_fusion,
-               MAX(Kilos)  AS kilos,
-               MAX(Status) AS status
-        FROM betamega_03_coladasproceso
-        WHERE FHrVaciado BETWEEN :d AND :h
-          AND c_IdColada > 0
-        GROUP BY c_IdColada
-        ORDER BY COALESCE(MIN(FechaInicial), MIN(FHrVaciado)) DESC
-        LIMIT 60
+
+def _pct(a, b):
+    return round(a / b * 100.0, 1) if b else None
+
+
+def _ids_sql(ids) -> str:
+    return ",".join(str(int(i)) for i in ids) or "0"
+
+
+def coladas_en_ventana(d: str, h: str, limite: int = 60) -> list:
+    """Coladas liberadas en [d, h] (o, sin fila en demoras, con primer vaciado en [d, h]), más recientes primero."""
+    vac = run("""
+        SELECT a.IdColada AS id, MIN(v.FHrVaciado) AS vac_ini, MAX(v.FHrVaciado) AS vac_fin,
+               MAX(v.Horno) AS horno, MAX(v.Colada) AS u_colada
+        FROM betamega_00_ticketsconvaciadodirecto v
+        JOIN betamega_aleks_idtickethistorial a ON a.IdTicket = v.idTicket
+        WHERE v.FHrVaciado BETWEEN :d AND :h AND a.IdColada > 0
+        GROUP BY a.IdColada
     """, {"d": d, "h": h})
-
-    if not coladas:
+    lib = run("""
+        SELECT idColada FROM betamega_00_coladaprocesodemoras
+        WHERE FechaLiberado BETWEEN :d AND :h AND idColada > 0
+    """, {"d": d, "h": h})
+    ids = {r["id"] for r in vac} | {r["idColada"] for r in lib}
+    if not ids:
         return []
+    dem = {r["idColada"]: r for r in run(f"""
+        SELECT idColada, Colada, Horno124, Kilos, Status, FechaInicial, FechaLiberado
+        FROM betamega_00_coladaprocesodemoras WHERE idColada IN ({_ids_sql(ids)})
+    """, {})}
+    vac_idx = {r["id"]: r for r in vac}
+    dt_d, dt_h = datetime.fromisoformat(d), datetime.fromisoformat(h)
+    out = []
+    for cid in ids:
+        dm, vc = dem.get(cid) or {}, vac_idx.get(cid) or {}
+        ancla = dm.get("FechaLiberado") or vc.get("vac_ini")
+        if ancla is None or not (dt_d <= ancla <= dt_h):
+            continue
+        out.append({
+            "id_colada": cid,
+            "u_colada": dm.get("Colada") or vc.get("u_colada"),
+            "horno": dm.get("Horno124") or vc.get("horno"),
+            "inicio_fusion": dm.get("FechaInicial") or vc.get("vac_ini"),
+            "fin_fusion": dm.get("FechaLiberado") or vc.get("vac_fin"),
+            "kilos": dm.get("Kilos"),
+            "status": dm.get("Status"),
+        })
+    out.sort(key=lambda c: c["inicio_fusion"], reverse=True)
+    return out[:limite]
 
-    id_list = ",".join(str(c["id_colada"]) for c in coladas if c["id_colada"]) or "0"
-    u_list = ",".join(str(c["u_colada"]) for c in coladas if c["u_colada"]) or "0"
 
-    rec_raw = run(f"""
-        SELECT c_IdColada AS id_colada,
-               COUNT(*) AS total,
-               SUM(bRechazo) AS rechazos,
-               ROUND(AVG(bRechazo)*100, 1) AS pct_rechazo,
-               MAX(FHrVaciado) AS ts_ultimo
-        FROM betamega_03_coladasproceso
-        WHERE c_IdColada IN ({id_list})
-        GROUP BY c_IdColada
+def colada_por_id(id_colada: int) -> Optional[dict]:
+    """Encabezado de una colada (mismo formato que coladas_en_ventana) por IdColada."""
+    dm = run("""
+        SELECT idColada, Colada, Horno124, Kilos, Status, FechaInicial, FechaLiberado
+        FROM betamega_00_coladaprocesodemoras WHERE idColada = :id LIMIT 1
+    """, {"id": id_colada})
+    dm = dm[0] if dm else {}
+    vc = run("""
+        SELECT MIN(v.FHrVaciado) AS vac_ini, MAX(v.FHrVaciado) AS vac_fin,
+               MAX(v.Horno) AS horno, MAX(v.Colada) AS u_colada, COUNT(a.IdTicket) AS n
+        FROM betamega_aleks_idtickethistorial a
+        LEFT JOIN betamega_00_ticketsconvaciadodirecto v ON v.idTicket = a.IdTicket
+        WHERE a.IdColada = :id
+    """, {"id": id_colada})
+    vc = vc[0] if vc and vc[0].get("n") else {}
+    if not dm and not vc:
+        return None
+    return {
+        "id_colada": id_colada,
+        "u_colada": dm.get("Colada") or vc.get("u_colada"),
+        "horno": dm.get("Horno124") or vc.get("horno"),
+        "inicio_fusion": dm.get("FechaInicial") or vc.get("vac_ini"),
+        "fin_fusion": dm.get("FechaLiberado") or vc.get("vac_fin"),
+        "kilos": dm.get("Kilos"),
+        "status": dm.get("Status"),
+    }
+
+
+def piezas_de_coladas(ids: list) -> Dict[int, list]:
+    """Piezas (tickets) por IdColada con su vaciado, rechazo (b01) y ruta (b08); en_b01/en_b08 marcan si la fila existe."""
+    ids = [int(i) for i in ids if i]
+    if not ids:
+        return {}
+    tk = run(f"""
+        SELECT IdTicket, IdColada, IdClase, TRIM(no_parte) AS no_parte
+        FROM betamega_aleks_idtickethistorial WHERE IdColada IN ({_ids_sql(ids)})
     """, {})
-    rec_idx = {r["id_colada"]: r for r in rec_raw}
+    if not tk:
+        return {}
+    tl = ",".join("'" + str(t["IdTicket"]).replace("'", "") + "'" for t in tk)
+    vac = {r["idTicket"]: r["FHrVaciado"] for r in run(f"""
+        SELECT idTicket, FHrVaciado FROM betamega_00_ticketsconvaciadodirecto WHERE idTicket IN ({tl})
+    """, {})}
+    rec = {r["idTicket"]: r for r in run(f"""
+        SELECT idTicket, bRechazo, nomDefecto FROM betamega_01_rechazosbyidticket WHERE idTicket IN ({tl})
+    """, {})}
+    ruta = {r["idTicket"]: r for r in run(f"""
+        SELECT idTicket, bMOLD, bVACI, bDESM, bLIMP, FHrMOLD, FHrDESM, FHrLIMP
+        FROM betamega_08_ticketrutacritica WHERE idTicket IN ({tl})
+    """, {})}
+    out: Dict[int, list] = {}
+    for t in tk:
+        k = t["IdTicket"]
+        r, ru = rec.get(k), ruta.get(k)
+        out.setdefault(t["IdColada"], []).append({
+            "idTicket": k, "no_parte": t["no_parte"] or "—", "id_clase": t["IdClase"],
+            "ts_vaciado": vac.get(k),
+            "en_b01": r is not None,
+            "bRechazo": int(r["bRechazo"] or 0) if r else 0,
+            "nomDefecto": r["nomDefecto"] if r else None,
+            "en_b08": ru is not None,
+            **{c: int((ru or {}).get(c) or 0) for c in ("bMOLD", "bVACI", "bDESM", "bLIMP")},
+            **{c: (ru or {}).get(c) for c in ("FHrMOLD", "FHrDESM", "FHrLIMP")},
+        })
+    return out
 
-    cierre_raw = run(f"""
-        SELECT b3.c_IdColada AS id_colada,
-               COUNT(*) AS total,
-               SUM(b8.bLIMP) AS terminadas,
-               ROUND(SUM(b8.bLIMP)/COUNT(*)*100, 1) AS pct_cierre
-        FROM betamega_03_coladasproceso b3
-        JOIN betamega_08_ticketrutacritica b8 ON b8.idTicket = b3.idTicket
-        WHERE b3.c_IdColada IN ({id_list})
-        GROUP BY b3.c_IdColada
-    """, {})
-    cierre_idx = {r["id_colada"]: r for r in cierre_raw}
-    temp_raw = run(f"""
-        SELECT c_IdColada,
-               COUNT(*) AS n_tickets,
+
+def tiempo_desmoldeo_partes(partes) -> Dict[str, float]:
+    """TiempoDesmoldeo (h) por No. Parte, del modelo más reciente en corex_test.modelos que lo tenga."""
+    partes = sorted({p for p in partes if p and p != "—"})
+    if not partes:
+        return {}
+    params = {f"p{i}": p for i, p in enumerate(partes)}
+    rows = run(f"""
+        SELECT TRIM(m.NoParte) AS no_parte, m.TiempoDesmoldeo AS td
+        FROM corex_test.modelos m
+        JOIN (SELECT NoParte, MAX(IdModelo) AS IdModelo FROM corex_test.modelos
+              WHERE TiempoDesmoldeo > 0 GROUP BY NoParte) best ON best.IdModelo = m.IdModelo
+        WHERE TRIM(m.NoParte) IN ({",".join(":" + k for k in params)})
+    """, params)
+    return {r["no_parte"]: float(r["td"]) for r in rows}
+
+
+def temperatura_por_coladas(ids: list) -> Dict[int, dict]:
+    """PC-4: tickets con temperatura de vaciado (betamega_06) por colada."""
+    ids = [int(i) for i in ids if i]
+    if not ids:
+        return {}
+    return {r["id_colada"]: r for r in run(f"""
+        SELECT c_IdColada AS id_colada, COUNT(*) AS n_tickets,
                SUM(bCumplimientoTemperaturaOk) AS n_ok,
                ROUND(AVG(CASE WHEN vt_TemperaturaVaciado BETWEEN 1100 AND 1600
                          THEN vt_TemperaturaVaciado END)) AS temp_avg,
+               MIN(m_tmin) AS tmin, MAX(m_tmax) AS tmax,
                MIN(FHrVaciado) AS ts_primer_vaci
         FROM betamega_06_vaciado
-        WHERE c_IdColada IN ({id_list})
-          AND vt_TemperaturaVaciado IS NOT NULL
-          AND vt_TemperaturaVaciado > 0
+        WHERE c_IdColada IN ({_ids_sql(ids)})
+          AND vt_TemperaturaVaciado IS NOT NULL AND vt_TemperaturaVaciado > 0
         GROUP BY c_IdColada
-    """, {})
-    temp_idx = {t["c_IdColada"]: t for t in temp_raw}
+    """, {})}
 
-    # PC-2: batch química -- misma cadena viva que /v3/gestion/colada/{id}/carriles
-    # (migrada 2026-10-01). cscmega_05aquimicoscumplimiento, la fuente vieja, fue borrada
-    # de ia_fasa por IT (detectado 2026-10-10). Se toma el análisis más reciente por colada,
-    # igual que el detalle, para que lista y detalle den el mismo color.
-    quim_batch = run(f"""
-        SELECT rb.c_IdColada AS id_colada, {QUIM_SELECT_SQL}
-        FROM betamega_03_coladasproceso rb
-        JOIN betamega_02_pks_idticketsidmuestras pm ON pm.IdTicket = rb.idTicket
-        JOIN corex_test.vistaanalisisquimicoparaitaca v ON v.AnalysisNum = pm.IdAnalisisQuimico
-        JOIN corex_test.clases cl ON cl.IdClase = rb.cm_idClase
-        WHERE rb.c_IdColada IN ({id_list}) AND pm.IdAnalisisQuimico IS NOT NULL
-    """, {})
-    quim_idx = {}
-    for q in quim_batch:
-        prev = quim_idx.get(q["id_colada"])
-        if prev is None or (q["AnalysisTime"] and (not prev["AnalysisTime"] or q["AnalysisTime"] > prev["AnalysisTime"])):
-            quim_idx[q["id_colada"]] = q
 
-    # PC-5 batch: tiempo en molde vs TiempoDesmoldeo por NoParte
-    molde5_batch = run(f"""
-        SELECT b3.c_IdColada AS id_colada,
-               SUM(CASE WHEN b8.FHrMOLD IS NOT NULL AND b8.FHrDESM IS NOT NULL
-                        AND m.TiempoDesmoldeo > 0
-                   THEN 1 ELSE 0 END) AS con_umbral,
-               SUM(CASE WHEN b8.FHrMOLD IS NOT NULL AND b8.FHrDESM IS NOT NULL
-                        AND m.TiempoDesmoldeo > 0
-                        AND TIMESTAMPDIFF(MINUTE, b8.FHrMOLD, b8.FHrDESM) / 60.0 >= m.TiempoDesmoldeo
-                   THEN 1 ELSE 0 END) AS cumple
-        FROM betamega_03_coladasproceso b3
-        JOIN betamega_08_ticketrutacritica b8 ON b8.idTicket = b3.idTicket
-        LEFT JOIN (
-            SELECT NoParte, MAX(IdModelo) AS IdModelo
-            FROM corex_test.modelos WHERE TiempoDesmoldeo > 0 GROUP BY NoParte
-        ) best ON best.NoParte = b8.No_Parte
-        LEFT JOIN corex_test.modelos m ON m.IdModelo = best.IdModelo
-        WHERE b3.c_IdColada IN ({id_list})
-          AND (b8.FHrMOLD IS NULL OR b8.FHrDESM IS NULL
-               OR TIMESTAMPDIFF(HOUR, b8.FHrMOLD, b8.FHrDESM) BETWEEN 0 AND 72)
-        GROUP BY b3.c_IdColada
-    """, {})
-    molde5_idx = {r["id_colada"]: r for r in molde5_batch}
+def resumen_piezas(piezas: list, td_parte: Dict[str, float]) -> dict:
+    """Métricas por colada a partir de piezas_de_coladas(): rechazo (PC-6), desmoldeo (PC-5),
+    cierre (PC-7), etapa, SKUs. Cada métrica trae su base (piezas con la fila fuente)."""
+    n = len(piezas)
+    b01 = [p for p in piezas if p["en_b01"]]
+    b08 = [p for p in piezas if p["en_b08"]]
+    rech = sum(p["bRechazo"] for p in b01)
+    combos: Dict[tuple, int] = {}
+    for p in b01:
+        if p["bRechazo"] and p["nomDefecto"]:
+            k = (p["nomDefecto"], p["no_parte"])
+            combos[k] = combos.get(k, 0) + 1
+    tiempos = []
+    for p in b08:
+        if p["FHrMOLD"] and p["FHrDESM"]:
+            hrs = (p["FHrDESM"] - p["FHrMOLD"]).total_seconds() / 3600.0
+            if 0 <= hrs <= 72:
+                tiempos.append((hrs, td_parte.get(p["no_parte"])))
+    con_umbral = [(x, td) for x, td in tiempos if td]
+    cumple = sum(1 for x, td in con_umbral if x >= td)
+    terminadas = sum(p["bLIMP"] for p in b08)
+    skus: Dict[str, dict] = {}
+    for p in piezas:
+        s = skus.setdefault(p["no_parte"], {"sku": p["no_parte"], "total": 0, "rechazos": 0})
+        s["total"] += 1
+        s["rechazos"] += p["bRechazo"]
+    ts_vac = [p["ts_vaciado"] for p in piezas if p["ts_vaciado"]]
+    ts_limp = [p["FHrLIMP"] for p in b08 if p["FHrLIMP"]]
+    return {
+        "piezas": n,
+        "vaciadas": len(ts_vac),
+        "ts_primer_vaciado": min(ts_vac) if ts_vac else None,
+        "ts_ultimo_vaciado": max(ts_vac) if ts_vac else None,
+        "n_rechazo": len(b01),
+        "rechazos": rech, "pct_rechazo": _pct(rech, len(b01)),
+        "combos_defecto": sorted(combos.items(), key=lambda kv: -kv[1]),
+        "n_ruta": len(b08),
+        "terminadas": terminadas, "pct_cierre": _pct(terminadas, len(b08)),
+        "ts_ultimo_limp": max(ts_limp) if ts_limp else None,
+        "n_desmoldeo": len(tiempos),
+        "con_umbral": len(con_umbral), "cumple_desm": cumple,
+        "pct_cumple_desm": _pct(cumple, len(con_umbral)),
+        "avg_h": round(sum(x for x, _ in tiempos) / len(tiempos), 2) if tiempos else None,
+        "min_h": round(min(x for x, _ in tiempos), 2) if tiempos else None,
+        "max_h": round(max(x for x, _ in tiempos), 2) if tiempos else None,
+        "n_desm_ruta": sum(p["bDESM"] for p in b08),
+        "skus": sorted(skus.values(), key=lambda s: -s["total"]),
+    }
 
-    # Desglose por No. Parte (para el toggle "Por Colada / Por No. Parte" del Nivel 1)
-    # betamega_03 ya trae No_Parte+bRechazo por ticket, no hace falta join para esto.
-    sku_batch = run(f"""
-        SELECT c_IdColada AS id_colada, No_Parte AS sku,
-               COUNT(*) AS total, SUM(bRechazo) AS rechazos
-        FROM betamega_03_coladasproceso
-        WHERE c_IdColada IN ({id_list})
-        GROUP BY c_IdColada, No_Parte
-    """, {})
-    sku_idx = {}
-    for r in sku_batch:
-        sku_idx.setdefault(r["id_colada"], []).append({
-            "sku": r["sku"] or "—",
-            "total": int(r["total"] or 0),
-            "rechazos": int(r["rechazos"] or 0),
-        })
 
-    # Etapa de flujo (mismo criterio que /piso/flujo): basada en la pieza más
-    # retrasada de la colada, vía flags bMOLD/bVACI/bDESM/bLIMP de betamega_08.
-    etapa_batch = run(f"""
-        SELECT b3.c_IdColada AS id_colada,
-               SUM(b8.bMOLD) AS n_mold, SUM(b8.bVACI) AS n_vaci,
-               SUM(b8.bDESM) AS n_desm, SUM(b8.bLIMP) AS n_limp
-        FROM betamega_03_coladasproceso b3
-        JOIN betamega_08_ticketrutacritica b8 ON b8.idTicket = b3.idTicket
-        WHERE b3.c_IdColada IN ({id_list})
-        GROUP BY b3.c_IdColada
-    """, {})
-    etapa_idx = {r["id_colada"]: r for r in etapa_batch}
+# PC-2 (2026-10-26): la liga oficial idTicket -> IdAnalisisQuimico
+# (betamega_02_pks_idticketsidmuestras) viene de la misma familia derivada con el hueco
+# jul-oct (21 de 516 coladas en oct-2026). La vista del SpectroMAX sí está viva, y el
+# operador escribe en Note "<aaaammddhhmmss>FINAL<colada><clase>F1<horno>" (ej.
+# "...FINAL303100-70-03F14" = colada 303, clase 100-70-03, horno 4). Se liga por
+# (horno, número de colada) contra las coladas evaluadas, a ±_PC2_MARGEN_H de su liberación
+# (el número se recicla, pero tarda semanas; la hora del análisis no sirve sola: a veces se
+# capturan varios FINAL en lote horas después). Validado en may-2026 contra la liga oficial:
+# mismo análisis en 344 de 346 coladas. Solo FINAL: BASE es antes de ajustar/inocular (Mg
+# 0.001 en nodular) y saldría FAIL siempre. Se prefiere el FINAL "de colada" (sufijo F) sobre
+# el de pieza/probeta (sufijo P/PC), y entre ellos el más reciente (re-análisis tras ajuste).
+# El spec sale de corex_test.clases por la clase de las piezas (aleks.IdClase).
+_PC2_MARGEN_H = 36
+_RX_NOTE_FINAL = re.compile(r"^\d{14}FINAL(.+)$")
+_RX_NOTE_HORNO = re.compile(r"[BF]1(\d)$")
+_CLASES_CACHE: Dict[str, object] = {}
 
-    carga_idx = cargas_por_colada([c["id_colada"] for c in coladas])
-    itaca_idx = itaca_por_coladas([c["id_colada"] for c in coladas])
 
-    pc1 = next(c for c in CARRILES if c.id_pc == "PC-1")
-    pc2 = next(c for c in CARRILES if c.id_pc == "PC-2")
-    pc3 = next(c for c in CARRILES if c.id_pc == "PC-3")
-    pc4 = next(c for c in CARRILES if c.id_pc == "PC-4")
-    pc5 = next(c for c in CARRILES if c.id_pc == "PC-5")
-    pc6 = next(c for c in CARRILES if c.id_pc == "PC-6")
-    pc7 = next(c for c in CARRILES if c.id_pc == "PC-7")
+def _clases() -> dict:
+    """corex_test.clases completa (spec de química por IdClase), caché de 1 h."""
+    hit = _CLASES_CACHE.get("t")
+    if hit and time.time() - hit < 3600:
+        return _CLASES_CACHE["por_id"]
+    cols = ",".join(f"{p}_F, {p}_Fl, {p}_Fx" for _, p in _QUIM_ELEMS)
+    rows = run(f"SELECT IdClase, Clave, {cols} FROM corex_test.clases", {})
+    _CLASES_CACHE["por_id"] = {r["IdClase"]: r for r in rows}
+    _CLASES_CACHE["claves"] = sorted({(r["Clave"] or "").strip() for r in rows
+                                      if (r["Clave"] or "").strip()[:1].isdigit()}, key=len, reverse=True)
+    _CLASES_CACHE["t"] = time.time()
+    return _CLASES_CACHE["por_id"]
+
+
+def quimica_por_coladas(coladas: list, clase_por_colada: Dict[int, int]) -> Dict[int, dict]:
+    """Análisis FINAL del SpectroMAX por colada (dict listo para evaluar_quimica), ligado por el Note."""
+    cols = [c for c in coladas if c.get("u_colada") and c.get("horno") and c.get("fin_fusion")]
+    if not cols:
+        return {}
+    clases = _clases()
+    claves = _CLASES_CACHE["claves"]
+    margen = timedelta(hours=_PC2_MARGEN_H)
+    lo = min(c["inicio_fusion"] or c["fin_fusion"] for c in cols) - margen
+    hi = max(c["fin_fusion"] for c in cols) + margen
+    rows = run("""
+        SELECT AnalysisNum, Note, SourceCode, C, Si, Mg, S, P, Mn,
+               STR_TO_DATE(AnalysisTime, '%Y%m%d %H:%i:%s') AS AnalysisTime
+        FROM corex_test.vistaanalisisquimicoparaitaca
+        WHERE AnalysisTime BETWEEN :lo AND :hi AND Note LIKE '%FINAL%'
+    """, {"lo": lo.strftime("%Y%m%d %H:%M:%S"), "hi": hi.strftime("%Y%m%d %H:%M:%S")})
+    idx: Dict[tuple, list] = {}
+    for c in cols:
+        idx.setdefault((int(c["horno"]), int(c["u_colada"])), []).append(c)
+    mejor: Dict[int, tuple] = {}
+    for a in rows:
+        m = _RX_NOTE_FINAL.match((a["Note"] or "").strip())
+        if not m or not a["AnalysisTime"]:
+            continue
+        cuerpo = m.group(1)
+        mh = _RX_NOTE_HORNO.search(cuerpo)
+        sc = (a["SourceCode"] or "").strip()
+        hornos = [int(mh.group(1))] if mh else ([int(sc)] if sc.isdigit() else [1, 2, 4])
+        cand = []
+        for k in range(1, 5):
+            num, resto = cuerpo[:k], cuerpo[k:]
+            if not num.isdigit():
+                break
+            clave = next((cl for cl in claves if resto.startswith(cl)), None)
+            if clave is None:
+                continue
+            for hh in hornos:
+                for c in idx.get((hh, int(num)), []):
+                    if abs((a["AnalysisTime"] - c["fin_fusion"]).total_seconds()) <= margen.total_seconds():
+                        cand.append((c, clave, resto[len(clave):]))
+        if not cand:
+            continue
+        c, clave, sufijo = min(cand, key=lambda x: abs((a["AnalysisTime"] - x[0]["fin_fusion"]).total_seconds()))
+        de_colada = sufijo[:1].upper() == "F"
+        orden = (de_colada, a["AnalysisTime"])
+        prev = mejor.get(c["id_colada"])
+        if prev is None or orden > prev[0]:
+            mejor[c["id_colada"]] = (orden, a, clave, de_colada)
+    out = {}
+    for cid, (_, a, clave_note, de_colada) in mejor.items():
+        spec = clases.get(clase_por_colada.get(cid)) or {}
+        out[cid] = {
+            **{k: a[k] for k in ("C", "Si", "Mg", "S", "P", "Mn")},
+            **{k: v for k, v in spec.items() if k not in ("IdClase", "Clave")},
+            "AnalysisTime": a["AnalysisTime"],
+            "AnalysisNum": a["AnalysisNum"],
+            "note": (a["Note"] or "").strip(),
+            "clase": (spec.get("Clave") or "").strip() or None,
+            "clase_note": clave_note,
+            "tipo_analisis": "colada" if de_colada else "pieza/probeta",
+        }
+    return out
+
+
+def clase_dominante(piezas: list):
+    cuenta: Dict[int, int] = {}
+    for p in piezas:
+        if p["id_clase"]:
+            cuenta[p["id_clase"]] = cuenta.get(p["id_clase"], 0) + 1
+    return max(cuenta, key=cuenta.get) if cuenta else None
+
+
+def _motivo_cobertura(que: str, n_fuente: int, n: int, fuente: str) -> Optional[str]:
+    """Motivo GRIS si la fuente cubre menos de COBERTURA_MIN_PCT de las piezas; None si alcanza."""
+    if n and n_fuente / n * 100.0 >= COBERTURA_MIN_PCT:
+        return None
+    return (f"{que} registrado en {n_fuente} de {n} piezas de la colada ({fuente}); "
+            f"se califica con ≥{COBERTURA_MIN_PCT:.0f} % de las piezas")
+
+
+def datos_pcs_coladas(coladas: list) -> dict:
+    """Todas las consultas en lote que necesita evaluar_pcs_colada() para una lista de coladas."""
+    ids = [c["id_colada"] for c in coladas]
+    piezas = piezas_de_coladas(ids)
+    clase = {cid: clase_dominante(ps) for cid, ps in piezas.items()}
+    return {
+        "piezas": piezas,
+        "td_parte": tiempo_desmoldeo_partes(p["no_parte"] for ps in piezas.values() for p in ps),
+        "temp": temperatura_por_coladas(ids),
+        "quim": quimica_por_coladas(coladas, clase),
+        "carga": cargas_por_colada(ids),
+        "itaca": itaca_por_coladas(ids),
+    }
+
+
+def evaluar_pcs_colada(col: dict, datos: dict, no_conf: set) -> dict:
+    """Los 7 PCs de una colada. Compartida por la lista (_evaluar_coladas_ventana) y el detalle
+    (/v3/gestion/colada/{id}/carriles) para que los dos den el mismo color."""
+    cid = col["id_colada"]
+    rs = resumen_piezas(datos["piezas"].get(cid, []), datos["td_parte"])
+    n = rs["piezas"]
+    pc = {c.id_pc: c for c in CARRILES}
+
+    comps = datos["carga"].get(cid, [])
+    carga = resumen_carga(comps)
+    ev1 = evaluar_carril(pc["PC-1"], carga["pct_ok"], col["inicio_fusion"], cid,
+                         "sin carga registrada para esta colada (betamega_00_cargasmetalicas)")
+
+    q = datos["quim"].get(cid, {})
+    q_elem = evaluar_quimica(q)
+    _q_tot = sum(1 for v in q_elem.values() if v is not None)
+    pct_quim = _pct(sum(1 for v in q_elem.values() if v == "PASS"), _q_tot)
+    ev2 = evaluar_carril(pc["PC-2"], pct_quim, q.get("AnalysisTime"), cid,
+                         "sin análisis FINAL del SpectroMAX con el número de colada y horno en el Note"
+                         if not q else "la clase de la colada no define elementos a evaluar")
+
+    it = datos["itaca"].get(cid, {})
+    ev3 = evaluar_carril(pc["PC-3"], it.get("score"), it.get("ts"), cid,
+                         "sin copa ITACA en los 40 min previos a liberar (o colada sin hora de liberación)")
+
+    tr = datos["temp"].get(cid, {})
+    n_t = int(tr.get("n_tickets") or 0)
+    pct_temp = _pct(int(tr.get("n_ok") or 0), n_t)
+    m4 = _motivo_cobertura("temperatura de vaciado", n_t, n, "betamega_06_vaciado")
+    ev4 = evaluar_carril(pc["PC-4"], None if m4 else pct_temp, tr.get("ts_primer_vaci"), cid, m4)
+
+    m5 = _motivo_cobertura("desmoldeo", rs["n_desmoldeo"], n, "betamega_08_ticketrutacritica")
+    ev5 = evaluar_carril(pc["PC-5"], None if m5 else rs["pct_cumple_desm"], None, cid,
+                         m5 or "las partes de la colada no tienen TiempoDesmoldeo en Corex")
+
+    ref6 = rs["ts_ultimo_vaciado"] or col["fin_fusion"]
+    mes6 = ref6.strftime("%Y-%m") if isinstance(ref6, datetime) else None
+    if mes6 in no_conf:
+        m6 = (f"rechazo no confiable en {mes6}: desde el 9-jul-2026 las piezas nuevas no se marcan "
+              f"(betamega_02_pks_ticketcorrida detenida); 0 % aquí no significa sin rechazo")
+    else:
+        m6 = _motivo_cobertura("rechazo", rs["n_rechazo"], n, "betamega_01_rechazosbyidticket")
+    ev6 = evaluar_carril(pc["PC-6"], None if m6 else rs["pct_rechazo"], rs["ts_ultimo_vaciado"], cid, m6)
+
+    m7 = _motivo_cobertura("ruta de limpieza", rs["n_ruta"], n, "betamega_08_ticketrutacritica")
+    if m7:
+        ev7 = evaluar_carril(pc["PC-7"], None, None, cid, m7)
+    else:
+        ev7 = evaluar_pc7(rs["pct_cierre"], col["inicio_fusion"], cid)
+
+    if not n:
+        etapa = "Sin datos"
+    elif m7:
+        etapa = "Vaciada · sin registro posterior"
+    elif rs["terminadas"] >= rs["n_ruta"]:
+        etapa = "Terminado"
+    elif rs["terminadas"] > 0:
+        etapa = "En limpieza"
+    elif rs["n_desm_ruta"] > 0:
+        etapa = "En desmoldeo"
+    else:
+        etapa = "En vaciado"
+
+    return {
+        "evs": {"PC-1": ev1, "PC-2": ev2, "PC-3": ev3, "PC-4": ev4,
+                "PC-5": ev5, "PC-6": ev6, "PC-7": ev7},
+        "resumen": rs, "carga": carga, "comps_carga": comps,
+        "quim": q, "quim_elem": q_elem, "itaca": it,
+        "temp": tr, "etapa": etapa,
+    }
+
+
+def _evaluar_coladas_ventana(referencia: str, horas: int) -> list:
+    """
+    Evalúa los 7 carriles (PC-1..PC-7) para cada colada liberada en la ventana
+    [referencia-horas, referencia]. Compartida por /v3/gestion/coladas, /v3/gestion/alertas y
+    /api/beta/criticas para que los tres usen exactamente la misma lógica de evaluación.
+
+    2026-10-26: deja betamega_03 (hueco jul-oct, ~1 % de tickets) y arma coladas y piezas desde
+    fuentes completas -- ver "COLADAS DESDE FUENTES COMPLETAS" arriba. Historia anterior:
+    2026-09-23 cscmega_* -> betamega_03/08 (llaves por c_IdColada, no u_Colada, que se recicla).
+    """
+    # Caché corta: Control del Proceso pide /coladas y /alertas con la misma ventana a la vez
+    # (~10 s cada evaluación, la consulta de vaciado no tiene índice). El candado por ventana
+    # hace que la segunda espere a la primera en vez de repetir las consultas.
+    key = (referencia, horas)
+    with _VENTANA_LOCKS_GUARD:
+        lock = _VENTANA_LOCKS.setdefault(key, threading.Lock())
+    with lock:
+        hit = _VENTANA_CACHE.get(key)
+        if hit and time.time() - hit[0] < _VENTANA_TTL_SEG:
+            return hit[1]
+        res = _evaluar_coladas_ventana_bd(referencia, horas)
+        _VENTANA_CACHE[key] = (time.time(), res)
+        for k in [k for k, v in _VENTANA_CACHE.items() if time.time() - v[0] > _VENTANA_TTL_SEG]:
+            _VENTANA_CACHE.pop(k, None)
+        return res
+
+
+_VENTANA_CACHE: Dict[tuple, tuple] = {}
+_VENTANA_LOCKS: Dict[tuple, "threading.Lock"] = {}
+_VENTANA_LOCKS_GUARD = threading.Lock()
+_VENTANA_TTL_SEG = 120
+
+
+def _evaluar_coladas_ventana_bd(referencia: str, horas: int) -> list:
+    ref_dt = datetime.fromisoformat(referencia)
+    d = (ref_dt - timedelta(hours=horas)).strftime("%Y-%m-%d %H:%M:%S")
+    h = ref_dt.strftime("%Y-%m-%d %H:%M:%S")
+
+    coladas = coladas_en_ventana(d, h)
+    if not coladas:
+        return []
+    datos = datos_pcs_coladas(coladas)
+    no_conf = meses_no_confiables_cache(d, h)
 
     resultado = []
     for col in coladas:
-        uid = col["u_colada"]
-        cid = col["id_colada"]
-
-        r   = rec_idx.get(cid, {})
-        ci  = cierre_idx.get(cid, {})
-        tr  = temp_idx.get(cid, {})
-
-        pct_rec  = float(r["pct_rechazo"]) if r.get("total") else None
-        pct_ci   = float(ci["pct_cierre"]) if ci.get("total") else None
-        n_t      = int(tr.get("n_tickets") or 0)
-        n_ok_t   = int(tr.get("n_ok") or 0)
-        pct_temp = round(n_ok_t / n_t * 100.0, 1) if n_t else None
-
-        q_elem   = evaluar_quimica(quim_idx.get(cid, {}))
-        _q_total = sum(1 for v in q_elem.values() if v is not None)
-        _q_pass  = sum(1 for v in q_elem.values() if v == "PASS")
-        pct_quim = round(_q_pass / _q_total * 100.0, 1) if _q_total else None
-
-        mo5 = molde5_idx.get(cid, {})
-        con_umbral5 = int(mo5.get("con_umbral") or 0)
-        cumple5     = int(mo5.get("cumple") or 0)
-        pct_cumple5 = round(cumple5 / con_umbral5 * 100.0, 1) if con_umbral5 else None
-
-        carga = resumen_carga(carga_idx.get(cid, []))
-        ev1 = evaluar_carril(pc1, carga["pct_ok"], col["inicio_fusion"], cid)
-        ev2 = evaluar_carril(pc2, pct_quim,    None,                    cid)
-        it  = itaca_idx.get(cid, {})
-        ev3 = evaluar_carril(pc3, it.get("score"), it.get("ts"),         cid)
-        ev4 = evaluar_carril(pc4, pct_temp,    tr.get("ts_primer_vaci"), cid)
-        ev5 = evaluar_carril(pc5, pct_cumple5, None,                    cid)
-        ev6 = evaluar_carril(pc6, pct_rec,     r.get("ts_ultimo"),       cid)
-        ev7 = evaluar_pc7(pct_ci, col["inicio_fusion"], cid)
-
-        et = etapa_idx.get(cid, {})
-        n_limp_e = int(et.get("n_limp") or 0)
-        n_desm_e = int(et.get("n_desm") or 0)
-        n_vaci_e = int(et.get("n_vaci") or 0)
-        piezas_e = int(r.get("total") or 0)
-        if piezas_e and n_limp_e >= piezas_e:
-            etapa = "Terminado"
-        elif n_limp_e > 0:
-            etapa = "En limpieza"
-        elif n_desm_e > 0:
-            etapa = "En desmoldeo"
-        elif n_vaci_e > 0:
-            etapa = "En vaciado"
-        else:
-            etapa = "Sin datos"
-
-        estados = {
-            "PC-1": ev1["estado"], "PC-2": ev2["estado"], "PC-3": ev3["estado"],
-            "PC-4": ev4["estado"], "PC-5": ev5["estado"],
-            "PC-6": ev6["estado"], "PC-7": ev7["estado"],
-        }
-        tiene_alerta = any(v in ("ROJO", "AMBAR") for v in estados.values())
-
+        e = evaluar_pcs_colada(col, datos, no_conf)
+        evs, rs = e["evs"], e["resumen"]
+        estados = {k: v["estado"] for k, v in evs.items()}
         resultado.append({
-            "id_colada":     cid,
-            "u_colada":      uid,
+            "id_colada":     col["id_colada"],
+            "u_colada":      col["u_colada"],
             "horno":         col["horno"],
             "inicio_fusion": str(col["inicio_fusion"] or ""),
             "fin_fusion":    str(col["fin_fusion"] or ""),
-            "kilos":         float(col["kilos"] or 0),
+            "kilos":         float(col["kilos"] or 0) or e["carga"]["kg_real"],
             "status":        col["status"],
-            "piezas":        int(r.get("total") or 0),
-            "rechazos":      int(r.get("rechazos") or 0),
-            "pct_rechazo":   pct_rec,
-            "pct_cierre":    pct_ci,
-            "temp_avg":      int(tr["temp_avg"]) if tr.get("temp_avg") else None,
-            "pct_temp_ok":   pct_temp,
-            "pct_carga_ok":  carga["pct_ok"],
+            "piezas":        rs["piezas"],
+            "rechazos":      rs["rechazos"],
+            "pct_rechazo":   evs["PC-6"]["valor"],
+            "pct_cierre":    evs["PC-7"]["valor"],
+            "temp_avg":      int(e["temp"]["temp_avg"]) if e["temp"].get("temp_avg") else None,
+            "pct_temp_ok":   evs["PC-4"]["valor"],
+            "pct_carga_ok":  e["carga"]["pct_ok"],
             "estados":       estados,
-            "etapa":         etapa,
-            "tiene_alerta":  tiene_alerta,
-            "skus":          sku_idx.get(cid, []),
-            "latencia_pc4_seg": ev4.get("latencia_seg"),
-            "latencia_pc6_seg": ev6.get("latencia_seg"),
+            "etapa":         e["etapa"],
+            "tiene_alerta":  any(v in ("ROJO", "AMBAR") for v in estados.values()),
+            "skus":          rs["skus"],
+            "latencia_pc4_seg": evs["PC-4"].get("latencia_seg"),
+            "latencia_pc6_seg": evs["PC-6"].get("latencia_seg"),
         })
-
     return resultado
 
 

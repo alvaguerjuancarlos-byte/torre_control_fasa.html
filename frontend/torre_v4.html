@@ -2144,8 +2144,11 @@ function eSetAnio(anio){
 // dentro de renderCarril para PC-6, vía detalle.protocolos del propio backend.
 // ════════════════════════════════════════════════════════════
 const HC_MAT={2:'#378ADD',4:'#1D9E75',1:'#BA7517',3:'#7F77DD'}
-const ETAPAS_FLUJO=['En vaciado','En desmoldeo','En limpieza','Terminado','Sin datos']
-const ECOL_FLUJO={'En vaciado':'#185FA5','En desmoldeo':'#5c57b0','En limpieza':'#0F6E56','Terminado':'#5f5e5a','Sin datos':'#9aa7b4'}
+// 'Vaciada · sin registro posterior': la colada tiene piezas vaciadas pero betamega_08 (desmoldeo/limpieza)
+// cubre menos de la mitad de ellas (hueco desde jul-2026) -- no se sabe en qué etapa va.
+const ETAPAS_FLUJO=['En vaciado','En desmoldeo','En limpieza','Terminado','Vaciada · sin registro posterior','Sin datos']
+const ETAPAS_OPCIONALES=['Vaciada · sin registro posterior','Sin datos']
+const ECOL_FLUJO={'En vaciado':'#185FA5','En desmoldeo':'#5c57b0','En limpieza':'#0F6E56','Terminado':'#5f5e5a','Vaciada · sin registro posterior':'#7a8794','Sin datos':'#9aa7b4'}
 let _flColadas={}
 let _flDetalleAbierto=null
 let _flModo='colada'
@@ -2282,7 +2285,7 @@ function chipFlujoHtml(c){
 }
 
 function renderFlujoMatriz(coladas){
-  const etapas=ETAPAS_FLUJO.filter(e=>e!=='Sin datos'||coladas.some(c=>c.etapa==='Sin datos'))
+  const etapas=ETAPAS_FLUJO.filter(e=>!ETAPAS_OPCIONALES.includes(e)||coladas.some(c=>c.etapa===e))
   const TH='padding:10px 14px;text-align:left;font-size:11px;font-weight:600;border-bottom:1px solid var(--color-border-tertiary);white-space:nowrap'
   const TD='padding:12px 14px;vertical-align:top;width:'+Math.floor(100/etapas.length)+'%'
   let html='<table style="border-collapse:collapse;width:100%;table-layout:fixed"><thead><tr>'
@@ -2339,10 +2342,11 @@ function renderFlujoPorParte(coladas){
   const partes={}
   coladas.forEach(c=>{
     (c.skus||[]).forEach(s=>{
-      if(!partes[s.sku]) partes[s.sku]={sku:s.sku,total:0,rechazos:0,coladas:[],alerta:false}
+      if(!partes[s.sku]) partes[s.sku]={sku:s.sku,total:0,rechazos:0,baseRech:0,coladas:[],alerta:false}
       const p=partes[s.sku]
       p.total+=s.total
-      p.rechazos+=s.rechazos
+      // Solo coladas con rechazo evaluable (PC-6 no GRIS): en meses sin rechazo confiable el 0 es falso
+      if(c.pct_rechazo!=null){ p.rechazos+=s.rechazos; p.baseRech+=s.total }
       p.coladas.push(c)
       if(c.tiene_alerta) p.alerta=true
     })
@@ -2358,9 +2362,10 @@ function renderFlujoPorParte(coladas){
   ;['No. Parte','Coladas','Piezas','Rechazos','% Rech',''].forEach(h=>{ html+='<th style="'+TH+'">'+h+'</th>' })
   html+='</tr></thead><tbody>'
   lista.forEach((p,i)=>{
-    const pct=p.total?Math.round(p.rechazos/p.total*1000)/10:0
+    const pct=p.baseRech?Math.round(p.rechazos/p.baseRech*1000)/10:0
     const pctC=pct>=15?'#A32D2D':pct>=7?'#854F0B':'#0F6E56'
     const pctBg=pct>=15?'#FCEBEB':pct>=7?'#FEF3E2':'#E1F5EE'
+    const sinRech='<span style="color:var(--muted)" title="Sin rechazo confiable en estas coladas">—</span>'
     const pid=flSafeId(p.sku)
     _flParteIdMap[pid]=p.sku
     const abierta=_flParteAbierta===p.sku
@@ -2371,8 +2376,8 @@ function renderFlujoPorParte(coladas){
       +'<td style="padding:8px 12px;font-weight:500;font-family:monospace;font-size:12px">'+alertaDot+p.sku+'</td>'
       +'<td style="padding:8px 12px;font-size:12px">'+p.coladas.length+'</td>'
       +'<td style="padding:8px 12px;font-size:12px">'+p.total+'</td>'
-      +'<td style="padding:8px 12px;font-size:12px;color:'+(p.rechazos>0?'#A32D2D':'inherit')+'">'+p.rechazos+'</td>'
-      +'<td style="padding:8px 12px;font-size:12px;font-weight:600;color:'+pctC+'"><span style="background:'+pctBg+';padding:1px 6px;border-radius:3px">'+pct+'%</span></td>'
+      +'<td style="padding:8px 12px;font-size:12px;color:'+(p.rechazos>0?'#A32D2D':'inherit')+'">'+(p.baseRech?p.rechazos:sinRech)+'</td>'
+      +'<td style="padding:8px 12px;font-size:12px;font-weight:600;color:'+pctC+'">'+(p.baseRech?'<span style="background:'+pctBg+';padding:1px 6px;border-radius:3px">'+pct+'%</span>':sinRech)+'</td>'
       +'<td style="padding:8px 12px;font-size:11px;color:var(--muted)">'+(abierta?'▲':'▼')+'</td>'
       +'</tr>'
     if(abierta){
@@ -2433,7 +2438,9 @@ function renderFlujoDetalle(col, carriles, piezas, diag){
     +'<span style="font-size:11px;color:var(--muted);margin-left:8px">'+col.etapa+'</span></div>'
     +'<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">'
     +'<span style="font-size:12px;color:var(--color-text-secondary)">'+col.piezas+' piezas · '+(col.kilos||0).toFixed(0)+' kg</span>'
-    +'<span style="font-size:12px;background:'+pctBg+';color:'+pctC+';padding:2px 8px;border-radius:4px;font-weight:600">'+pct+'% rechazo</span>'
+    +(col.pct_rechazo!=null
+      ?'<span style="font-size:12px;background:'+pctBg+';color:'+pctC+';padding:2px 8px;border-radius:4px;font-weight:600">'+pct+'% rechazo</span>'
+      :'<span style="font-size:12px;background:#F3F4F6;color:#6b7280;padding:2px 8px;border-radius:4px;font-weight:600" title="Ver motivo en PC-6">rechazo sin dato confiable</span>')
     +'<button onclick="abrirDetalleFlujo('+col.id_colada+')" style="font-size:11px;padding:2px 8px;border:0.5px solid var(--color-border-secondary);border-radius:4px;background:transparent;cursor:pointer;color:var(--color-text-secondary)">✕</button>'
     +'</div></div>'
 
@@ -2471,20 +2478,24 @@ function renderFlujoDetalle(col, carriles, piezas, diag){
       html+='<th style="padding:5px 10px;text-align:left;font-size:10px;font-weight:600;color:var(--color-text-secondary);border-bottom:1px solid var(--color-border-tertiary)">'+h+'</th>'
     })
     html+='</tr></thead><tbody>'
+    const noRech=piezas.rechazo_confiable===false, noRuta=piezas.ruta_confiable===false
+    const guion='<span style="color:var(--muted)">—</span>'
     piezas.skus.forEach((sk,i)=>{
       const sp=sk.total?Math.round(sk.rechazos/sk.total*1000)/10:0
       const sc=sp>=15?'#A32D2D':sp>=7?'#854F0B':'#0F6E56'
       html+='<tr style="background:'+(i%2===0?'transparent':'rgba(0,0,0,.015)')+'">'
         +'<td style="padding:5px 10px;font-weight:500;font-family:monospace;font-size:11px">'+sk.sku.trim()+' <span class="fl-bt-badge" data-parte="'+sk.sku.trim()+'"></span></td>'
         +'<td style="padding:5px 10px">'+sk.total+'</td>'
-        +'<td style="padding:5px 10px;color:#0F6E56">'+sk.ok+'</td>'
-        +'<td style="padding:5px 10px;color:'+(sk.rechazos>0?'#A32D2D':'inherit')+'">'+sk.rechazos+'</td>'
-        +'<td style="padding:5px 10px;font-weight:600;color:'+sc+'">'+sp+'%</td>'
-        +'<td style="padding:5px 10px">'+sk.terminadas+'</td>'
-        +'<td style="padding:5px 10px">'+sk.en_proceso+'</td>'
+        +'<td style="padding:5px 10px;color:#0F6E56">'+(noRech?guion:sk.ok)+'</td>'
+        +'<td style="padding:5px 10px;color:'+(sk.rechazos>0?'#A32D2D':'inherit')+'">'+(noRech?guion:sk.rechazos)+'</td>'
+        +'<td style="padding:5px 10px;font-weight:600;color:'+sc+'">'+(noRech?guion:sp+'%')+'</td>'
+        +'<td style="padding:5px 10px">'+(noRuta?guion:sk.terminadas)+'</td>'
+        +'<td style="padding:5px 10px">'+(noRuta?guion:sk.en_proceso)+'</td>'
         +'</tr>'
     })
     html+='</tbody></table>'
+    if(noRech||noRuta) html+='<div style="font-size:11px;color:var(--muted);margin-top:6px">— = sin dato confiable: '
+      +[noRech?'rechazo (ver PC-6)':'',noRuta?'desmoldeo/limpieza registrados en menos de la mitad de las piezas (ver PC-7)':''].filter(Boolean).join(' · ')+'</div>'
   } else {
     html+='<div class="empty-msg">Sin desglose por No. Parte disponible.</div>'
   }
@@ -2568,7 +2579,9 @@ function renderCarril(c){
       }
     } else if(c.id_pc==='PC-6'){
       const redTag=d.es_rediseno?'<span class="al-rediseno-tag" style="margin-left:6px">REDISEÑO — no accionable por proceso</span>':''
-      detalleHtml=`<div class="carril-detalle">${d.total_piezas} piezas · ${d.rechazos} rechazos${d.defecto_top?' · <strong>'+d.defecto_top+'</strong>':''}${redTag}</div>`
+      detalleHtml=c.estado==='GRIS'
+        ?`<div class="carril-detalle">${d.total_piezas} piezas · ${d.con_dato??'—'} con rechazo registrado</div>`
+        :`<div class="carril-detalle">${d.total_piezas} piezas · ${d.rechazos} rechazos${d.defecto_top?' · <strong>'+d.defecto_top+'</strong>':''}${redTag}</div>`
       if(d.protocolos&&d.protocolos.length){
         detalleHtml+='<div class="carril-detalle" style="margin-top:6px;padding:8px 10px;background:#F7FAF9;border-radius:8px">'
           +'<div style="font-weight:700;color:var(--red-chip);margin-bottom:4px">Protocolo de acción sugerido:</div>'
@@ -2579,7 +2592,9 @@ function renderCarril(c){
     } else if(c.id_pc==='PC-7'){
       const dias=d.dias_transcurridos!=null?` · ${d.dias_transcurridos} días desde vaciado`:''
       const pct=d.pct_limp!=null?` · ${d.pct_limp}% con limpieza`:''
-      detalleHtml=`<div class="carril-detalle">${d.terminadas}/${d.total_piezas} piezas · ${d.kg_vaciados?.toFixed(0)} kg${pct}${dias}</div>`
+      detalleHtml=d.pct_limp==null&&d.con_dato!=null
+        ?`<div class="carril-detalle">${d.con_dato}/${d.total_piezas} piezas con ruta registrada · ${d.kg_vaciados?.toFixed(0)} kg${dias}</div>`
+        :`<div class="carril-detalle">${d.terminadas}/${d.con_dato??d.total_piezas} piezas · ${d.kg_vaciados?.toFixed(0)} kg${pct}${dias}</div>`
     }
   }
   const motivoHtml=c.motivo_gris

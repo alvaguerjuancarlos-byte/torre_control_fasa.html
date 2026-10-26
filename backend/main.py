@@ -25,6 +25,9 @@ from backend.core import (
     historial_rechazo_partes, tasa_shrunk,
     QUIM_SELECT_SQL, evaluar_quimica, meses_rechazo_no_confiables,
     cargas_por_colada, resumen_carga, itaca_por_coladas, _itaca_copas,
+    colada_por_id, datos_pcs_coladas, evaluar_pcs_colada, meses_no_confiables_cache,
+    COBERTURA_MIN_PCT,
+    piezas_de_coladas,
 )
 
 app = FastAPI(title="Torre de Control FASA", version="0.1.0")
@@ -2536,88 +2539,83 @@ def piso_diagnostico(u_colada: int, horno: int, id_colada: Optional[int] = Query
         "sin_dato"
     )
 
+    rechazo_confiable = None
+    motivo_rechazo = None
     if vivo:
-        # kg_carga vivo (betamega_03) -- reemplaza el de cscmega_03 (arriba) para las
-        # métricas en kg de la sección 5, que sí tienen reemplazo limpio.
-        kg_raw = run("SELECT MAX(Kilos) AS kg FROM betamega_03_coladasproceso WHERE c_IdColada = :id",
-                     {"id": id_colada})
-        kg_carga = float(kg_raw[0]["kg"]) if kg_raw and kg_raw[0]["kg"] else None
+        # 2026-10-26: piezas de la colada desde aleks (completa) + rechazo de betamega_01, en
+        # vez de betamega_03 (hueco jul-oct). Defecto/distribución/benchmark solo se calculan
+        # con rechazo confiable: mes fuera de meses_rechazo_no_confiables y betamega_01 con
+        # ≥ COBERTURA_MIN_PCT de las piezas -- si no, un 0 % se leería como "sin rechazo".
+        col = colada_por_id(id_colada) or {}
+        kg_carga = float(col["kilos"]) if col.get("kilos") else None
+        piezas = piezas_de_coladas([id_colada]).get(id_colada, [])
+        con_b01 = [p for p in piezas if p["en_b01"]]
+        ref = col.get("fin_fusion") or col.get("inicio_fusion")
+        no_conf = meses_no_confiables_cache(ref.strftime("%Y-%m-01 00:00:00"),
+                                            ref.strftime("%Y-%m-%d %H:%M:%S")) if ref else set()
+        if ref and ref.strftime("%Y-%m") in no_conf:
+            motivo_rechazo = f"rechazo no confiable en {ref.strftime('%Y-%m')} (piezas nuevas sin marcar desde 9-jul-2026)"
+        elif not piezas or len(con_b01) / len(piezas) * 100.0 < COBERTURA_MIN_PCT:
+            motivo_rechazo = f"rechazo registrado en {len(con_b01)} de {len(piezas)} piezas"
+        rechazo_confiable = motivo_rechazo is None
 
-        # 2. Defecto dominante (top 3)
-        def_raw = run("""
-            SELECT nomDefecto, COUNT(*) AS n
-            FROM betamega_03_coladasproceso
-            WHERE c_IdColada = :id AND bRechazo = 1 AND nomDefecto IS NOT NULL
-            GROUP BY nomDefecto ORDER BY n DESC LIMIT 3
-        """, {"id": id_colada})
+        def_raw, dist_raw = [], []
+        bench_rates, bench_kg_raw, current_pct = [], [], None
+        total_piezas = len(piezas)
+        piezas_rech = sum(p["bRechazo"] for p in con_b01) if rechazo_confiable else 0
+        if rechazo_confiable:
+            # 2. Defecto dominante (top 3)
+            cuenta = {}
+            for p in con_b01:
+                if p["bRechazo"] and p["nomDefecto"]:
+                    cuenta[p["nomDefecto"]] = cuenta.get(p["nomDefecto"], 0) + 1
+            def_raw = [{"nomDefecto": k, "n": v} for k, v in
+                       sorted(cuenta.items(), key=lambda kv: -kv[1])[:3]]
+            # 3. Distribución rechazo por SKU
+            por_sku = {}
+            for p in con_b01:
+                s = por_sku.setdefault(p["no_parte"], {"sku": p["no_parte"], "total": 0, "rechazos": 0})
+                s["total"] += 1
+                s["rechazos"] += p["bRechazo"]
+            dist_raw = sorted((s for s in por_sku.values() if s["total"] >= 2), key=lambda s: -s["rechazos"])
+            current_pct = round(piezas_rech / len(con_b01) * 100, 1)
+            # 4. Benchmark: últimas 5 coladas del mismo horno liberadas en los 30 días previos
+            # (excluye la actual), cada una con rechazo de betamega_01 y la misma cobertura mínima.
+            previas = run("""
+                SELECT idColada, Kilos FROM betamega_00_coladaprocesodemoras
+                WHERE Horno124 = :horn AND idColada != :id
+                  AND FechaLiberado BETWEEN :d AND :h
+                ORDER BY FechaLiberado DESC LIMIT 15
+            """, {"horn": col.get("horno") or horno, "id": id_colada,
+                  "d": ref - timedelta(days=30), "h": ref})
+            pz_prev = piezas_de_coladas([r["idColada"] for r in previas])
+            for r in previas:
+                ps = [p for p in pz_prev.get(r["idColada"], []) if p["en_b01"]]
+                n_all = len(pz_prev.get(r["idColada"], []))
+                if not n_all or len(ps) / n_all * 100.0 < COBERTURA_MIN_PCT:
+                    continue
+                rech_p = sum(p["bRechazo"] for p in ps)
+                bench_rates.append(round(rech_p / len(ps) * 100, 1))
+                if r["Kilos"]:
+                    bench_kg_raw.append({"total_p": len(ps), "rech_p": rech_p})
+                if len(bench_rates) == 5:
+                    break
         total_def = sum(d["n"] for d in def_raw) or 1
-        defectos = [{"nombre": d["nomDefecto"],
-                     "n": int(d["n"]),
+        defectos = [{"nombre": d["nomDefecto"], "n": int(d["n"]),
                      "pct": round(d["n"] / total_def * 100, 1)} for d in def_raw]
-
-        # 3. Distribución rechazo por SKU
-        dist_raw = run("""
-            SELECT No_Parte AS sku, COUNT(*) AS total, SUM(bRechazo) AS rechazos
-            FROM betamega_03_coladasproceso
-            WHERE c_IdColada = :id
-            GROUP BY No_Parte HAVING total >= 2
-            ORDER BY rechazos DESC
-        """, {"id": id_colada})
         total_rech_dist = sum(int(d["rechazos"] or 0) for d in dist_raw) or 1
         top_sku = dist_raw[0] if dist_raw else {}
-        top_pct  = round(int(top_sku.get("rechazos") or 0) / total_rech_dist * 100, 1) if dist_raw else 0
+        top_pct = round(int(top_sku.get("rechazos") or 0) / total_rech_dist * 100, 1) if dist_raw else 0
         concentrado = top_pct >= 70 and len(dist_raw) > 1
-
-        # 4. Benchmark: últimas 5 coladas del mismo horno (excluye la actual)
-        bench_raw = run("""
-            SELECT ROUND(AVG(bRechazo)*100, 1) AS pct
-            FROM betamega_03_coladasproceso
-            WHERE Horno = :horn AND c_IdColada != :id
-              AND FHrVaciado >= (
-                SELECT DATE_SUB(MAX(FHrVaciado), INTERVAL 30 DAY)
-                FROM betamega_03_coladasproceso WHERE Horno = :horn
-              )
-            GROUP BY c_IdColada
-            ORDER BY MAX(FHrVaciado) DESC LIMIT 5
-        """, {"id": id_colada, "horn": horno})
-        bench_rates = [float(r["pct"]) for r in bench_raw if r["pct"] is not None]
-        bench_avg   = round(sum(bench_rates) / len(bench_rates), 1) if bench_rates else None
-
-        current_pct_raw = run("""
-            SELECT ROUND(AVG(bRechazo)*100, 1) AS pct
-            FROM betamega_03_coladasproceso WHERE c_IdColada = :id
-        """, {"id": id_colada})
-        current_pct = float(current_pct_raw[0]["pct"]) if current_pct_raw and current_pct_raw[0]["pct"] is not None else None
+        bench_avg = round(sum(bench_rates) / len(bench_rates), 1) if bench_rates else None
         delta = round(current_pct - bench_avg, 1) if current_pct is not None and bench_avg is not None else None
 
         # 5. Métricas en kg  (peso_pieza = kg_carga / total_piezas)
-        totales_raw = run("""
-            SELECT COUNT(*) AS total, SUM(bRechazo) AS rech
-            FROM betamega_03_coladasproceso WHERE c_IdColada = :id
-        """, {"id": id_colada})
-        tot = totales_raw[0] if totales_raw else {}
-        total_piezas = int(tot.get("total") or 0)
-        piezas_rech  = int(tot.get("rech")  or 0)
-        piezas_ok    = total_piezas - piezas_rech
-
+        piezas_ok      = total_piezas - piezas_rech
         peso_pieza_est = round(kg_carga / total_piezas, 2) if kg_carga and total_piezas > 0 else None
-        kg_ok_est      = round(piezas_ok   * peso_pieza_est, 1) if peso_pieza_est else None
-        kg_rech_est    = round(piezas_rech * peso_pieza_est, 1) if peso_pieza_est else None
-        pct_rech_kg    = round(kg_rech_est / kg_carga * 100, 1) if kg_rech_est and kg_carga else None
-
-        # delta kg vs benchmark (últimas 5 coladas del mismo horno por kg%)
-        bench_kg_raw = run("""
-            SELECT c_IdColada, MAX(Kilos) AS kilos,
-                   COUNT(*) AS total_p, SUM(bRechazo) AS rech_p
-            FROM betamega_03_coladasproceso
-            WHERE Horno = :horn AND c_IdColada != :id
-              AND FHrVaciado >= (
-                  SELECT DATE_SUB(MAX(FHrVaciado), INTERVAL 30 DAY)
-                  FROM betamega_03_coladasproceso WHERE Horno = :horn
-              )
-            GROUP BY c_IdColada HAVING kilos > 0
-            ORDER BY MAX(FHrVaciado) DESC LIMIT 5
-        """, {"id": id_colada, "horn": horno})
+        kg_ok_est      = round(piezas_ok   * peso_pieza_est, 1) if peso_pieza_est and rechazo_confiable else None
+        kg_rech_est    = round(piezas_rech * peso_pieza_est, 1) if peso_pieza_est and rechazo_confiable else None
+        pct_rech_kg    = round(kg_rech_est / kg_carga * 100, 1) if kg_rech_est is not None and kg_carga else None
     else:
         # 2. Defecto dominante (top 3)
         def_raw = run("""
@@ -2767,6 +2765,8 @@ def piso_diagnostico(u_colada: int, horno: int, id_colada: Optional[int] = Query
             "pct_rech_kg": pct_rech_kg,
             "skus_kg": skus_kg,
         },
+        "rechazo_confiable": rechazo_confiable,
+        "motivo_rechazo": motivo_rechazo,
     }
 
 
@@ -2785,32 +2785,35 @@ def piso_piezas_colada(u_colada: int, horno: int,
     /piso (dashboard legado, ver frontend/piso.html) que todavía llama así.
     """
     d, h = rango(desde, hasta)
+    rechazo_confiable = ruta_confiable = None
 
     if id_colada is not None:
-        rows = run("""
-            SELECT
-                rb.idTicket,
-                rb.No_Parte        AS sku,
-                rb.bRechazo,
-                rb.nomDefecto      AS defecto,
-                r.bMOLD, r.bVACI, r.bDESM, r.bLIMP,
-                r.FHrVACI          AS ts_vaci,
-                r.FHrLIMP          AS ts_limp,
-                CASE
-                  WHEN r.bLIMP = 1  THEN 'Terminada'
-                  WHEN r.bDESM = 1  THEN 'En limpieza'
-                  WHEN r.bVACI = 1  THEN 'En desmoldeo'
-                  WHEN r.bMOLD = 1  THEN 'En vaciado'
-                  ELSE 'Sin inicio'
-                END                 AS etapa
-            FROM betamega_03_coladasproceso rb
-            JOIN betamega_08_ticketrutacritica r ON r.idTicket = rb.idTicket
-            WHERE rb.c_IdColada = :id
-              AND r.FHrVACI BETWEEN :d AND :h
-              AND r.FHrVACI IS NOT NULL
-            ORDER BY r.FHrVACI
-            LIMIT 200
-        """, {"id": id_colada, "d": d, "h": h})
+        # 2026-10-26: piezas de aleks (completa) en vez de betamega_03 JOIN betamega_08 (hueco
+        # jul-oct: la colada salía con 1-2 piezas o vacía). La colada ya define sus piezas, la
+        # ventana desde/hasta no se usa en esta rama. rechazo_confiable/ruta_confiable dicen al
+        # frontend si mostrar rechazos y terminadas o "—" (misma regla que PC-6 / PC-7).
+        col = colada_por_id(id_colada) or {}
+        piezas = piezas_de_coladas([id_colada]).get(id_colada, [])
+        n = len(piezas)
+        ref = col.get("fin_fusion") or col.get("inicio_fusion")
+        no_conf = meses_no_confiables_cache(ref.strftime("%Y-%m-01 00:00:00"),
+                                            ref.strftime("%Y-%m-%d %H:%M:%S")) if ref else set()
+        n_b01 = sum(1 for p in piezas if p["en_b01"])
+        n_b08 = sum(1 for p in piezas if p["en_b08"])
+        rechazo_confiable = bool(n and ref and ref.strftime("%Y-%m") not in no_conf
+                                 and n_b01 / n * 100.0 >= COBERTURA_MIN_PCT)
+        ruta_confiable = bool(n and n_b08 / n * 100.0 >= COBERTURA_MIN_PCT)
+        rows = []
+        for p in sorted(piezas, key=lambda p: p["ts_vaciado"] or datetime.max):
+            etapa = ("Sin registro de ruta" if not p["en_b08"] else
+                     "Terminada" if p["bLIMP"] else "En limpieza" if p["bDESM"] else
+                     "En desmoldeo" if p["bVACI"] else "En vaciado" if p["bMOLD"] else "Sin inicio")
+            rows.append({
+                "idTicket": p["idTicket"], "sku": p["no_parte"],
+                "bRechazo": p["bRechazo"], "defecto": p["nomDefecto"],
+                "bMOLD": p["bMOLD"], "bVACI": p["bVACI"], "bDESM": p["bDESM"], "bLIMP": p["bLIMP"],
+                "ts_vaci": p["ts_vaciado"], "ts_limp": p["FHrLIMP"], "etapa": etapa,
+            })
     else:
         rows = run("""
             SELECT
@@ -2861,6 +2864,8 @@ def piso_piezas_colada(u_colada: int, horno: int,
         "total_piezas": len(rows),
         "skus": sorted(skus.values(), key=lambda x: -x["total"]),
         "piezas": rows,
+        "rechazo_confiable": rechazo_confiable,
+        "ruta_confiable": ruta_confiable,
     }
 
 
@@ -3206,259 +3211,114 @@ def v3_carriles_colada(id_colada: int):
     """
     Evalúa los 7 carriles del contrato de visibilidad para una colada.
 
-    MIGRACIÓN (2026-09-29, auditoría "qué falta migrar a betamega"): esta función leía
-    100% de cscmega_03coladacargametalica/cscmega_01rechazosbyidticket/cscmega_08ruta/
-    alfamega_06_vaciado, TODAS congeladas desde dic-2025 -- confirmado en vivo que
-    devolvía 404 para cualquier colada de 2026 real (la cabecera ya no existe en
-    cscmega_03). PC-5/PC-6/PC-7 se mueven a betamega_03_coladasproceso+
-    betamega_08_ticketrutacritica (mismo patrón ya validado en _evaluar_coladas_ventana
-    y /v2/ejecutivo/cierre-ciclo) y PC-4 a betamega_06_vaciado, que resultó ser el
-    equivalente vivo de alfamega_06_vaciado (mismas columnas, viva hasta hoy) sin que
-    ningún endpoint la usara todavía.
-
-    PC-2 (química) MIGRADO a fuente viva el 2026-10-01: Jasso liberó
-    betamega_02_pks_idticketsidmuestras (tabla puente prometida en la minuta de
-    30-sep-2026, compromiso #4 -- aunque la fecha prometida era 2-oct, ya estaba viva el
-    1-oct), que liga idTicket -> IdAnalisisQuimico, resuelto contra
-    corex_test.vistaanalisisquimicoparaitaca (valores reales SpectroMAX: C/Si/Mg/S/P/Mn,
-    viva hasta hoy). El spec (centro ± tolerancia) sale de corex_test.clases, indexada
-    por cm_idClase (ya presente en betamega_03_coladasproceso) -- <Elem>_Fx='S' marca si
-    ese elemento aplica para esa clase de hierro (ej. Carbono no se evalúa para nodular
-    100-70-03, donde el control pasa por otro parámetro). Ya NO se excluye Mg a fuerzas
-    como en la versión anterior -- esa exclusión era una limitación de la fuente vieja
-    (análisis BASE pre-inoculación, donde Mg da FAIL siempre), no de la clase en sí.
-
-    Validación (no pudo ser contra el histórico real: la liga idTicket->IdAnalisisQuimico
-    no está poblada para tickets anteriores a 2026, 0/17286 en una muestra de
-    cscmega_05aquimicoscumplimiento): se comparó el valor medido real de Si contra la
-    ventana F±Fl calculada para ~40 tickets reales de septiembre 2026 -- cayó dentro en
-    el 100% de los casos, lo cual es la señal esperada si la interpretación es correcta
-    (un valor de proceso sano debería caer dentro de su propio spec casi siempre).
-
-    Como ahora se liga por idTicket real (no por u_Colada/u_Horno, que se recicla), el
-    riesgo de mostrar en silencio la química de OTRA colada queda eliminado por diseño --
-    ya no hace falta la validación de fecha que sí sigue aplicando al chip de fusión/hold
-    de /piso/colada/.../diagnostico (ese no tiene reemplazo vivo todavía).
+    2026-10-26: misma evaluación que la lista (core.evaluar_pcs_colada) sobre las fuentes
+    completas (aleks + vaciado directo + demoras, química ligada por el Note del SpectroMAX);
+    antes leía betamega_03, que desde jul-2026 solo tiene ~1 % de las piezas y daba 404 o
+    colores calculados con una o dos piezas. Aquí solo se arma el detalle de cada carril.
+    Historia de cada fuente y de las reglas de color: ver core.py ("COLADAS DESDE FUENTES
+    COMPLETAS", PC-1, PC-2, PC-3).
     """
-    meta = run("""
-        SELECT
-            MAX(Colada) AS u_colada,
-            MAX(Horno)  AS u_horno,
-            MAX(Kilos)  AS kilos,
-            COALESCE(MIN(FechaInicial), MIN(FHrVaciado))  AS fecha_inicial,
-            COALESCE(MAX(FechaLiberado), MAX(FHrVaciado)) AS fecha_final
-        FROM betamega_03_coladasproceso
-        WHERE c_IdColada = :id
-        GROUP BY c_IdColada
-    """, {"id": id_colada})
-    if not meta:
+    col = colada_por_id(id_colada)
+    if not col:
         raise HTTPException(404, f"Colada {id_colada} no encontrada")
-    m     = meta[0]
-    uid   = m["u_colada"]
-    horno = int(m["u_horno"])
-
-    rec = run("""
-        SELECT COUNT(*) AS total, SUM(bRechazo) AS rechazos,
-               ROUND(AVG(bRechazo)*100, 1) AS pct_rechazo,
-               MAX(FHrVaciado) AS ts_ultimo
-        FROM betamega_03_coladasproceso WHERE c_IdColada = :id
-    """, {"id": id_colada})
-    r = rec[0] if rec else {}
-
-    top_def = run("""
-        SELECT nomDefecto, No_Parte, COUNT(*) AS n
-        FROM betamega_03_coladasproceso
-        WHERE c_IdColada = :id AND bRechazo = 1 AND nomDefecto IS NOT NULL
-        GROUP BY nomDefecto, No_Parte ORDER BY n DESC LIMIT 1
-    """, {"id": id_colada})
-
-    cierre = run("""
-        SELECT COUNT(*) AS total, SUM(r.bLIMP) AS terminadas,
-               ROUND(SUM(r.bLIMP)/COUNT(*)*100, 1) AS pct_cierre,
-               MAX(r.FHrLIMP) AS ts_ultimo_limp
-        FROM betamega_03_coladasproceso rb
-        JOIN betamega_08_ticketrutacritica r ON r.idTicket = rb.idTicket
-        WHERE rb.c_IdColada = :id
-    """, {"id": id_colada})
-    ci = cierre[0] if cierre else {}
-
-    pct_rec = float(r["pct_rechazo"])  if r.get("total") else None
-    pct_ci  = float(ci["pct_cierre"]) if ci.get("total") else None
-
-    # PC-5: tiempo en molde vs TiempoDesmoldeo por NoParte (corex_test.modelos)
-    molde_raw = run("""
-        SELECT
-            COUNT(*) AS total,
-            SUM(CASE WHEN r.FHrMOLD IS NOT NULL AND r.FHrDESM IS NOT NULL THEN 1 ELSE 0 END) AS con_dato,
-            SUM(CASE WHEN r.FHrMOLD IS NOT NULL AND r.FHrDESM IS NOT NULL
-                     AND m2.TiempoDesmoldeo > 0
-                THEN 1 ELSE 0 END) AS con_umbral,
-            SUM(CASE WHEN r.FHrMOLD IS NOT NULL AND r.FHrDESM IS NOT NULL
-                     AND m2.TiempoDesmoldeo > 0
-                     AND TIMESTAMPDIFF(MINUTE, r.FHrMOLD, r.FHrDESM) / 60.0 >= m2.TiempoDesmoldeo
-                THEN 1 ELSE 0 END) AS cumple,
-            ROUND(AVG(CASE WHEN r.FHrMOLD IS NOT NULL AND r.FHrDESM IS NOT NULL
-                           THEN TIMESTAMPDIFF(MINUTE, r.FHrMOLD, r.FHrDESM) / 60.0 END), 2) AS avg_h,
-            ROUND(MIN(CASE WHEN r.FHrMOLD IS NOT NULL AND r.FHrDESM IS NOT NULL
-                           THEN TIMESTAMPDIFF(MINUTE, r.FHrMOLD, r.FHrDESM) END) / 60.0, 2) AS min_h,
-            ROUND(MAX(CASE WHEN r.FHrMOLD IS NOT NULL AND r.FHrDESM IS NOT NULL
-                           THEN TIMESTAMPDIFF(MINUTE, r.FHrMOLD, r.FHrDESM) END) / 60.0, 2) AS max_h
-        FROM betamega_03_coladasproceso rb
-        JOIN betamega_08_ticketrutacritica r ON r.idTicket = rb.idTicket
-        LEFT JOIN (
-            SELECT NoParte, MAX(IdModelo) AS IdModelo
-            FROM corex_test.modelos WHERE TiempoDesmoldeo > 0 GROUP BY NoParte
-        ) best ON best.NoParte = r.No_Parte
-        LEFT JOIN corex_test.modelos m2 ON m2.IdModelo = best.IdModelo
-        WHERE rb.c_IdColada = :id
-          AND (r.FHrMOLD IS NULL OR r.FHrDESM IS NULL
-               OR TIMESTAMPDIFF(HOUR, r.FHrMOLD, r.FHrDESM) BETWEEN 0 AND 72)
-    """, {"id": id_colada})
-    mo = molde_raw[0] if molde_raw else {}
-    avg_molde_h = float(mo["avg_h"]) if mo.get("avg_h") is not None else None
-    con_umbral_mo = int(mo.get("con_umbral") or 0)
-    cumple_mo     = int(mo.get("cumple") or 0)
-    pct_cumple_mo = round(cumple_mo / con_umbral_mo * 100.0, 1) if con_umbral_mo else None
-
-    # PC-2: análisis SpectroMAX real vía la tabla puente de Jasso -- ver docstring de la
-    # función para la cadena completa idTicket -> IdAnalisisQuimico -> valores -> spec.
-    quim_raw = run(f"""
-        SELECT {QUIM_SELECT_SQL}
-        FROM betamega_03_coladasproceso rb
-        JOIN betamega_02_pks_idticketsidmuestras pm ON pm.IdTicket = rb.idTicket
-        JOIN corex_test.vistaanalisisquimicoparaitaca v ON v.AnalysisNum = pm.IdAnalisisQuimico
-        JOIN corex_test.clases cl ON cl.IdClase = rb.cm_idClase
-        WHERE rb.c_IdColada = :id AND pm.IdAnalisisQuimico IS NOT NULL
-        ORDER BY v.AnalysisTime DESC LIMIT 1
-    """, {"id": id_colada})
-    q = quim_raw[0] if quim_raw else {}
-    quim_disponible = bool(q)
-
-    quim_elem = evaluar_quimica(q)
-    _SCORE_KEYS = [k for k in quim_elem if quim_elem.get(k) is not None]  # ya no se excluye Mg a fuerzas
-    _qk_total = len(_SCORE_KEYS)
-    _qk_pass  = sum(1 for k in _SCORE_KEYS if quim_elem[k] == "PASS")
-    pct_quim  = round(_qk_pass / _qk_total * 100.0, 1) if _qk_total else None
-
-    # PC-4: temperatura de vaciado desde betamega_06_vaciado -- equivalente vivo de
-    # alfamega_06_vaciado (congelada dic-2025), encontrado en la auditoría 2026-09-29:
-    # mismas columnas, viva hasta hoy, ningún endpoint la usaba todavía.
-    temp_raw = run("""
-        SELECT COUNT(*) AS n_tickets,
-               SUM(bCumplimientoTemperaturaOk) AS n_ok,
-               ROUND(AVG(CASE WHEN vt_TemperaturaVaciado BETWEEN 1100 AND 1600
-                         THEN vt_TemperaturaVaciado END)) AS temp_avg,
-               MIN(m_tmin) AS tmin,
-               MAX(m_tmax) AS tmax,
-               MIN(FHrVaciado) AS ts_primer_vaci
-        FROM betamega_06_vaciado
-        WHERE c_IdColada = :id
-          AND vt_TemperaturaVaciado IS NOT NULL
-          AND vt_TemperaturaVaciado > 0
-    """, {"id": id_colada})
-    tr = temp_raw[0] if temp_raw else {}
-    n_t  = int(tr.get("n_tickets") or 0)
-    n_ok = int(tr.get("n_ok") or 0)
-    pct_temp_ok = round(n_ok / n_t * 100.0, 1) if n_t else None
-
-    # PC-1: carga al horno, receta vs real por material (regla de tolerancia en core.py)
-    comps_carga = cargas_por_colada([id_colada]).get(id_colada, [])
-    carga = resumen_carga(comps_carga)
-
-    # PC-3: copa ITACA final antes de liberar (liga por hora, regla en core.py)
-    itaca = itaca_por_coladas([id_colada]).get(id_colada, {})
+    datos = datos_pcs_coladas([col])
+    ref = col["fin_fusion"] or col["inicio_fusion"] or datetime.now()
+    no_conf = meses_no_confiables_cache(ref.strftime("%Y-%m-01 00:00:00"), ref.strftime("%Y-%m-%d %H:%M:%S"))
+    e = evaluar_pcs_colada(col, datos, no_conf)
+    rs, q, q_elem, tr = e["resumen"], e["quim"], e["quim_elem"], e["temp"]
 
     carriles_out = []
     for c in CARRILES:
+        ev = e["evs"][c.id_pc]
         if c.id_pc == "PC-1":
-            ev = evaluar_carril(c, carga["pct_ok"], m.get("fecha_inicial"), id_colada)
-            if comps_carga:
+            if e["comps_carga"]:
                 ev["detalle"] = {
-                    **carga,
-                    "materiales": comps_carga,
+                    **e["carga"],
+                    "materiales": e["comps_carga"],
                     "nota": "Ferroaleaciones: Corex no tiene tolerancia definida (0); se usa "
                             "0.5 % o 0.01 kg hasta que Calidad la defina.",
                 }
         elif c.id_pc == "PC-2":
-            ev = evaluar_carril(c, pct_quim, q.get("AnalysisTime") if quim_disponible else None, id_colada)
             ev["detalle"] = {
-                "disponible": quim_disponible,
-                "motivo": None if quim_disponible else
-                    "Sin análisis químico ligado a esta colada todavía -- la tabla puente "
-                    "(betamega_02_pks_idticketsidmuestras) no tiene IdAnalisisQuimico para ninguno "
-                    "de sus tickets (cobertura parcial: ver nota de la función).",
+                "disponible": bool(q),
+                "motivo": None if q else ev.get("motivo_gris"),
                 "clase":          q.get("clase"),
-                "fecha_analisis": str(q["AnalysisTime"]) if quim_disponible and q.get("AnalysisTime") else None,
-                "elementos":      quim_elem,
-                "valores":        {k: float(q[k]) for k in ("C","Si","Mg","S","P","Mn") if quim_disponible and q.get(k) is not None},
-                "fuera_de_spec":  [k for k, v in quim_elem.items() if v == "FAIL"],
+                "clase_note":     q.get("clase_note"),
+                "tipo_analisis":  q.get("tipo_analisis"),
+                "note":           q.get("note"),
+                "fecha_analisis": str(q["AnalysisTime"]) if q.get("AnalysisTime") else None,
+                "elementos":      q_elem,
+                "valores":        {k: float(q[k]) for k in ("C", "Si", "Mg", "S", "P", "Mn") if q.get(k) is not None},
+                "fuera_de_spec":  [k for k, v in q_elem.items() if v == "FAIL"],
+                "nota": "Análisis ligado por el Note del SpectroMAX (número de colada + horno); "
+                        "spec de corex_test.clases por la clase de las piezas." if q else None,
             }
         elif c.id_pc == "PC-3":
-            ev = evaluar_carril(c, itaca.get("score"), itaca.get("ts"), id_colada)
-            if itaca:
+            it = e["itaca"]
+            if it:
                 ev["detalle"] = {
-                    **itaca,
-                    "ts": str(itaca["ts"]),
+                    **it,
+                    "ts": str(it["ts"]),
                     "nota": "Límites provisionales (≥70 / ≥50): el estándar TBL-OPE-IIP no está en la BD. "
                             "Copa ligada a la colada por hora, no por llave.",
                 }
         elif c.id_pc == "PC-4":
-            ev = evaluar_carril(c, pct_temp_ok, tr.get("ts_primer_vaci"), id_colada)
+            n_t = int(tr.get("n_tickets") or 0)
             ev["detalle"] = {
                 "n_tickets":  n_t,
-                "n_ok":       n_ok,
+                "n_ok":       int(tr.get("n_ok") or 0),
+                "piezas":     rs["piezas"],
                 "temp_avg":   int(tr["temp_avg"]) if tr.get("temp_avg") else None,
                 "tmin":       float(tr["tmin"]) if tr.get("tmin") else None,
                 "tmax":       float(tr["tmax"]) if tr.get("tmax") else None,
                 "nota":       "28% de coladas con timestamp único — compliance por flag, no por ts" if n_t else None,
             }
         elif c.id_pc == "PC-5":
-            ev = evaluar_carril(c, pct_cumple_mo, None, id_colada)
             ev["detalle"] = {
-                "total_piezas": int(mo.get("total") or 0),
-                "con_dato":     int(mo.get("con_dato") or 0),
-                "con_umbral":   con_umbral_mo,
-                "cumple":       cumple_mo,
-                "pct_cumple":   pct_cumple_mo,
-                "avg_h":        avg_molde_h,
-                "min_h":        float(mo["min_h"]) if mo.get("min_h") is not None else None,
-                "max_h":        float(mo["max_h"]) if mo.get("max_h") is not None else None,
+                "total_piezas": rs["piezas"],
+                "con_dato":     rs["n_desmoldeo"],
+                "con_umbral":   rs["con_umbral"],
+                "cumple":       rs["cumple_desm"],
+                "pct_cumple":   rs["pct_cumple_desm"],
+                "avg_h":        rs["avg_h"],
+                "min_h":        rs["min_h"],
+                "max_h":        rs["max_h"],
             }
         elif c.id_pc == "PC-6":
-            ev = evaluar_carril(c, pct_rec, r.get("ts_ultimo"), id_colada)
-            defecto_top  = top_def[0]["nomDefecto"] if top_def else None
-            no_parte_top = top_def[0]["No_Parte"]   if top_def else None
-            es_rediseno  = (defecto_top, (no_parte_top or "").strip()) in _REDISENO_COMBOS
-            protocolos   = [] if es_rediseno or ev["estado"] not in ("ROJO", "AMBAR") \
-                           else _buscar_protocolos([defecto_top] if defecto_top else [])
+            combos = rs["combos_defecto"]
+            defecto_top, no_parte_top = combos[0][0] if combos else (None, None)
+            es_rediseno = (defecto_top, (no_parte_top or "").strip()) in _REDISENO_COMBOS
+            protocolos = [] if es_rediseno or ev["estado"] not in ("ROJO", "AMBAR") \
+                         else _buscar_protocolos([defecto_top] if defecto_top else [])
             ev["detalle"] = {
-                "total_piezas": int(r.get("total") or 0),
-                "rechazos":     int(r.get("rechazos") or 0),
+                "total_piezas": rs["piezas"],
+                "con_dato":     rs["n_rechazo"],
+                "rechazos":     rs["rechazos"],
                 "defecto_top":  defecto_top,
                 "no_parte_top": no_parte_top,
                 "es_rediseno":  es_rediseno,
                 "protocolos":   protocolos,
             }
         elif c.id_pc == "PC-7":
-            ev = evaluar_pc7(pct_ci, m.get("fecha_inicial"), id_colada)
+            fi = col["inicio_fusion"]
             ev["detalle"] = {
-                "total_piezas":    int(ci.get("total") or 0),
-                "terminadas":      int(ci.get("terminadas") or 0),
-                "kg_vaciados":     float(m.get("kilos") or 0),
-                "pct_limp":        pct_ci,
-                "dias_transcurridos": round((datetime.utcnow() - m["fecha_inicial"]).total_seconds() / 86400, 1)
-                                       if isinstance(m.get("fecha_inicial"), datetime) else None,
+                "total_piezas":    rs["piezas"],
+                "con_dato":        rs["n_ruta"],
+                "terminadas":      rs["terminadas"],
+                "kg_vaciados":     float(col["kilos"] or 0),
+                "pct_limp":        ev["valor"],
+                "dias_transcurridos": round((datetime.now() - fi).total_seconds() / 86400, 1)
+                                       if isinstance(fi, datetime) else None,
             }
-        else:
-            ev = evaluar_carril(c, None, None, id_colada)
         carriles_out.append(ev)
 
     return {
         "id_colada":     id_colada,
-        "u_colada":      uid,
-        "horno":         horno,
-        "kilos":         float(m.get("kilos") or 0),
-        "inicio_fusion": str(m.get("fecha_inicial") or ""),
+        "u_colada":      col["u_colada"],
+        "horno":         col["horno"],
+        "kilos":         float(col["kilos"] or 0) or e["carga"]["kg_real"],
+        "inicio_fusion": str(col["inicio_fusion"] or ""),
+        "piezas":        rs["piezas"],
         "carriles":      carriles_out,
     }
 
@@ -3513,27 +3373,25 @@ def v3_gestion_alertas(
                 "n_alertas": 0, "n_protocolos": 0,
                 "alertas": [], "protocolos": [], "rediseno_flags": []}
 
-    # Defecto + parte dominantes por colada, solo para alertas de PC-6
-    u_pc6 = sorted({a["u_colada"] for a in alertas if a["id_pc"] == "PC-6"})
+    # Defecto + parte dominantes por colada, solo para alertas de PC-6. Por IdColada y sobre
+    # betamega_01 (2026-10-26): leía cscmega_01 por u_Colada, borrada por IT en oct-2026.
+    id_pc6 = sorted({a["id_colada"] for a in alertas if a["id_pc"] == "PC-6"})
     top_idx = {}
-    if u_pc6:
-        u_list = ",".join(str(int(u)) for u in u_pc6)
-        rows = run(f"""
-            SELECT rb.u_Colada, t.nomDefecto, t.No_Parte, COUNT(*) AS n
-            FROM cscmega_01rechazosbyidticket rb
-            JOIN cscmega_01resultadoidticket t ON t.idTicket = rb.idTicket
-            WHERE rb.u_Colada IN ({u_list}) AND rb.bRechazo = 1 AND t.nomDefecto IS NOT NULL
-            GROUP BY rb.u_Colada, t.nomDefecto, t.No_Parte
-            ORDER BY rb.u_Colada, n DESC
-        """, {})
-        for r in rows:
-            top_idx.setdefault(r["u_Colada"], {"defecto": r["nomDefecto"], "no_parte": r["No_Parte"]})
+    for cid, piezas in piezas_de_coladas(id_pc6).items():
+        combos = {}
+        for p in piezas:
+            if p["bRechazo"] and p["nomDefecto"]:
+                k = (p["nomDefecto"], p["no_parte"])
+                combos[k] = combos.get(k, 0) + 1
+        if combos:
+            defecto, no_parte = max(combos, key=combos.get)
+            top_idx[cid] = {"defecto": defecto, "no_parte": no_parte}
 
     rediseno_flags = []
     for a in alertas:
         if a["id_pc"] != "PC-6":
             continue
-        top = top_idx.get(a["u_colada"])
+        top = top_idx.get(a["id_colada"])
         if not top:
             continue
         a["defecto_top"]  = top["defecto"]
