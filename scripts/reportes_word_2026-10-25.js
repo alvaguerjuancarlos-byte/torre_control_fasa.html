@@ -142,6 +142,8 @@ const catalogos = [
     '`idItaca` pasó de 41 a 1,123 tickets en 2026 (10–18% en ago–sep; octubre 18). `idTension` e `idArenas` siguen vacíos.'),
   fila(18, '**Tipo de rechazo en `betamega_01_rechazosbyidticket`** (Producción / Maquinado / Prueba, el campo `tipo_rech` de `piso_ia.rechazo`). El costo de no-calidad se calcula solo con rechazo de Producción (maquinado y prueba ya traen costo adicional). `piso_ia.rechazo` se congeló el 9-mar-2026 y `betamega_01` no trae ese campo, así que desde 2026 se usa todo el rechazo interno (~7% más toneladas: 1,201.8 t contra 1,119.2 t en 2025). No se puede separar por defecto.',
     'Columna `tipo_rech` en `betamega_01` para todo rechazo interno desde 2025, que cuadre con `piso_ia.rechazo` en 2025 (6,308 Producción, 302 Maquinado, 4 Prueba).', 'IT', PEND, 'Nueva (25-oct).'),
+  fila(20, '**Llave estructurada análisis químico → colada.** `IdAnalisisQuimico` de `idticketsidmuestras` tiene el mismo hueco jul–oct (21 de 516 coladas de octubre). La Torre liga ahora por el texto libre del campo Note del SpectroMAX ("FINAL" + colada + clase + horno): coincide con la liga oficial en 344 de 346 coladas de mayo y cubre ~52–59% de las coladas, pero depende de lo que teclee el operador. Además la clase del Note no coincide con la de las piezas en 123 de 2,376 coladas (5%), ~25 de ellas entre gris y nodular.',
+    'Columnas de colada y horno en la vista de análisis (o `IdAnalisisQuimico` poblado para ≥95% de las coladas); regla escrita de qué clase manda cuando Note y piezas difieren.', 'IT / Calidad', PEND, 'Nueva (26-oct).'),
 ];
 const reglas = [
   fila(10, '**Tolerancias y límites.** Tolerancia de ferroaleaciones en cargas (hoy 0 en el 100%); base de `betamega_07_cargametalicosprc`; límites de AFS (48–54) y de granulometría (% retenido malla 14, 16 y PAN) en `variablesdecontrol`.',
@@ -155,16 +157,18 @@ const reglas = [
   fila(15, '**Ventana de la tasa del pronóstico semanal de CSC** (`gamamega_01_paretopesoperiodo`): documentarla y actualizarla. Caso 42091101: CSC espera 24.3%, la Torre 8.2%; la parte bajó de 20–65% (2025) a 4–8% (2026) tras el rediseño de DEPRESION.',
     'Ventana y método documentados; tasa recalculada con historia de 2026, o justificación de mantener la de 2025.', 'CSC', PEND,
     'Nueva (25-oct). Semana 43: 45 de 77 partes difieren 5 puntos o más.'),
+  fila(19, '**Cómo leer la especificación química de `corex_test.clases`.** Cada elemento trae centro (`_F`) y tolerancia (`_Fl`); el fósforo es el único con tolerancia 0 (P = 0.10 en gris, 0.04 en nodular). Leído como "0.10 ± 0" marcaba fuera de especificación 2,316 de 2,376 coladas de abr–oct 2026, con valores reales de 0.02–0.03. Desde el 26-oct la Torre lo trata como máximo.',
+    'Respuesta escrita de Calidad: P es máximo (o el rango correcto); de preferencia columnas de mínimo y máximo por elemento.', 'Calidad', PEND, 'Nueva (26-oct).'),
 ];
 
 const infra = [
   fila(17, '**Índices y estabilidad del servidor de BD.** `itaca_acqresults` (8.9 millones de filas) no tiene ningún índice y `ticketsconvaciadodirecto` no tiene índice en `FHrVaciado`: consultas simples tardan de 12 a 30 s. Durante pruebas del 25-oct MySQL cortó conexiones dos veces bajo carga (errores 2003 "Can\'t connect" y 2013 "Lost connection"). Sugerencia: índices en `itaca_acqresults (aResDate, aResNum)` y en `ticketsconvaciadodirecto (FHrVaciado)`, y revisar límites de conexiones y timeouts.',
-    'Índices creados (o explicación de por qué no); consulta de un día de ITACA o de vaciados en menos de 2 s; sin cortes de conexión en una semana de uso normal de la Torre.', 'IT', PEND, 'Nueva (25-oct).'),
+    'Índices creados (o explicación de por qué no); consulta de un día de ITACA o de vaciados en menos de 2 s; sin cortes de conexión en una semana de uso normal de la Torre.', 'IT', PEND, 'Nueva (25-oct). 26-oct: Control del Proceso ahora arma la lista de coladas desde `ticketsconvaciadodirecto`; sin el índice esa consulta tarda ~5 s y la lista completa ~10 s.'),
 ];
 
 const doc1 = doc([
-  ...titulo('Temas pendientes con IT, Calidad y CSC', 'Torre de Control FASA · corte 25 de octubre de 2026 · Preparado por Juan Carlos Alvarez (MindBridge)'),
-  P('Hay **18 temas abiertos**. Ninguno está cerrado y 3 tienen avance parcial (5, 6 y 9). Los tres primeros son los más urgentes: sin ellos la Torre no tiene rechazo real, puntos de control ni piezas terminadas de julio en adelante.'),
+  ...titulo('Temas pendientes con IT, Calidad y CSC', 'Torre de Control FASA · corte 25 de octubre de 2026, temas 19 y 20 agregados el 26-oct · Preparado por Juan Carlos Alvarez (MindBridge)'),
+  P('Hay **20 temas abiertos**. Ninguno está cerrado y 3 tienen avance parcial (5, 6 y 9). Los tres primeros son los más urgentes: sin ellos la Torre no tiene rechazo real, puntos de control ni piezas terminadas de julio en adelante.'),
   P('Cada tema trae un criterio para darlo por resuelto y el estado verificado contra la base de datos el 25-oct-2026. El detalle de las mediciones está en la auditoría de datos de la misma fecha.'),
   H2('A. Urgentes: bloquean rechazo, puntos de control y avance'),
   table(W1, urgentes), SP(),
@@ -268,9 +272,10 @@ const doc2 = doc([
   B('**El pronóstico semanal de CSC usa tasas desactualizadas.** En la semana 43, 45 de 77 partes difieren 5 puntos o más contra la tasa de los últimos 12 meses; caso principal 42091101 (24.3% vs 8.2%) (tema 15).'),
   B('**Programa semanal contra vaciado real:** cada semana se vacía 33–61% de lo programado (semana 43: 611 de 1,123 piezas) y entre 90 y 420 piezas por semana son de partes que no estaban en el programa. Hay que confirmar con Planeación si el programa semanal incluye piezas que no se esperan vaciar esa semana.'),
   B('**Retornos en carga:** en 2026 el retorno promedio es 32% contra el límite de 30% del Plan de Control; julio llegó a 40% (tema 13).'),
+  B('**Química (26-oct): la liga oficial análisis→colada tiene el mismo hueco** (21 de 516 coladas de octubre). La Torre liga el análisis FINAL por el texto del campo Note del SpectroMAX (colada + clase + horno), validado contra la liga oficial en 344 de 346 coladas de mayo; cubre ~52–59% de las coladas. El fósforo con tolerancia 0 en Corex se trata como máximo (temas 19 y 20).'),
   B('**Estabilidad del servidor.** Durante las pruebas MySQL cortó conexiones dos veces bajo consultas pesadas (errores 2003 y 2013). Tablas grandes sin índices útiles: `itaca_acqresults` (8.9 millones de filas, ningún índice) y `ticketsconvaciadodirecto` (sin índice en `FHrVaciado`); una consulta simple tarda de 12 a 30 s. Conviene que IT evalúe índices en esas columnas (tema 17).'),
   H1('6. Estado de los temas pendientes'),
-  P('De 18 temas, **0 resueltos, 3 con avance parcial** (5 duplicados, 6 tickets con varios registros, 9 `idItaca`) y 15 sin avance, incluidos los 6 agregados después del 13-oct (13 a 18). El detalle y los criterios de aceptación están en el documento "Temas pendientes con IT, Calidad y CSC" del 25-oct-2026.'),
+  P('De 20 temas, **0 resueltos, 3 con avance parcial** (5 duplicados, 6 tickets con varios registros, 9 `idItaca`) y 17 sin avance, incluidos los 8 agregados después del 13-oct (13 a 20). El detalle y los criterios de aceptación están en el documento "Temas pendientes con IT, Calidad y CSC" del 25-oct-2026.'),
 ], false, 'Auditoría de datos — actualización 25-oct-2026');
 
 (async () => {
