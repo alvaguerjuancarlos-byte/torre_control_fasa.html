@@ -4226,6 +4226,12 @@ let _pedAgr = 'anual'
 let _pedAnio = 2026
 let _pedIdx = 0
 let _pedMaxFecha = null   // fecha más reciente real en fdbase (puede ir muy por detrás del año calendario)
+// '2026-03-09' -> '9-mar-2026'
+function fmtFechaCorta(iso){
+  const M=['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic']
+  const [y,m,d]=String(iso).slice(0,10).split('-')
+  return (+d)+'-'+M[+m-1]+'-'+y
+}
 
 async function initPedidosPanel(){
   if (!_pedMaxFecha) {
@@ -4290,6 +4296,8 @@ async function pedTonCargar(cliente, desde, hasta, bucket){
   }
   document.getElementById('ped-ton-sub').textContent =
     res.serie[0].lbl + ' – ' + res.serie[res.serie.length-1].lbl
+    + (res.serie.some(m => m.tons_entregadas === null) && res.fdbase_hasta
+       ? ' · embarques registrados hasta ' + fmtFechaCorta(res.fdbase_hasta) : '')
   chartEl.innerHTML = svgClienteTonelaje(res.serie, res.bucket)
 }
 
@@ -4297,7 +4305,7 @@ function svgClienteTonelaje(serie, bucket){
   const VW=720, VH=190, PL=48, PR=48, PT=22, PB=28
   const BW=VW-PL-PR, BH=VH-PT-PB
   const n = serie.length
-  const maxT = Math.max(...serie.map(m=>m.tons_entregadas), 1) * 1.15
+  const maxT = Math.max(...serie.map(m=>m.tons_entregadas||0), 1) * 1.15
   const pctVals = serie.map(m=>m.pct_rechazo).filter(v=>v!==null && v!==undefined)
   const maxP = Math.max(...pctVals, 10) * 1.15
   const slotW = BW/n, barW = slotW*0.56, gap=(slotW-barW)/2
@@ -4321,6 +4329,14 @@ function svgClienteTonelaje(serie, bucket){
   let bars=''
   serie.forEach((m,i)=>{
     const x=X(i)
+    // null = período posterior al último embarque de fdbase: sin dato, no "0 t"
+    if (m.tons_entregadas === null) {
+      bars += `<rect x="${x}" y="${PT}" width="${barW}" height="${BH}" fill="#F3F4F6" rx="1.5"/>`
+      bars += `<text x="${(x+barW/2).toFixed(1)}" y="${(Yt(0)-4).toFixed(1)}" text-anchor="middle" font-size="8" fill="#9CA3AF">s/d</text>`
+      const xLbl0 = bucket === 'semana' ? m.lbl : m.lbl.split(' ')[0]
+      bars += `<text x="${Xc(i).toFixed(1)}" y="${VH-PB+13}" text-anchor="middle" font-size="9" fill="#9CA3AF">${xLbl0}</text>`
+      return
+    }
     const h = (m.tons_entregadas/maxT)*BH, y = Yt(0)-h
     bars += `<rect x="${x}" y="${y.toFixed(1)}" width="${barW}" height="${h.toFixed(1)}" fill="#1D9E75" rx="1.5"/>`
     if (m.tons_entregadas > 0) bars += `<text x="${(x+barW/2).toFixed(1)}" y="${(y-4).toFixed(1)}" text-anchor="middle" font-size="8" fill="#6B7280">${m.tons_entregadas.toFixed(1)}</text>`
@@ -4473,12 +4489,19 @@ async function pedCargar(desde, hasta){
 function pedRenderKpis(res){
   const el = document.getElementById('ped-kpis')
   el.style.display = 'grid'
+  // Período que empieza después del último embarque de fdbase (congelada): sin dato, no "0 pedidos"
+  const sinDato = _pedMaxFecha && res.desde && res.desde > _pedMaxFecha
+  const v = x => sinDato ? '—' : x
   const kpis = [
-    { l: 'Pedidos',            v: res.n_pedidos },
-    { l: 'Piezas totales',     v: Number(res.total_piezas).toLocaleString('es-MX') },
-    { l: 'Clientes distintos', v: res.n_clientes },
-    { l: 'Partes distintas',   v: res.n_partes },
+    { l: 'Pedidos',            v: v(res.n_pedidos) },
+    { l: 'Piezas totales',     v: v(Number(res.total_piezas).toLocaleString('es-MX')) },
+    { l: 'Clientes distintos', v: v(res.n_clientes) },
+    { l: 'Partes distintas',   v: v(res.n_partes) },
   ]
+  const msg = document.getElementById('ped-msg')
+  if (_pedMaxFecha && res.hasta && res.hasta > _pedMaxFecha)
+    msg.textContent = 'Facturación/embarques (fdbase) registrados solo hasta ' + fmtFechaCorta(_pedMaxFecha)
+      + (sinDato ? ' — este período no tiene dato.' : ' — el período está incompleto.')
   el.innerHTML = kpis.map(k =>
     '<div class="ped-kpi"><div class="kl">'+k.l+'</div><div class="kv">'+k.v+'</div></div>'
   ).join('')
@@ -4504,6 +4527,12 @@ const PED_ETAPA_COLOR = {sin_datos:'#9aa7b4', en_vaciado:ECOL_FLUJO['En vaciado'
                           en_limpieza:ECOL_FLUJO['En limpieza'], terminado:ECOL_FLUJO['Terminado']}
 function pedBadgeUbicacion(ubicacion){
   if (!ubicacion) return '<span class="ped-badge gris">sin producción</span>'
+  // Desmoldeo/limpieza (betamega_08) registrados en menos de la mitad de las piezas: no se sabe la etapa
+  if (ubicacion.ruta_confiable === false)
+    return '<div style="font-size:10px;color:var(--muted)" title="Desmoldeo/limpieza registrados en menos de la mitad de las piezas de la colada">'
+      + 'Colada '+(ubicacion.u_colada ?? '—')+' · '+ubicacion.piezas+' pzas'
+      + (ubicacion.ultima_actividad ? ' · vaciadas '+fmtFechaCorta(ubicacion.ultima_actividad) : '')
+      + ' · sin registro posterior</div>'
   const e = ubicacion.etapas || {}
   const chips = Object.keys(PED_ETAPA_LBL).map(k => {
     const n = e[k] || 0

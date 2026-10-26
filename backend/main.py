@@ -3475,47 +3475,46 @@ def _ubicacion_partes(no_partes: list) -> dict:
     específico — es la última actividad de producción conocida para ese No_Parte, sin importar cuándo."""
     if not no_partes:
         return {}
+    # 2026-10-26: la colada más reciente sale de betamega_aleks_idtickethistorial (completa,
+    # índice por no_parte; IdColada es consecutivo) y sus piezas de core.piezas_de_coladas, en vez
+    # de betamega_03+betamega_08 (hueco jul-oct: tomaba una colada de junio, o una de octubre con
+    # una pieza, como "la última"). Si betamega_08 registra menos de COBERTURA_MIN_PCT de esas
+    # piezas, las etapas no se reportan (ruta_confiable=False): todas saldrían "sin datos".
+    # Antes (2026-10-11): cscmega_01+cscmega_08 por u_Colada, borradas por IT.
     placeholders = ",".join(f":p{i}" for i in range(len(no_partes)))
     params = {f"p{i}": p for i, p in enumerate(no_partes)}
-    # Migrado 2026-10-11 de cscmega_01rechazosbyidticket+cscmega_08ruta (borradas por IT) a
-    # betamega_03+betamega_08. Agrupa por c_IdColada (id real) en vez de u_Colada, que se
-    # recicla y mezclaba coladas distintas con el mismo número.
-    rows = run(f"""
-        SELECT r.No_Parte AS no_parte, b3.c_IdColada AS id_colada, MAX(b3.Colada) AS u_colada,
-               COUNT(*) AS piezas,
-               SUM(CASE WHEN r.bLIMP=1 THEN 1 ELSE 0 END) AS terminado,
-               SUM(CASE WHEN r.bLIMP=0 AND r.bDESM=1 THEN 1 ELSE 0 END) AS en_limpieza,
-               SUM(CASE WHEN r.bDESM=0 AND r.bVACI=1 THEN 1 ELSE 0 END) AS en_desmoldeo,
-               SUM(CASE WHEN r.bVACI=0 AND r.bMOLD=1 THEN 1 ELSE 0 END) AS en_vaciado,
-               SUM(CASE WHEN r.bMOLD=0 THEN 1 ELSE 0 END) AS sin_datos,
-               MAX(b3.FHrVaciado) AS ultima_fecha
-        FROM betamega_08_ticketrutacritica r
-        JOIN betamega_03_coladasproceso b3 ON b3.idTicket = r.idTicket
-        WHERE r.No_Parte IN ({placeholders}) AND b3.c_IdColada > 0
-        GROUP BY r.No_Parte, b3.c_IdColada
+    ult = run(f"""
+        SELECT TRIM(no_parte) AS no_parte, MAX(IdColada) AS id_colada
+        FROM betamega_aleks_idtickethistorial
+        WHERE no_parte IN ({placeholders}) AND IdColada > 0
+        GROUP BY TRIM(no_parte)
     """, params)
-
-    mejor: Dict[str, dict] = {}
-    for r in rows:
-        np_ = r["no_parte"]
-        cur = mejor.get(np_)
-        if cur is None or (r["ultima_fecha"] is not None
-                            and (cur["ultima_fecha"] is None or r["ultima_fecha"] > cur["ultima_fecha"])):
-            mejor[np_] = r
+    ult_idx = {r["no_parte"]: r["id_colada"] for r in ult}
+    piezas = piezas_de_coladas(list(set(ult_idx.values())))
+    ids_sql = ",".join(str(int(i)) for i in set(ult_idx.values())) or "0"
+    cab = {r["idColada"]: {"u_colada": r["Colada"]} for r in run(
+        f"SELECT idColada, Colada FROM betamega_00_coladaprocesodemoras WHERE idColada IN ({ids_sql})", {})}
 
     out = {}
-    for np_, r in mejor.items():
+    for np_, cid in ult_idx.items():
+        ps = [p for p in piezas.get(cid, []) if p["no_parte"] == np_]
+        if not ps:
+            continue
+        ruta = [p for p in ps if p["en_b08"]]
+        ruta_ok = len(ruta) / len(ps) * 100.0 >= COBERTURA_MIN_PCT
+        ts = [p["ts_vaciado"] for p in ps if p["ts_vaciado"]]
         out[np_] = {
-            "u_colada": r["u_colada"],
-            "ultima_actividad": str(r["ultima_fecha"] or ""),
-            "piezas": int(r["piezas"] or 0),
+            "u_colada": (cab.get(cid) or {}).get("u_colada"),
+            "ultima_actividad": str(max(ts)) if ts else "",
+            "piezas": len(ps),
+            "ruta_confiable": ruta_ok,
             "etapas": {
-                "sin_datos":    int(r["sin_datos"] or 0),
-                "en_vaciado":   int(r["en_vaciado"] or 0),
-                "en_desmoldeo": int(r["en_desmoldeo"] or 0),
-                "en_limpieza":  int(r["en_limpieza"] or 0),
-                "terminado":    int(r["terminado"] or 0),
-            },
+                "sin_datos":    sum(1 for p in ruta if not p["bMOLD"]),
+                "en_vaciado":   sum(1 for p in ruta if p["bMOLD"] and not p["bVACI"]),
+                "en_desmoldeo": sum(1 for p in ruta if p["bVACI"] and not p["bDESM"]),
+                "en_limpieza":  sum(1 for p in ruta if p["bDESM"] and not p["bLIMP"]),
+                "terminado":    sum(1 for p in ruta if p["bLIMP"]),
+            } if ruta_ok else {},
         }
     return out
 
@@ -3696,12 +3695,13 @@ def v2_pedidos_cliente_tonelaje(
     import calendar as cal_mod
     MESES = ['', 'Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic']
 
+    row = run("SELECT MAX(fecha) AS mx FROM piso_ia.fdbase", {})
+    max_date = row[0]["mx"] if row and row[0]["mx"] else date.today()
+    max_date = max_date.date() if isinstance(max_date, datetime) else max_date
     if desde and hasta:
         d_ini = date.fromisoformat(desde)
         d_fin = date.fromisoformat(hasta)
     else:
-        row = run("SELECT MAX(fecha) AS mx FROM piso_ia.fdbase", {})
-        max_date = row[0]["mx"] if row and row[0]["mx"] else date.today()
         end = date(max_date.year, max_date.month, 1)
         m, y = end.month - 11, end.year
         while m <= 0:
@@ -3773,17 +3773,24 @@ def v2_pedidos_cliente_tonelaje(
                 m = 1
                 y += 1
 
+    # 2026-10-26: sin ceros falsos. fdbase está congelada (último embarque = max_date): un
+    # período que empieza después no tiene "0 t entregadas", no tiene dato -> None. Y el % de
+    # rechazo de un mes no confiable (core.meses_rechazo_no_confiables: bRechazo sin marcar
+    # desde 9-jul-2026) también va a None en vez de 0 %.
+    no_conf = meses_no_confiables_cache(d_ini.isoformat() + " 00:00:00", d_fin.isoformat() + " 23:59:59")
     serie = []
     for bk, lbl in periodos:
         n, rec = rech_idx.get(bk, (0, 0))
+        sin_embarques = date.fromisoformat(bk if es_semana else bk + "-01") > max_date
         serie.append({
             "periodo":         bk,
             "lbl":             lbl,
-            "tons_entregadas": round(tons_idx.get(bk, 0.0), 2),
-            "pct_rechazo":     round(rec / n * 100, 1) if n else None,
+            "tons_entregadas": None if sin_embarques else round(tons_idx.get(bk, 0.0), 2),
+            "pct_rechazo":     round(rec / n * 100, 1) if n and bk[:7] not in no_conf else None,
         })
 
-    return {"cliente": cliente, "bucket": bucket, "serie": serie}
+    return {"cliente": cliente, "bucket": bucket, "serie": serie,
+            "fdbase_hasta": max_date.isoformat()}
 
 
 # ══════════════════════════════════════════════════════════════════════════════
