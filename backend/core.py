@@ -539,6 +539,12 @@ def evaluar_quimica(q: dict) -> dict:
         tol, aplica = q.get(f"{pref}_Fl"), q.get(f"{pref}_Fx")
         if aplica != "S" or valor is None or centro is None:
             out[elem] = None
+        elif not float(tol or 0):
+            # Tolerancia 0 = MÁXIMO, no valor exacto (2026-10-26). En corex_test.clases solo pasa
+            # con P (0.10 gris / 0.04 nodular): es impureza, se especifica como tope. Leído como
+            # "0.10 ± 0" marcaba FAIL en 2,316 de 2,376 coladas con valores reales de 0.02-0.03.
+            # Pendiente que Calidad lo confirme (solicitud #19 del doc de Jasso).
+            out[elem] = "PASS" if float(valor) <= float(centro) else "FAIL"
         else:
             lo, hi = float(centro) - float(tol or 0), float(centro) + float(tol or 0)
             out[elem] = "PASS" if lo <= float(valor) <= hi else "FAIL"
