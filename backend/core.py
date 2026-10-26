@@ -887,6 +887,126 @@ def quimica_por_coladas(coladas: list, clase_por_colada: Dict[int, int]) -> Dict
     return out
 
 
+def encabezados_coladas(ids) -> Dict[int, dict]:
+    """Encabezado (formato de coladas_en_ventana) de varias coladas por IdColada, en lote:
+    demoras primero, y para las que no tienen fila (hueco 18-ago -> 29-sep) el vaciado."""
+    ids = sorted({int(i) for i in ids if i})
+    if not ids:
+        return {}
+    out = {}
+    for dm in run(f"""
+        SELECT idColada, Colada, Horno124, Kilos, Status, FechaInicial, FechaLiberado
+        FROM betamega_00_coladaprocesodemoras WHERE idColada IN ({_ids_sql(ids)})
+    """, {}):
+        out[dm["idColada"]] = {
+            "id_colada": dm["idColada"], "u_colada": dm["Colada"], "horno": dm["Horno124"],
+            "inicio_fusion": dm["FechaInicial"], "fin_fusion": dm["FechaLiberado"],
+            "kilos": dm["Kilos"], "status": dm["Status"],
+        }
+    faltan = [i for i in ids if i not in out or not out[i]["fin_fusion"]]
+    if faltan:
+        for vc in run(f"""
+            SELECT a.IdColada AS id, MIN(v.FHrVaciado) AS vac_ini, MAX(v.FHrVaciado) AS vac_fin,
+                   MAX(v.Horno) AS horno, MAX(v.Colada) AS u_colada
+            FROM betamega_aleks_idtickethistorial a
+            JOIN betamega_00_ticketsconvaciadodirecto v ON v.idTicket = a.IdTicket
+            WHERE a.IdColada IN ({_ids_sql(faltan)})
+            GROUP BY a.IdColada
+        """, {}):
+            prev = out.get(vc["id"]) or {"id_colada": vc["id"], "kilos": None, "status": None}
+            out[vc["id"]] = {
+                **prev,
+                "u_colada": prev.get("u_colada") or vc["u_colada"],
+                "horno": prev.get("horno") or vc["horno"],
+                "inicio_fusion": prev.get("inicio_fusion") or vc["vac_ini"],
+                "fin_fusion": prev.get("fin_fusion") or vc["vac_fin"],
+            }
+    return out
+
+
+# Agente Beta, compuerta química por parte (2026-10-26, opción B de JC): antes Beta solo
+# revisaba que hubiera análisis recientes en la BD y con eso quitaba la advertencia, sin mirar
+# nunca los valores de la parte. Ahora toma las últimas coladas de la parte, liga su análisis
+# FINAL igual que PC-2 (quimica_por_coladas) y cuenta por elemento cuántas salieron fuera de la
+# especificación de su clase. Cobertura del Note ~52-59 % de las coladas: se reporta siempre
+# cuántas se evaluaron. Con menos de QUIM_PARTE_MIN_COLADAS analizadas no se concluye nada.
+QUIM_PARTE_N_COLADAS = 30
+QUIM_PARTE_MIN_COLADAS = 5
+QUIM_PARTE_PCT_ALERTA = 20.0   # elemento fuera en >= 20 % de las coladas evaluadas -> señal
+
+
+def quimica_de_parte(no_parte: str, n_coladas: int = QUIM_PARTE_N_COLADAS) -> dict:
+    """Resumen de la química real (análisis FINAL ligado por Note) de las últimas coladas de una parte."""
+    np_ = (no_parte or "").strip()
+    filas = run("""
+        SELECT DISTINCT IdColada, no_parte FROM betamega_aleks_idtickethistorial
+        WHERE no_parte LIKE :p AND IdColada > 0
+        ORDER BY IdColada DESC LIMIT :lim
+    """, {"p": np_ + "%", "lim": n_coladas * 3})
+    ids = []
+    for f in filas:
+        if (f["no_parte"] or "").strip() == np_ and f["IdColada"] not in ids:
+            ids.append(f["IdColada"])
+    ids = ids[:n_coladas]
+    base = {"no_parte": np_, "n_coladas": len(ids), "n_con_analisis": 0, "disponible": False,
+            "elementos": [], "senales": [], "desde": None, "hasta": None}
+    if not ids:
+        return {**base, "motivo": "sin coladas registradas para esta parte"}
+    cab = encabezados_coladas(ids)
+    cols = [cab[i] for i in ids if i in cab]
+    piezas = piezas_de_coladas(ids)
+    clase = {cid: clase_dominante(ps) for cid, ps in piezas.items()}
+    quim = quimica_por_coladas(cols, clase)
+    fechas = [c["fin_fusion"] for c in cols if c.get("fin_fusion")]
+    base.update({"n_con_analisis": len(quim),
+                 "desde": min(fechas).strftime("%Y-%m-%d") if fechas else None,
+                 "hasta": max(fechas).strftime("%Y-%m-%d") if fechas else None})
+    if len(quim) < QUIM_PARTE_MIN_COLADAS:
+        return {**base, "motivo": f"solo {len(quim)} de {len(ids)} coladas recientes con análisis FINAL "
+                                  f"ligado (mínimo {QUIM_PARTE_MIN_COLADAS} para concluir)"}
+    por_elem: Dict[str, dict] = {}
+    en_spec = 0
+    clases_vistas: Dict[str, int] = {}
+    for cid, q in quim.items():
+        ev = evaluar_quimica(q)
+        if q.get("clase"):
+            clases_vistas[q["clase"]] = clases_vistas.get(q["clase"], 0) + 1
+        evaluados = {k: v for k, v in ev.items() if v is not None}
+        if evaluados and all(v == "PASS" for v in evaluados.values()):
+            en_spec += 1
+        for elem, v in evaluados.items():
+            e = por_elem.setdefault(elem, {"elemento": elem, "evaluadas": 0, "fuera": 0, "altos": 0,
+                                           "bajos": 0, "valores": []})
+            e["evaluadas"] += 1
+            val = float(q[elem])
+            e["valores"].append(val)
+            if v == "FAIL":
+                e["fuera"] += 1
+                pref = dict(_QUIM_ELEMS)[elem]
+                e["altos" if val > float(q.get(f"{pref}_F") or 0) else "bajos"] += 1
+    elementos = []
+    for e in por_elem.values():
+        vals = sorted(e.pop("valores"))
+        e["mediana"] = round(vals[len(vals) // 2], 4)
+        e["pct_fuera"] = _pct(e["fuera"], e["evaluadas"])
+        elementos.append(e)
+    elementos.sort(key=lambda e: -(e["pct_fuera"] or 0))
+    senales = [e for e in elementos if (e["pct_fuera"] or 0) >= QUIM_PARTE_PCT_ALERTA]
+    return {
+        **base,
+        "disponible": True,
+        "clases": clases_vistas,
+        "coladas_en_spec": en_spec,
+        "pct_coladas_en_spec": _pct(en_spec, len(quim)),
+        "elementos": elementos,
+        "senales": [{"elemento": e["elemento"], "fuera": e["fuera"], "evaluadas": e["evaluadas"],
+                     "pct_fuera": e["pct_fuera"],
+                     "direccion": "alto" if e["altos"] >= e["bajos"] else "bajo"} for e in senales],
+        "metodo": "Análisis FINAL del SpectroMAX ligado a cada colada por el Note (colada + clase + "
+                  "horno), contra la especificación de su clase en corex_test.clases; P como máximo.",
+    }
+
+
 def clase_dominante(piezas: list):
     cuenta: Dict[int, int] = {}
     for p in piezas:

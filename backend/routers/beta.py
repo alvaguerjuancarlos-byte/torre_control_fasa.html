@@ -8,11 +8,12 @@ Dos compuertas de datos, nunca mezcladas:
      Cruz) — se decidió NO duplicarla en una tabla nueva, leer esta directo.
      FlagCriticidadDefectoParte/FlagTendInterAnual son -1/0/1/NULL, no
      binarios (713/575/87/6 filas resp.) — ver _riesgo_label().
-  2. Química en vivo — cadena betamega_02_pks_idticketsidmuestras ->
-     corex_test.vistaanalisisquimicoparaitaca (SpectroMAX), la misma que usa
-     PC-2. Antes cscmega_05cquimicosbase, congelada desde 2025-12-29 y borrada
-     por IT en 2026-10. Disponibilidad se calcula en vivo contra el análisis
-     ligado más reciente, nunca hardcodeada ni simulada/inferida cuando falta.
+  2. Química real de la parte — core.quimica_de_parte(): análisis FINAL del SpectroMAX de
+     sus últimas coladas (ligado por el Note, mismo método que PC-2) contra la especificación
+     de su clase; por elemento, cuántas coladas salieron fuera. Desde 2026-10-26 (opción B de
+     JC). Antes solo se revisaba que existiera algún análisis reciente en la BD y con eso se
+     quitaba la advertencia, sin mirar nunca los valores de la parte. Con pocas coladas
+     analizadas no concluye (disponible=False + motivo), nunca infiere.
 """
 
 import calendar
@@ -21,11 +22,11 @@ from typing import Optional
 from fastapi import APIRouter, Query
 
 from backend.core import (run, _evaluar_coladas_ventana, _buscar_protocolos, _REDISENO_COMBOS,
-                          _referencia_actual_flujo, UMBRAL_PIEZAS_MES_CONFIABLE, piezas_de_coladas)
+                          _referencia_actual_flujo, UMBRAL_PIEZAS_MES_CONFIABLE, piezas_de_coladas,
+                          quimica_de_parte)
 
 router = APIRouter(prefix="/api/beta", tags=["beta"])
 
-QUIMICA_UMBRAL_DIAS = 7  # dato más viejo que esto => compuerta no disponible
 UMBRAL_PARTES_ACTIVAS_CONFIABLE = 5  # mínimo de partes con actividad real para no sugerir ampliar
 
 # Verificado 2026-10-02: nPzasTotal = nPzas2023 + nPzas2025 EXACTO en las 1,381 filas de
@@ -49,34 +50,30 @@ def _riesgo_label(flag) -> str:
     return "sin info"
 
 
-def _compuerta_quimica() -> dict:
-    row = run("""
-        SELECT STR_TO_DATE(MAX(v.AnalysisTime), '%Y%m%d %H:%i:%s') AS mx
-        FROM betamega_02_pks_idticketsidmuestras pm
-        JOIN corex_test.vistaanalisisquimicoparaitaca v ON v.AnalysisNum = pm.IdAnalisisQuimico
-    """, {})
-    ultima = row[0]["mx"] if row else None
-    disponible = bool(ultima) and (datetime.now() - ultima).days <= QUIMICA_UMBRAL_DIAS
-    return {
-        "disponible": disponible,
-        "motivo": None if disponible else "ETL congelado",
-        "ultima_actualizacion": ultima.strftime("%Y-%m-%d") if ultima else None,
-    }
+def _frase_quimica(quimica: dict) -> str:
+    """Una frase con lo que dice la química real de la parte (o por qué no dice nada)."""
+    if not quimica["disponible"]:
+        return f"Química sin conclusión: {quimica.get('motivo')}."
+    n, rango = quimica["n_con_analisis"], f"{quimica['desde']} a {quimica['hasta']}"
+    if quimica["senales"]:
+        partes = ", ".join(f"{s['elemento']} {s['direccion']} en {s['fuera']} de {s['evaluadas']} coladas"
+                           for s in quimica["senales"])
+        return f"La química sí muestra desviación ({rango}): {partes}. Revisar ajuste de fusión de esta clase."
+    return (f"Química dentro de especificación en {quimica['coladas_en_spec']} de {n} coladas analizadas "
+            f"({rango}), sin elemento fuera de forma recurrente: el rechazo probablemente no viene de "
+            f"la composición.")
 
 
 def _recomendacion_beta(defecto: str, riesgo_label: str, quimica: dict) -> str:
     if riesgo_label != "alto":
-        return "Sin acción prioritaria — criticidad histórica no indica riesgo alto para esta parte."
+        base = "Sin acción prioritaria — criticidad histórica no indica riesgo alto para esta parte."
+        return base + (" " + _frase_quimica(quimica) if quimica["disponible"] and quimica["senales"] else "")
 
-    base = "Aumentar frecuencia de inspección visual — criticidad histórica alta"
-    if not quimica["disponible"]:
-        base += ", sin corroboración química disponible"
-    base += "."
+    base = "Aumentar frecuencia de inspección visual — criticidad histórica alta. " + _frase_quimica(quimica)
 
     if defecto and defecto.upper() == "SOPLADURA":
         base += (" Nota: SOPLADURA suele asociarse más a molde/inoculante que a "
-                  "composición química de colada — la falta de dato químico no "
-                  "es la limitante principal para este defecto.")
+                  "composición química de colada.")
     return base
 
 
@@ -89,7 +86,7 @@ def beta_evaluar(no_parte: str = Query(...)):
         ORDER BY zDefectoParte DESC
     """, {"np": no_parte})
 
-    quimica = _compuerta_quimica()
+    quimica = quimica_de_parte(no_parte)
 
     if not rows:
         return {

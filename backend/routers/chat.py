@@ -94,11 +94,17 @@ def partes_de_cliente(cliente: str, dias: int = 14) -> str:
 
 @beta_tool
 def riesgo_calidad_parte(no_parte: str) -> str:
-    """Criticidad histórica de rechazo y disponibilidad de compuerta química para una
-    parte (Agente Beta) -- útil si preguntan por qué una parte tiene problemas de calidad.
+    """Criticidad histórica de rechazo y química real de las últimas coladas de una parte
+    (Agente Beta) -- útil si preguntan por qué una parte tiene problemas de calidad o si el
+    problema puede venir de la fusión/composición.
     El resultado trae un campo "periodo" (dentro de compuerta_criticidad) que dice
     exactamente qué años cubre -- siempre repítelo literal, no digas solo "histórico"
     o "sin corte de período" sin más, el usuario quiere saber qué años son.
+    compuerta_quimica trae, para las últimas coladas de la parte, cuántas tenían análisis
+    ligado (n_con_analisis de n_coladas), el rango de fechas (desde/hasta) y por elemento
+    cuántas salieron fuera de especificación (elementos, senales). Di siempre cuántas coladas
+    se evaluaron y de qué fechas. Si disponible es false, usa su "motivo" y no concluyas nada
+    sobre la química.
 
     Args:
         no_parte: Número de parte exacto.
@@ -203,8 +209,8 @@ las herramientas de calidad (Agente Beta) -- úsalas si la pregunta cruza a ries
 """ + _REGLAS_GROUNDING
 
 _BETA_CHAT_SYSTEM = """Eres el asistente del Agente Beta de la Torre de Control FASA (fundición).
-Respondes preguntas sobre criticidad histórica de rechazo y disponibilidad de la compuerta
-química de una parte, usando SOLO datos reales obtenidos con las herramientas disponibles.
+Respondes preguntas sobre criticidad histórica de rechazo y química real de las últimas coladas
+de una parte, usando SOLO datos reales obtenidos con las herramientas disponibles.
 También tienes acceso a las herramientas de flujo (Agente Alfa) -- úsalas si la pregunta cruza
 a ritmo de producción, cuello de botella o entrega.
 """ + _REGLAS_GROUNDING
@@ -236,8 +242,9 @@ NUNCA cambia esa tasa -- pero partes_riesgo_alto sí acepta `dias` para acotar q
 en la lista a las que tienen producción real reciente (evita mostrar piezas descontinuadas). Pasa
 `dias` ahí cuando la pregunta sea del tipo "qué se fabrica ahora"/"riesgo actual"; si piden
 explícitamente el histórico completo sin filtrar, omítelo. riesgo_calidad_parte (una parte
-puntual) y disponibilidad de compuerta química no tienen ningún parámetro de horizonte --
-acláralo si preguntan algo de esas con un horizonte seleccionado."""
+puntual) no tiene parámetro de horizonte: su química usa las últimas 30 coladas de la parte,
+sean de cuando sean (el resultado dice desde/hasta) -- acláralo si preguntan con un horizonte
+seleccionado."""
 
 
 def _correr_chat(system: str, req: ChatRequest) -> dict:

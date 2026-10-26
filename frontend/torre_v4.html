@@ -5470,12 +5470,19 @@ function btRenderResultado(d){
         : '<div class="bt-gate-row"><span>' + (c.motivo || 'sin datos') + '</span></div>')
     + '</div>'
 
+  // ② Química real de las últimas coladas de la parte (análisis FINAL ligado por Note, como PC-2)
+  const senal = new Set((q.senales || []).map(x => x.elemento))
+  const filasElem = (q.elementos || []).map(e =>
+    '<div class="bt-gate-row"><span>' + e.elemento + ' <span style="color:var(--muted)">(mediana ' + e.mediana + ')</span></span>'
+    + '<b style="color:' + (senal.has(e.elemento) ? '#A32D2D' : e.fuera ? '#854F0B' : '#0F6E56') + '">'
+    + e.fuera + ' de ' + e.evaluadas + ' fuera</b></div>').join('')
   const gate2 = '<div class="bt-gate' + (q.disponible ? '' : ' off') + '">'
-    + '<div class="bt-gate-title">② Química en vivo</div>'
+    + '<div class="bt-gate-title">② Química de sus últimas coladas'
+      + (q.desde ? ' <span class="af-periodo-chip">' + q.desde + ' a ' + q.hasta + '</span>' : '') + '</div>'
+    + '<div class="bt-gate-row"><span>Coladas con análisis</span><b>' + q.n_con_analisis + ' de ' + q.n_coladas + '</b></div>'
     + (q.disponible
-        ? '<div class="bt-gate-row"><span>Estado</span><b>Disponible</b></div>'
+        ? '<div class="bt-gate-row"><span>Todo en especificación</span><b>' + q.coladas_en_spec + ' de ' + q.n_con_analisis + '</b></div>' + filasElem
         : '<div class="bt-gate-row"><span>' + q.motivo + '</span></div>')
-    + '<div class="bt-gate-row"><span>Últ. actualización</span><b>' + (q.ultima_actualizacion || '—') + '</b></div>'
     + '</div>'
 
   return '<div class="bt-card">'
