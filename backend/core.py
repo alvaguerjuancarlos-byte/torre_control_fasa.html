@@ -349,6 +349,30 @@ UMBRAL_PIEZAS_MES_CONFIABLE = 200
 INICIO_RECHAZO_PISO = "2026-07-01"
 RECHAZO_SOLO_INTERNO_DESDE = "2026-07"
 
+# Hueco del registro de vaciado: ticketsconvaciadodirecto no tiene NI UNA pieza del 23-jun al
+# 28-jul-2026 (394 en todo julio vs 4,364 moldeadas). betamega_aleks_idtickethistorial sí trae
+# julio completo y ahí FHrVaciado = FHrMoldeo en el 100 % de las filas, así que para las piezas
+# del hueco se toma aleks (fecha = moldeo, colada = IdColada). Validado: con aleks como base la
+# tasa de ago/sep/oct sale 12.9/12.0/11.4 % vs 12.9/12.1/12.0 % con vaciado. Acotado a la ventana
+# del hueco a propósito: fuera de ella aleks trae ~5-50 piezas/día que nunca aparecen en vaciado
+# (¿moldes no vaciados?) y contarlas inflaría el denominador.
+HUECO_VACIADO = (INICIO_RECHAZO_PISO, "2026-07-29")
+
+_DEFECTO_PISO_SQL = """CASE WHEN r.defecto = 57 THEN 'MICROSETRUCTURA'
+                ELSE (SELECT MIN(c.nomDefecto) FROM gamamega_00_catalogdefectos c
+                      WHERE c.idDefecto = r.defecto) END"""
+
+_HUECO_SQL = f"""(
+        SELECT a.IdTicket AS idTicket, MAX(TRIM(a.no_parte)) AS no_parte,
+               MIN(a.FHrMoldeo) AS FHrVaciado, MIN(a.IdColada) AS IdColada
+        FROM betamega_aleks_idtickethistorial a
+        WHERE a.FHrMoldeo >= '{HUECO_VACIADO[0]}' AND a.FHrMoldeo < '{HUECO_VACIADO[1]}'
+          AND NOT EXISTS (SELECT 1 FROM betamega_00_ticketsconvaciadodirecto v
+                          WHERE v.idTicket = a.IdTicket)
+        GROUP BY a.IdTicket)"""
+
+_RECHAZO_DESDE_SQL = f"r.fecha >= DATE_SUB('{INICIO_RECHAZO_PISO}', INTERVAL 1 MONTH)"
+
 RECHAZO_PZAS_SQL = f"""(
     SELECT idTicket, No_Parte, FHrVaciado, 1 AS pz, bRechazo, FechaRechazo, IntExt, nomDefecto
     FROM betamega_01_rechazosbyidticket WHERE FHrVaciado < '{INICIO_RECHAZO_PISO}'
@@ -356,19 +380,22 @@ RECHAZO_PZAS_SQL = f"""(
     SELECT idTicket, TRIM(no_parte), FHrVaciado, 1, 0, NULL, 'Ok', NULL
     FROM betamega_00_ticketsconvaciadodirecto WHERE FHrVaciado >= '{INICIO_RECHAZO_PISO}'
     UNION ALL
-    SELECT v.idTicket, TRIM(v.no_parte), v.FHrVaciado, 0, 1, r.fecha, 'Int',
-           CASE WHEN r.defecto = 57 THEN 'MICROSETRUCTURA'
-                ELSE (SELECT MIN(c.nomDefecto) FROM gamamega_00_catalogdefectos c
-                      WHERE c.idDefecto = r.defecto) END
+    SELECT v.idTicket, TRIM(v.no_parte), v.FHrVaciado, 0, 1, r.fecha, 'Int', {_DEFECTO_PISO_SQL}
     FROM rechazo r STRAIGHT_JOIN betamega_00_ticketsconvaciadodirecto v ON v.idTicket = r.idticket
-    WHERE r.fecha >= DATE_SUB('{INICIO_RECHAZO_PISO}', INTERVAL 1 MONTH)
-      AND v.FHrVaciado >= '{INICIO_RECHAZO_PISO}'
+    WHERE {_RECHAZO_DESDE_SQL} AND v.FHrVaciado >= '{INICIO_RECHAZO_PISO}'
+    UNION ALL
+    SELECT idTicket, no_parte, FHrVaciado, 1, 0, NULL, 'Ok', NULL FROM {_HUECO_SQL} h
+    UNION ALL
+    SELECT h.idTicket, h.no_parte, h.FHrVaciado, 0, 1, r.fecha, 'Int', {_DEFECTO_PISO_SQL}
+    FROM rechazo r STRAIGHT_JOIN {_HUECO_SQL} h ON h.idTicket = r.idticket
+    WHERE {_RECHAZO_DESDE_SQL}
 )"""
 
 # Misma idea con las columnas de colada que usa Ejecutivo (resumen anual, pronóstico, scatter,
 # tonelaje): betamega_03 antes de INICIO_RECHAZO_PISO; después, vaciado (Colada/Horno de
-# ticketsconvaciadodirecto, sin tiempos de horno: quedan NULL) + rechazo de piso. Mismas
-# reglas: SUM(pz) para piezas, nunca COUNT(*).
+# ticketsconvaciadodirecto, sin tiempos de horno: quedan NULL) + rechazo de piso; las piezas del
+# HUECO_VACIADO cuentan su colada por IdColada (Horno = 'aleks'). Mismas reglas: SUM(pz) para
+# piezas, nunca COUNT(*).
 PIEZAS_PROCESO_SQL = f"""(
     SELECT idTicket, No_Parte, FHrVaciado, 1 AS pz, bRechazo, nomDefecto, Colada, Horno,
            MinutosTiempoHorno, FechaInicial, FechaLiberado
@@ -377,18 +404,23 @@ PIEZAS_PROCESO_SQL = f"""(
     SELECT idTicket, TRIM(no_parte), FHrVaciado, 1, 0, NULL, Colada, Horno, NULL, NULL, NULL
     FROM betamega_00_ticketsconvaciadodirecto WHERE FHrVaciado >= '{INICIO_RECHAZO_PISO}'
     UNION ALL
-    SELECT v.idTicket, TRIM(v.no_parte), v.FHrVaciado, 0, 1,
-           CASE WHEN r.defecto = 57 THEN 'MICROSETRUCTURA'
-                ELSE (SELECT MIN(c.nomDefecto) FROM gamamega_00_catalogdefectos c
-                      WHERE c.idDefecto = r.defecto) END,
+    SELECT v.idTicket, TRIM(v.no_parte), v.FHrVaciado, 0, 1, {_DEFECTO_PISO_SQL},
            v.Colada, v.Horno, NULL, NULL, NULL
     FROM rechazo r STRAIGHT_JOIN betamega_00_ticketsconvaciadodirecto v ON v.idTicket = r.idticket
-    WHERE r.fecha >= DATE_SUB('{INICIO_RECHAZO_PISO}', INTERVAL 1 MONTH)
-      AND v.FHrVaciado >= '{INICIO_RECHAZO_PISO}'
+    WHERE {_RECHAZO_DESDE_SQL} AND v.FHrVaciado >= '{INICIO_RECHAZO_PISO}'
+    UNION ALL
+    SELECT idTicket, no_parte, FHrVaciado, 1, 0, NULL, IdColada, 'aleks', NULL, NULL, NULL
+    FROM {_HUECO_SQL} h
+    UNION ALL
+    SELECT h.idTicket, h.no_parte, h.FHrVaciado, 0, 1, {_DEFECTO_PISO_SQL},
+           h.IdColada, 'aleks', NULL, NULL, NULL
+    FROM rechazo r STRAIGHT_JOIN {_HUECO_SQL} h ON h.idTicket = r.idticket
+    WHERE {_RECHAZO_DESDE_SQL}
 )"""
 
 # Mes con piezas vaciadas registradas muy por debajo de las moldeadas (aleks): el denominador
-# no representa al mes (jul-2026: 394 vaciadas vs 4,364 moldeadas). Solo aplica desde
+# no representa al mes (jul-2026 antes de HUECO_VACIADO: 394 vaciadas vs 4,364 moldeadas; hoy
+# es la red de seguridad para un hueco nuevo que todavía no se rellene). Solo aplica desde
 # INICIO_RECHAZO_PISO, que es donde las piezas salen de ticketsconvaciadodirecto.
 PCT_VACIADO_MIN_MES = 50.0
 
