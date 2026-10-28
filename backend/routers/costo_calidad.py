@@ -36,9 +36,16 @@ import calendar
 
 from fastapi import APIRouter
 
-from backend.core import run, meses_rechazo_no_confiables
+from backend.core import run, meses_rechazo_no_confiables, RECHAZO_PZAS_SQL
 
-# 2026 en adelante (JC 2026-10-25, "que 2026 sea congruente; 2025 me puedo quedar con el anual"):
+# 2026-10-28: IT copió el registro de rechazo de piso, vivo, a ia_fasa.rechazo (con tipo_rech).
+# Se vuelve al método original validado con JC para TODOS los años: tipo_rech='Producción' por
+# mes de fecha de rechazo -- 2026 deja de incluir Maquinado/Prueba (la diferencia de ~7 % de
+# abajo). Producción total = core.RECHAZO_PZAS_SQL (b01 hasta jun-2026, piezas vaciadas
+# después); meses de core.meses_rechazo_no_confiables (jul-2026: vaciado incompleto) se omiten
+# porque el % saldría contra una producción incompleta. Lo de abajo queda como historia.
+#
+# (histórico) 2026 en adelante (JC 2026-10-25, "que 2026 sea congruente; 2025 me puedo quedar con el anual"):
 # piso_ia.rechazo se congeló el 9-mar-2026, así que 2026 salía solo con ene-feb y no había cómo
 # completarlo con el mismo método. Para TODO 2026 el rechazo con costo sale de
 # betamega_01_rechazosbyidticket: rechazo interno (IntExt='Int') asignado al mes de FechaRechazo
@@ -46,7 +53,6 @@ from backend.core import run, meses_rechazo_no_confiables
 # que incluye Maquinado/Prueba (~7 % de las toneladas en 2025: 1,201.8 t todos los tipos vs
 # 1,119.2 t solo Producción; b01 Int cuadra con piso todos los tipos al 0.02 %). Solo meses con
 # rechazo confiable (core.meses_rechazo_no_confiables): desde jul-2026 el registro está detenido.
-ANIO_RECHAZO_B01 = 2026
 
 router = APIRouter(prefix="/produccion", tags=["costo-calidad"])
 
@@ -80,30 +86,13 @@ def _ton_producidas_por_mes(peso_map: dict) -> dict:
     44,041 validados con la fuente vieja (la misma diferencia aparece en betamega_03), así
     que el % de rechazo de 2025 baja respecto a lo validado el 2026-09-06. Ya no se puede
     conciliar ticket por ticket porque la fuente vieja no existe."""
-    rows = run("""
-        SELECT YEAR(FHrVaciado) AS anio, MONTH(FHrVaciado) AS mes, No_Parte AS no_parte
-        FROM ia_fasa.betamega_01_rechazosbyidticket
-        WHERE FHrVaciado >= '2025-01-01'
+    rows = run(f"""
+        SELECT YEAR(FHrVaciado) AS anio, MONTH(FHrVaciado) AS mes, No_Parte AS no_parte,
+               SUM(pz) AS piezas
+        FROM {RECHAZO_PZAS_SQL} rp
+        WHERE FHrVaciado >= '2025-01-01' AND pz = 1
+        GROUP BY YEAR(FHrVaciado), MONTH(FHrVaciado), No_Parte
     """)
-    ton_mes = {}
-    for r in rows:
-        peso = peso_map.get((r["no_parte"] or "").strip())
-        if peso is None:
-            continue
-        clave = (r["anio"], r["mes"])
-        ton_mes[clave] = ton_mes.get(clave, 0.0) + peso / 1000
-    return ton_mes
-
-
-def _ton_rechazadas_b01_por_mes(peso_map: dict) -> dict:
-    """Rechazo interno de betamega_01 por mes de FechaRechazo, desde ANIO_RECHAZO_B01."""
-    rows = run("""
-        SELECT YEAR(FechaRechazo) AS anio, MONTH(FechaRechazo) AS mes, No_Parte AS no_parte,
-               COUNT(*) AS piezas
-        FROM ia_fasa.betamega_01_rechazosbyidticket
-        WHERE bRechazo = 1 AND IntExt = 'Int' AND FechaRechazo >= :d
-        GROUP BY YEAR(FechaRechazo), MONTH(FechaRechazo), No_Parte
-    """, {"d": f"{ANIO_RECHAZO_B01}-01-01"})
     ton_mes = {}
     for r in rows:
         peso = peso_map.get((r["no_parte"] or "").strip())
@@ -114,11 +103,12 @@ def _ton_rechazadas_b01_por_mes(peso_map: dict) -> dict:
     return ton_mes
 
 
+
 def _ton_rechazadas_por_mes() -> dict:
     rows = run("""
         SELECT YEAR(r.fecha) AS anio, MONTH(r.fecha) AS mes, r.tipo_rech AS tipo_rech,
                COUNT(*) AS piezas, m.PesoKgs AS peso_kg
-        FROM piso_ia.rechazo r
+        FROM ia_fasa.rechazo r
         JOIN (
             SELECT TRIM(NoParte) AS NoParte, MAX(PesoKgs) AS PesoKgs
             FROM corex_test.modelos WHERE PesoKgs > 0 GROUP BY TRIM(NoParte)
@@ -138,23 +128,22 @@ def _ton_rechazadas_por_mes() -> dict:
 def costo_no_calidad_mensual():
     peso_map = _mapa_peso()
     ton_prod_mes = _ton_producidas_por_mes(peso_map)
-    # Hasta 2025: piso_ia (solo tipo Producción). Desde 2026: betamega_01 (ver ANIO_RECHAZO_B01).
-    ton_rech_mes = {k: v for k, v in _ton_rechazadas_por_mes().items() if k[0] < ANIO_RECHAZO_B01}
-    no_conf = set(meses_rechazo_no_confiables(f"{ANIO_RECHAZO_B01}-01-01 00:00:00", "2099-12-31 23:59:59"))
-    ton_rech_mes.update({k: v for k, v in _ton_rechazadas_b01_por_mes(peso_map).items()
-                         if f"{k[0]}-{k[1]:02d}" not in no_conf})
-    # piso_ia.rechazo puede cortarse a media mes (hoy: 2026-03-09) mientras la producción
-    # sigue completa -- ese mes saldría con un % artificialmente bajo, así que se omite.
-    corte = run("SELECT MAX(fecha) AS mx FROM piso_ia.rechazo")[0]["mx"]
+    # ia_fasa.rechazo, solo tipo Producción, todos los años (ver nota 2026-10-28 arriba).
+    no_conf = set(meses_rechazo_no_confiables("2025-01-01 00:00:00", "2099-12-31 23:59:59"))
+    ton_rech_mes = {k: v for k, v in _ton_rechazadas_por_mes().items()
+                    if f"{k[0]}-{k[1]:02d}" not in no_conf}
+    # El registro de rechazo corta a media mes (el mes en curso) mientras la producción
+    # sigue -- ese mes saldría con un % artificialmente bajo, así que se omite.
+    corte = run("SELECT MAX(fecha) AS mx FROM ia_fasa.rechazo")[0]["mx"]
 
     meses = []
     for (anio, mes), tr in sorted(ton_rech_mes.items()):
         costo_ton = COSTO_TON_USD.get(anio, {}).get(mes)
         if costo_ton is None:
             continue  # sin referencia de costo/ton para este mes todavía (gray lane)
-        if anio < ANIO_RECHAZO_B01 and corte and (anio, mes) >= (corte.year, corte.month) \
+        if corte and (anio, mes) >= (corte.year, corte.month) \
                 and corte.day < calendar.monthrange(anio, mes)[1]:
-            continue  # rechazo de piso_ia incompleto para este mes
+            continue  # rechazo incompleto para este mes
 
         tp = ton_prod_mes.get((anio, mes))
         costo_prod = tp * costo_ton if tp is not None else None
@@ -170,13 +159,12 @@ def costo_no_calidad_mensual():
             "costo_produccion_usd": round(costo_prod, 2) if costo_prod is not None else None,
             "costo_no_calidad_usd": round(costo_noc, 2),
             "pct_no_calidad": round(costo_noc / costo_prod * 100, 2) if costo_prod else None,
-            "metodo_rechazo": "betamega_01_interno" if anio >= ANIO_RECHAZO_B01 else "piso_ia_produccion",
+            "metodo_rechazo": "rechazo_piso_produccion",
         })
 
     return {
         "meses": meses,
-        "nota": "Producción total desde betamega_01_rechazosbyidticket (cscmega_* fue borrada "
-                "por IT en 2026-10). Toneladas rechazadas: hasta 2025 piso_ia.rechazo (tipo Producción); "
-                "desde 2026 rechazo interno de betamega_01 por fecha de rechazo (incluye maquinado/prueba), "
-                "solo meses con rechazo confiable.",
+        "nota": "Producción total: piezas de betamega_01 hasta jun-2026 y piezas vaciadas desde "
+                "jul-2026. Toneladas rechazadas: registro de rechazo de piso (ia_fasa.rechazo), solo "
+                "tipo Producción, por fecha de rechazo; se omiten meses con producción incompleta.",
     }

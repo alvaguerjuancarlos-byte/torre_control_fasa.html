@@ -28,6 +28,7 @@ from backend.core import (
     colada_por_id, datos_pcs_coladas, evaluar_pcs_colada, meses_no_confiables_cache,
     COBERTURA_MIN_PCT,
     piezas_de_coladas,
+    RECHAZO_PZAS_SQL, PIEZAS_PROCESO_SQL, RECHAZO_SOLO_INTERNO_DESDE, INICIO_RECHAZO_PISO,
 )
 
 app = FastAPI(title="Torre de Control FASA", version="0.1.0")
@@ -425,12 +426,12 @@ def _tons_mensuales(d_ini: str, d_fin: str) -> Dict[str, dict]:
 
     MIGRACIÓN (2026-09-23): de alfamega_01_rechazosbyidticket (congelada desde
     2025-12-29, igual que cscmega_*) a betamega_03_coladasproceso (viva hasta hoy)."""
-    rows = run("""
+    rows = run(f"""
         SELECT
             DATE_FORMAT(r.FHrVaciado, '%Y-%m') AS mes,
-            ROUND(SUM(m.PesoKgs)/1000, 2) AS tons,
+            ROUND(SUM(r.pz * m.PesoKgs)/1000, 2) AS tons,
             ROUND(SUM(CASE WHEN r.bRechazo=1 THEN m.PesoKgs ELSE 0 END)/1000, 2) AS tons_rech
-        FROM betamega_03_coladasproceso r
+        FROM {PIEZAS_PROCESO_SQL} r
         JOIN (
             SELECT NoParte, MAX(IdModelo) AS IdModelo
             FROM corex_test.modelos
@@ -557,18 +558,18 @@ def v2_resumen_anual(anio: int = Query(default=2025)):
     d_fin = f"{anio}-12-31 23:59:59"
 
     # ── Totales por mes ──────────────────────────────────────────────────────
-    meses_raw = run("""
+    meses_raw = run(f"""
         SELECT DATE_FORMAT(FHrVaciado,'%Y-%m') AS mes,
-               COUNT(*) AS n, SUM(bRechazo) AS r,
-               ROUND(AVG(bRechazo)*100,2) AS rate,
+               SUM(pz) AS n, SUM(bRechazo) AS r,
+               ROUND((SUM(bRechazo)/SUM(pz))*100,2) AS rate,
                COUNT(DISTINCT CONCAT(Colada,'-',Horno)) AS coladas
-        FROM betamega_03_coladasproceso
+        FROM {PIEZAS_PROCESO_SQL} pp
         WHERE FHrVaciado BETWEEN :d AND :h
         GROUP BY mes ORDER BY mes
     """, {"d": d_ini, "h": d_fin})
 
     # ── Categorías de calidad por colada por mes (coladas + piezas + rechazos) ─
-    cat_raw = run("""
+    cat_raw = run(f"""
         SELECT mes,
                SUM(CASE WHEN rate  = 0              THEN 1      ELSE 0 END) AS ac_col,
                SUM(CASE WHEN rate  = 0              THEN piezas ELSE 0 END) AS ac_pz,
@@ -585,10 +586,10 @@ def v2_resumen_anual(anio: int = Query(default=2025)):
         FROM (
             SELECT DATE_FORMAT(FHrVaciado,'%Y-%m') AS mes,
                    CONCAT(Colada,'-',Horno) AS ck,
-                   COUNT(*) AS piezas,
+                   SUM(pz) AS piezas,
                    SUM(bRechazo) AS rech,
-                   ROUND(SUM(bRechazo)/COUNT(*)*100, 2) AS rate
-            FROM betamega_03_coladasproceso
+                   ROUND(SUM(bRechazo)/SUM(pz)*100, 2) AS rate
+            FROM {PIEZAS_PROCESO_SQL} pp
             WHERE FHrVaciado BETWEEN :d AND :h
             GROUP BY mes, ck
         ) sub
@@ -597,7 +598,7 @@ def v2_resumen_anual(anio: int = Query(default=2025)):
     cat_idx = {c["mes"]: c for c in cat_raw}
 
     # ── Tiempos de ciclo por mes (betamega_03_coladasproceso) ─────────────
-    ciclo_raw = run("""
+    ciclo_raw = run(f"""
         SELECT DATE_FORMAT(FHrVaciado,'%Y-%m') AS mes,
                ROUND(AVG(CASE
                    WHEN MinutosTiempoHorno > 0 AND MinutosTiempoHorno < 300
@@ -607,7 +608,7 @@ def v2_resumen_anual(anio: int = Query(default=2025)):
                     AND TIMESTAMPDIFF(MINUTE,FechaInicial,FechaLiberado) BETWEEN 30 AND 500
                    THEN TIMESTAMPDIFF(MINUTE,FechaInicial,FechaLiberado)
                END), 1) AS ciclo_min
-        FROM betamega_03_coladasproceso
+        FROM {PIEZAS_PROCESO_SQL} pp
         WHERE FHrVaciado BETWEEN :d AND :h
         GROUP BY mes ORDER BY mes
     """, {"d": d_ini, "h": d_fin})
@@ -618,7 +619,7 @@ def v2_resumen_anual(anio: int = Query(default=2025)):
         SELECT DATE_FORMAT(FHrVaciado,'%Y-%m') AS mes,
                {FAMILIA_SQL} AS familia,
                COUNT(*) AS n
-        FROM betamega_03_coladasproceso
+        FROM {PIEZAS_PROCESO_SQL} pp
         WHERE bRechazo=1 AND FHrVaciado BETWEEN :d AND :h
           AND nomDefecto IS NOT NULL
         GROUP BY mes, familia ORDER BY mes, n DESC
@@ -665,6 +666,7 @@ def v2_resumen_anual(anio: int = Query(default=2025)):
                       "pct": round(f["n"]/total_fam*100,1),
                       "n": int(f["n"])} for f in fams if f["familia"] != "Otros"],
             "mes": mes_num + 1, "fuente": "tickets",
+            "solo_rechazo_interno": m["mes"] >= RECHAZO_SOLO_INTERNO_DESDE,
         })
 
     # ── Meses sin rechazo confiable (2026-10-25, ver _vaciado_mensual) ────────
@@ -757,13 +759,13 @@ def v2_resumen_anual(anio: int = Query(default=2025)):
     }
 
     # ── Semanal (últimas semanas del año) ────────────────────────────────────
-    sem_raw = run("""
+    sem_raw = run(f"""
         SELECT YEARWEEK(FHrVaciado,3) AS wk,
                MIN(DATE(FHrVaciado)) AS lunes,
-               COUNT(*) AS n, SUM(bRechazo) AS r,
-               ROUND(AVG(bRechazo)*100,2) AS rate,
+               SUM(pz) AS n, SUM(bRechazo) AS r,
+               ROUND((SUM(bRechazo)/SUM(pz))*100,2) AS rate,
                COUNT(DISTINCT CONCAT(Colada,'-',Horno)) AS coladas
-        FROM betamega_03_coladasproceso
+        FROM {PIEZAS_PROCESO_SQL} pp
         WHERE FHrVaciado BETWEEN :d AND :h
         GROUP BY wk HAVING n >= 50 ORDER BY wk
     """, {"d": d_ini, "h": d_fin})
@@ -771,7 +773,7 @@ def v2_resumen_anual(anio: int = Query(default=2025)):
     sem_fam = run(f"""
         SELECT YEARWEEK(FHrVaciado,3) AS wk,
                {FAMILIA_SQL} AS familia, COUNT(*) AS n
-        FROM betamega_03_coladasproceso
+        FROM {PIEZAS_PROCESO_SQL} pp
         WHERE bRechazo=1 AND FHrVaciado BETWEEN :d AND :h
           AND nomDefecto IS NOT NULL
         GROUP BY wk, familia ORDER BY wk, n DESC
@@ -781,7 +783,7 @@ def v2_resumen_anual(anio: int = Query(default=2025)):
     for f in sem_fam:
         sf_idx.setdefault(f["wk"], []).append(f)
 
-    sem_ciclo = run("""
+    sem_ciclo = run(f"""
         SELECT YEARWEEK(FHrVaciado,3) AS wk,
                ROUND(AVG(CASE
                    WHEN MinutosTiempoHorno > 0 AND MinutosTiempoHorno < 300
@@ -791,13 +793,13 @@ def v2_resumen_anual(anio: int = Query(default=2025)):
                     AND TIMESTAMPDIFF(MINUTE,FechaInicial,FechaLiberado) BETWEEN 30 AND 500
                    THEN TIMESTAMPDIFF(MINUTE,FechaInicial,FechaLiberado)
                END), 1) AS ciclo_min
-        FROM betamega_03_coladasproceso
+        FROM {PIEZAS_PROCESO_SQL} pp
         WHERE FHrVaciado BETWEEN :d AND :h
         GROUP BY wk
     """, {"d": d_ini, "h": d_fin})
     sc_idx = {c["wk"]: c for c in sem_ciclo}
 
-    sem_cat = run("""
+    sem_cat = run(f"""
         SELECT wk,
                SUM(CASE WHEN rate  = 0              THEN 1      ELSE 0 END) AS ac_col,
                SUM(CASE WHEN rate  = 0              THEN piezas ELSE 0 END) AS ac_pz,
@@ -814,10 +816,10 @@ def v2_resumen_anual(anio: int = Query(default=2025)):
         FROM (
             SELECT YEARWEEK(FHrVaciado,3) AS wk,
                    CONCAT(Colada,'-',Horno) AS ck,
-                   COUNT(*) AS piezas,
+                   SUM(pz) AS piezas,
                    SUM(bRechazo) AS rech,
-                   ROUND(SUM(bRechazo)/COUNT(*)*100, 2) AS rate
-            FROM betamega_03_coladasproceso
+                   ROUND(SUM(bRechazo)/SUM(pz)*100, 2) AS rate
+            FROM {PIEZAS_PROCESO_SQL} pp
             WHERE FHrVaciado BETWEEN :d AND :h
             GROUP BY wk, ck
         ) sub
@@ -827,6 +829,10 @@ def v2_resumen_anual(anio: int = Query(default=2025)):
 
     semanal = []
     for s in sem_raw:
+        # Semana con piezas y cero rechazos = rechazo aún no capturado (se registra ~11 días
+        # después del vaciado, en promedio), no una semana perfecta: se omite.
+        if not int(s["r"] or 0):
+            continue
         fams = sf_idx.get(s["wk"], [])
         tf = sum(f["n"] for f in fams) or 1
         cic = sc_idx.get(s["wk"], {})
@@ -850,11 +856,11 @@ def v2_resumen_anual(anio: int = Query(default=2025)):
         })
 
     # ── Top partes por rechazo ───────────────────────────────────────────────
-    parts_raw = run("""
+    parts_raw = run(f"""
         SELECT No_Parte AS p,
-               COUNT(*) AS n,
-               ROUND(AVG(bRechazo)*100,1) AS rate
-        FROM betamega_03_coladasproceso
+               SUM(pz) AS n,
+               ROUND((SUM(bRechazo)/SUM(pz))*100,1) AS rate
+        FROM {PIEZAS_PROCESO_SQL} pp
         WHERE FHrVaciado BETWEEN :d AND :h AND No_Parte IS NOT NULL
         GROUP BY No_Parte HAVING n >= 50
         ORDER BY rate DESC LIMIT 10
@@ -917,7 +923,7 @@ def v2_pronostico(ventana: int = 12, periodos: int = 3, year: int = 0):
     if 0 < year < date.today().year:
         max_date = date(year, 12, 31)
     else:
-        max_row = run("SELECT MAX(DATE(FHrVaciado)) AS mx FROM betamega_03_coladasproceso", {})
+        max_row = run(f"SELECT MAX(DATE(FHrVaciado)) AS mx FROM {PIEZAS_PROCESO_SQL} pp", {})
         max_date = date.fromisoformat(str(max_row[0]["mx"])) if max_row and max_row[0]["mx"] else date(2025, 12, 29)
 
     # Lista de meses del historico
@@ -944,11 +950,11 @@ def v2_pronostico(ventana: int = 12, periodos: int = 3, year: int = 0):
     # ya en hist_agg y no necesita ir a la BD por separado.
     retro_ini = date(months[0].year - 2, months[0].month, 1).isoformat() + " 00:00:00"
     hist_agg: dict = {}
-    for r in run("""
+    for r in run(f"""
         SELECT DATE_FORMAT(FHrVaciado,'%Y-%m') AS mk,
-               COUNT(*) AS n, SUM(bRechazo) AS rec,
+               SUM(pz) AS n, SUM(bRechazo) AS rec,
                COUNT(DISTINCT CONCAT(Colada,'-',Horno)) AS col
-        FROM betamega_03_coladasproceso
+        FROM {PIEZAS_PROCESO_SQL} pp
         WHERE FHrVaciado BETWEEN :d AND :h
         GROUP BY mk
     """, {"d": retro_ini, "h": h_fin}):
@@ -967,10 +973,10 @@ def v2_pronostico(ventana: int = 12, periodos: int = 3, year: int = 0):
             tons_agg[mk]["tons"]      += pk * int(r["cnt"] or 0) / 1000
             tons_agg[mk]["tons_rech"] += pk * int(r["rec"] or 0) / 1000
 
-    _acum_tons(run("""
+    _acum_tons(run(f"""
         SELECT DATE_FORMAT(FHrVaciado,'%Y-%m') AS mk,
-               No_Parte AS no_parte, COUNT(*) AS cnt, SUM(bRechazo) AS rec
-        FROM betamega_03_coladasproceso
+               No_Parte AS no_parte, SUM(pz) AS cnt, SUM(bRechazo) AS rec
+        FROM {PIEZAS_PROCESO_SQL} pp
         WHERE FHrVaciado BETWEEN :d AND :h AND No_Parte IS NOT NULL AND No_Parte != ''
         GROUP BY mk, No_Parte
     """, {"d": h_ini, "h": h_fin}))
@@ -1014,6 +1020,7 @@ def v2_pronostico(ventana: int = 12, periodos: int = 3, year: int = 0):
             "tons":        round(t["tons"], 1),
             "tons_rech":   round(t["tons_rech"], 1),
             "fuente":      "tickets",
+            "solo_rechazo_interno": mk >= RECHAZO_SOLO_INTERNO_DESDE,
         })
 
     # ── Forecast: proximo mes ─────────────────────────────────────
@@ -1030,7 +1037,7 @@ def v2_pronostico(ventana: int = 12, periodos: int = 3, year: int = 0):
         ld = cal_mod.monthrange(y, m)[1]
         d0 = f"{y}-{m:02d}-01 00:00:00"
         d1 = f"{y}-{m:02d}-{ld:02d} 23:59:59"
-        rows = run("SELECT COUNT(*) AS n, SUM(bRechazo) AS rec FROM betamega_03_coladasproceso WHERE FHrVaciado BETWEEN :d AND :h", {"d": d0, "h": d1})
+        rows = run(f"SELECT SUM(pz) AS n, SUM(bRechazo) AS rec FROM {PIEZAS_PROCESO_SQL} pp WHERE FHrVaciado BETWEEN :d AND :h", {"d": d0, "h": d1})
         if rows and rows[0]["n"]:
             return {"n": int(rows[0]["n"]), "rec": int(rows[0]["rec"] or 0), "col": 0, "tons": 0.0, "tons_rech": 0.0}
         return None
@@ -1167,9 +1174,9 @@ def v2_pronostico(ventana: int = 12, periodos: int = 3, year: int = 0):
             parts_agg[p]["n"]   += int(r["n"] or 0)
             parts_agg[p]["rec"] += int(r["rec"] or 0)
 
-    _acum_parts(run("""
-        SELECT No_Parte AS no_parte, COUNT(*) AS n, SUM(bRechazo) AS rec
-        FROM betamega_03_coladasproceso
+    _acum_parts(run(f"""
+        SELECT No_Parte AS no_parte, SUM(pz) AS n, SUM(bRechazo) AS rec
+        FROM {PIEZAS_PROCESO_SQL} pp
         WHERE FHrVaciado BETWEEN :d AND :h AND No_Parte IS NOT NULL AND No_Parte != ''
         GROUP BY No_Parte
     """, {"d": h_ini, "h": h_fin}))
@@ -1487,13 +1494,13 @@ def v2_partes_scatter(anio: int = Query(default=2025), desde: str = Query(defaul
 
     rows = run(f"""
         SELECT rb.No_Parte AS no_parte,
-               COUNT(*)                                              AS n,
+               SUM(rb.pz)                                              AS n,
                SUM(rb.bRechazo)                                      AS rechazos,
-               ROUND(AVG(rb.bRechazo)*100, 2)                        AS rate,
-               ROUND(SUM(COALESCE(m.PesoKgs,0))/1000.0, 2)          AS tons,
+               ROUND((SUM(rb.bRechazo)/SUM(rb.pz))*100, 2)                        AS rate,
+               ROUND(SUM(rb.pz * COALESCE(m.PesoKgs,0))/1000.0, 2)          AS tons,
                ROUND(SUM(CASE WHEN rb.bRechazo=1 THEN COALESCE(m.PesoKgs,0) ELSE 0 END)/1000.0, 2) AS tons_rech,
                COUNT(DISTINCT MONTH(rb.FHrVaciado))                  AS meses_activa
-        FROM betamega_03_coladasproceso rb
+        FROM {PIEZAS_PROCESO_SQL} rb
         LEFT JOIN (
             SELECT NoParte, MAX(IdModelo) AS IdModelo
             FROM corex_test.modelos WHERE PesoKgs > 0 GROUP BY NoParte
@@ -1608,8 +1615,8 @@ def _rechazo_por_parte(d: str, h: str, excluir_meses: tuple = ()) -> list:
         params.update({f"m{i}": m for i, m in enumerate(excluir_meses)})
         filtro = "AND DATE_FORMAT(FHrVaciado, '%Y-%m') NOT IN (" +                  ",".join(f":m{i}" for i in range(len(excluir_meses))) + ")"
     return run(f"""
-        SELECT No_Parte AS no_parte, COUNT(*) AS n, SUM(bRechazo) AS rec
-        FROM betamega_01_rechazosbyidticket
+        SELECT No_Parte AS no_parte, SUM(pz) AS n, SUM(bRechazo) AS rec
+        FROM {RECHAZO_PZAS_SQL} rp
         WHERE FHrVaciado BETWEEN :d AND :h
           AND No_Parte IS NOT NULL AND No_Parte != ''
           {filtro}
@@ -1854,16 +1861,16 @@ def v2_pronostico_programa(anio: int = 2025):
 
     # 2. Producción real + rechazos reales, agrupados mes × parte (betamega_01, 2023 -> hoy;
     #    antes cscmega_01 para 2025+ y alfamega_01 para <2025, ambas borradas por IT 2026-10)
-    prod_rows = run("""
+    prod_rows = run(f"""
         SELECT MONTH(FHrVaciado) AS mes,
                No_Parte          AS no_parte,
-               COUNT(*)          AS n_piezas,
+               SUM(pz)          AS n_piezas,
                SUM(bRechazo)     AS real_rec
-        FROM betamega_01_rechazosbyidticket
+        FROM {RECHAZO_PZAS_SQL} rp
         WHERE FHrVaciado BETWEEN :d AND :h
           AND No_Parte IS NOT NULL AND No_Parte != ''
         GROUP BY MONTH(FHrVaciado), No_Parte
-        HAVING COUNT(*) >= 5
+        HAVING SUM(pz) >= 5
     """, {"d": f"{anio}-01-01 00:00:00", "h": f"{anio}-12-31 23:59:59"})
 
     no_conf = set(meses_rechazo_no_confiables(f"{anio}-01-01 00:00:00", f"{anio}-12-31 23:59:59"))
@@ -2554,7 +2561,7 @@ def piso_diagnostico(u_colada: int, horno: int, id_colada: Optional[int] = Query
         no_conf = meses_no_confiables_cache(ref.strftime("%Y-%m-01 00:00:00"),
                                             ref.strftime("%Y-%m-%d %H:%M:%S")) if ref else set()
         if ref and ref.strftime("%Y-%m") in no_conf:
-            motivo_rechazo = f"rechazo no confiable en {ref.strftime('%Y-%m')} (piezas nuevas sin marcar desde 9-jul-2026)"
+            motivo_rechazo = f"rechazo no confiable en {ref.strftime('%Y-%m')} (vaciado del mes registrado de forma incompleta)"
         elif not piezas or len(con_b01) / len(piezas) * 100.0 < COBERTURA_MIN_PCT:
             motivo_rechazo = f"rechazo registrado en {len(con_b01)} de {len(piezas)} piezas"
         rechazo_confiable = motivo_rechazo is None
@@ -3453,15 +3460,15 @@ def _tasa_rechazo_partes(no_partes: list) -> dict:
     placeholders = ",".join(f":p{i}" for i in range(len(no_partes)))
     params = {f"p{i}": p for i, p in enumerate(no_partes)}
     rows = run(f"""
-        SELECT No_Parte AS no_parte, COUNT(*) AS n, SUM(bRechazo) AS rec
-        FROM betamega_01_rechazosbyidticket
+        SELECT No_Parte AS no_parte, SUM(pz) AS n, SUM(bRechazo) AS rec
+        FROM {RECHAZO_PZAS_SQL} rp
         WHERE No_Parte IN ({placeholders})
         GROUP BY No_Parte
     """, params)
     return {
         r["no_parte"]: {
             "n": int(r["n"]),
-            "rate": round(float(r["rec"] or 0) / r["n"] * 100, 1) if r["n"] else None,
+            "rate": round(float(r["rec"] or 0) / float(r["n"]) * 100, 1) if r["n"] else None,
         }
         for r in rows
     }
@@ -3750,8 +3757,8 @@ def v2_pedidos_cliente_tonelaje(
 
         rech_rows = run(f"""
             SELECT DATE_FORMAT({rech_key_sql},'{fmt}') AS bk,
-                   COUNT(*) AS n, SUM(rb.bRechazo) AS rec
-            FROM betamega_01_rechazosbyidticket rb
+                   SUM(rb.pz) AS n, SUM(rb.bRechazo) AS rec
+            FROM {RECHAZO_PZAS_SQL} rb
             WHERE rb.No_Parte IN ({placeholders}) AND rb.FHrVaciado BETWEEN :d AND :h
             GROUP BY bk
         """, {**params, "d": d_ini.isoformat() + " 00:00:00", "h": d_fin.isoformat() + " 23:59:59"})
@@ -3911,20 +3918,43 @@ def produccion_tonelaje_mensual(anios: str = Query(default="2024,2025")):
     # (el encabezado de colada además se quedó en 2026-08-17), así que la tarjeta salía en 4-67 t.
     # Para esos meses el metal cargado sale de _coladas_kg_mensual (demoras + cargas) y producto
     # OK/rechazo quedan en None: sin rechazo confiable no hay cómo partir los kilos.
+    #
+    # 2026-10-28: desde INICIO_RECHAZO_PISO (jul-2026) el rechazo sí existe (vaciado + rechazo de
+    # piso, core.RECHAZO_PZAS_SQL), pero betamega_03 sigue sin las coladas. Esos meses toman el
+    # metal de _coladas_kg_mensual y parten los kilos con la fracción de piezas rechazadas del
+    # mes (solo rechazo interno) -- aproximación mensual, no colada por colada como antes de julio.
     for y in lista_anios:
         y_ini, y_fin = f"{y}-01-01 00:00:00", f"{y}-12-31 23:59:59"
         nc = set(meses_rechazo_no_confiables(y_ini, y_fin))
-        for mk, v in _coladas_kg_mensual(y_ini, y_fin, nc).items():
+        post = {f"{y}-{m:02d}" for m in range(1, 13) if f"{y}-{m:02d}" >= INICIO_RECHAZO_PISO[:7]}
+        pz_mes = {}
+        if post - nc:
+            pz_mes = {r["mk"]: (int(r["n"] or 0), int(r["rec"] or 0)) for r in run(f"""
+                SELECT DATE_FORMAT(FHrVaciado, '%Y-%m') AS mk, SUM(pz) AS n, SUM(bRechazo) AS rec
+                FROM {RECHAZO_PZAS_SQL} rp
+                WHERE FHrVaciado BETWEEN :d AND :h GROUP BY mk
+            """, {"d": y_ini, "h": y_fin})}
+        for mk, v in _coladas_kg_mensual(y_ini, y_fin, nc | post).items():
             if not v["coladas"]:
                 meses.pop(mk, None)
                 continue
+            n_pz, n_rec = pz_mes.get(mk, (0, 0)) if mk not in nc else (0, 0)
+            frac = n_rec / n_pz if n_pz else None
+
+            def _partir(kg):
+                return (None, None) if frac is None else (round(kg * (1 - frac)), round(kg * frac))
+
+            ok, rech = _partir(v["kg"])
             meses[mk] = {
-                "anio": int(mk[:4]), "mes": int(mk[5:7]), "fuente": "coladas",
+                "anio": int(mk[:4]), "mes": int(mk[5:7]),
+                "fuente": "coladas" if frac is None else "coladas+rechazo_piso",
+                "solo_rechazo_interno": frac is not None,
                 "coladas": v["coladas"], "kg_brutos": round(v["kg"]),
-                "total_piezas": None, "piezas_ok": None, "piezas_rech": None,
-                "kg_producto_ok": None, "kg_rechazo": None,
+                "total_piezas": n_pz or None, "piezas_ok": (n_pz - n_rec) if frac is not None else None,
+                "piezas_rech": n_rec if frac is not None else None,
+                "kg_producto_ok": ok, "kg_rechazo": rech,
                 "por_horno": {h: {"coladas": x["coladas"], "kg_brutos": round(x["kg"]),
-                                  "kg_producto_ok": None, "kg_rechazo": None,
+                                  "kg_producto_ok": _partir(x["kg"])[0], "kg_rechazo": _partir(x["kg"])[1],
                                   "kg_prom_colada": round(x["kg"] / x["coladas"]) if x["coladas"] else 0}
                               for h, x in v["por_horno"].items()},
             }

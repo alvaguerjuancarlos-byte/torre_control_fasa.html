@@ -331,17 +331,94 @@ def evaluar_carril(
 UMBRAL_PIEZAS_MES_CONFIABLE = 200
 
 
+# Rechazo por pieza, una sola fuente para todo el backend (2026-10-28). betamega_01 dejó de
+# marcar bRechazo el 9-jul-2026 (ticketcorrida detenida) y además solo ve ~1 % de los tickets
+# desde julio. El 27-oct IT copió a ia_fasa.rechazo el registro de rechazo de piso, vivo:
+# validado ticket por ticket contra b01 en ene-jun 2026, es EXACTAMENTE el rechazo interno
+# (IntExt='Int') de b01 (557/557 en ene, 0 sobrantes). Así que:
+#   - FHrVaciado < INICIO_RECHAZO_PISO: b01 tal cual (Int + Ext).
+#   - desde INICIO_RECHAZO_PISO: piezas vaciadas (ticketsconvaciadodirecto, completa) +
+#     ia_fasa.rechazo por idticket. Sin rechazo EXTERNO (devoluciones de cliente, ~1-6 pp
+#     en 2026): no hay fuente viva para él -- RECHAZO_SOLO_INTERNO_DESDE lo dice en la UI.
+# Forma de la tabla: cada fila trae `pz` (1 = pieza producida) y `bRechazo`; la parte nueva
+# viene en dos ramas (piezas con pz=1 y rechazos con pz=0, bRechazo=1) porque MariaDB 10.5
+# sin hash join tarda ~90 s en LEFT JOIN vdir -> rechazo (sin índice) y 0.2 s si se maneja
+# desde rechazo hacia vdir (indexado). Por eso SIEMPRE se cuenta con SUM(pz), nunca COUNT(*),
+# y por ticket se agrupa (MAX(bRechazo)). Defecto: catálogo por idDefecto con el nombre que
+# usa b01 (57 = 'MICROSETRUCTURA' en b01; MIN() del catálogo da el resto igual, 97 %).
+INICIO_RECHAZO_PISO = "2026-07-01"
+RECHAZO_SOLO_INTERNO_DESDE = "2026-07"
+
+RECHAZO_PZAS_SQL = f"""(
+    SELECT idTicket, No_Parte, FHrVaciado, 1 AS pz, bRechazo, FechaRechazo, IntExt, nomDefecto
+    FROM betamega_01_rechazosbyidticket WHERE FHrVaciado < '{INICIO_RECHAZO_PISO}'
+    UNION ALL
+    SELECT idTicket, TRIM(no_parte), FHrVaciado, 1, 0, NULL, 'Ok', NULL
+    FROM betamega_00_ticketsconvaciadodirecto WHERE FHrVaciado >= '{INICIO_RECHAZO_PISO}'
+    UNION ALL
+    SELECT v.idTicket, TRIM(v.no_parte), v.FHrVaciado, 0, 1, r.fecha, 'Int',
+           CASE WHEN r.defecto = 57 THEN 'MICROSETRUCTURA'
+                ELSE (SELECT MIN(c.nomDefecto) FROM gamamega_00_catalogdefectos c
+                      WHERE c.idDefecto = r.defecto) END
+    FROM rechazo r STRAIGHT_JOIN betamega_00_ticketsconvaciadodirecto v ON v.idTicket = r.idticket
+    WHERE r.fecha >= DATE_SUB('{INICIO_RECHAZO_PISO}', INTERVAL 1 MONTH)
+      AND v.FHrVaciado >= '{INICIO_RECHAZO_PISO}'
+)"""
+
+# Misma idea con las columnas de colada que usa Ejecutivo (resumen anual, pronóstico, scatter,
+# tonelaje): betamega_03 antes de INICIO_RECHAZO_PISO; después, vaciado (Colada/Horno de
+# ticketsconvaciadodirecto, sin tiempos de horno: quedan NULL) + rechazo de piso. Mismas
+# reglas: SUM(pz) para piezas, nunca COUNT(*).
+PIEZAS_PROCESO_SQL = f"""(
+    SELECT idTicket, No_Parte, FHrVaciado, 1 AS pz, bRechazo, nomDefecto, Colada, Horno,
+           MinutosTiempoHorno, FechaInicial, FechaLiberado
+    FROM betamega_03_coladasproceso WHERE FHrVaciado < '{INICIO_RECHAZO_PISO}'
+    UNION ALL
+    SELECT idTicket, TRIM(no_parte), FHrVaciado, 1, 0, NULL, Colada, Horno, NULL, NULL, NULL
+    FROM betamega_00_ticketsconvaciadodirecto WHERE FHrVaciado >= '{INICIO_RECHAZO_PISO}'
+    UNION ALL
+    SELECT v.idTicket, TRIM(v.no_parte), v.FHrVaciado, 0, 1,
+           CASE WHEN r.defecto = 57 THEN 'MICROSETRUCTURA'
+                ELSE (SELECT MIN(c.nomDefecto) FROM gamamega_00_catalogdefectos c
+                      WHERE c.idDefecto = r.defecto) END,
+           v.Colada, v.Horno, NULL, NULL, NULL
+    FROM rechazo r STRAIGHT_JOIN betamega_00_ticketsconvaciadodirecto v ON v.idTicket = r.idticket
+    WHERE r.fecha >= DATE_SUB('{INICIO_RECHAZO_PISO}', INTERVAL 1 MONTH)
+      AND v.FHrVaciado >= '{INICIO_RECHAZO_PISO}'
+)"""
+
+# Mes con piezas vaciadas registradas muy por debajo de las moldeadas (aleks): el denominador
+# no representa al mes (jul-2026: 394 vaciadas vs 4,364 moldeadas). Solo aplica desde
+# INICIO_RECHAZO_PISO, que es donde las piezas salen de ticketsconvaciadodirecto.
+PCT_VACIADO_MIN_MES = 50.0
+
+
 def meses_rechazo_no_confiables(d: str, h: str) -> list:
     """Meses 'YYYY-MM' con producción en [d, h] cuyo rechazo no es evaluable
-    (menos de UMBRAL_PIEZAS_MES_CONFIABLE piezas, o cero rechazos)."""
-    rows = run("""
-        SELECT DATE_FORMAT(FHrVaciado, '%Y-%m') AS mes, COUNT(*) AS n, SUM(bRechazo) AS rec
-        FROM betamega_01_rechazosbyidticket
+    (menos de UMBRAL_PIEZAS_MES_CONFIABLE piezas, cero rechazos o, desde
+    INICIO_RECHAZO_PISO, vaciado registrado < PCT_VACIADO_MIN_MES % de lo moldeado)."""
+    rows = run(f"""
+        SELECT DATE_FORMAT(FHrVaciado, '%Y-%m') AS mes, SUM(pz) AS n, SUM(bRechazo) AS rec
+        FROM {RECHAZO_PZAS_SQL} rp
         WHERE FHrVaciado BETWEEN :d AND :h
         GROUP BY mes
     """, {"d": d, "h": h})
-    return sorted(r["mes"] for r in rows
-                  if int(r["n"] or 0) < UMBRAL_PIEZAS_MES_CONFIABLE or not int(r["rec"] or 0))
+    moldeadas = {}
+    if h >= INICIO_RECHAZO_PISO:
+        moldeadas = {r["mes"]: int(r["n"] or 0) for r in run("""
+            SELECT DATE_FORMAT(FHrMoldeo, '%Y-%m') AS mes, COUNT(DISTINCT IdTicket) AS n
+            FROM betamega_aleks_idtickethistorial
+            WHERE FHrMoldeo BETWEEN GREATEST(:d, :ini) AND :h
+            GROUP BY mes
+        """, {"d": d, "h": h, "ini": INICIO_RECHAZO_PISO})}
+    malos = []
+    for r in rows:
+        n, rec = int(r["n"] or 0), int(r["rec"] or 0)
+        mold = moldeadas.get(r["mes"], 0)
+        if (n < UMBRAL_PIEZAS_MES_CONFIABLE or not rec
+                or (mold and n * 100.0 / mold < PCT_VACIADO_MIN_MES)):
+            malos.append(r["mes"])
+    return sorted(malos)
 
 
 # PC-1: carga al horno (2026-10-13). Fuente betamega_00_cargasmetalicas, viva y validada
@@ -683,7 +760,9 @@ def piezas_de_coladas(ids: list) -> Dict[int, list]:
         SELECT idTicket, FHrVaciado FROM betamega_00_ticketsconvaciadodirecto WHERE idTicket IN ({tl})
     """, {})}
     rec = {r["idTicket"]: r for r in run(f"""
-        SELECT idTicket, bRechazo, nomDefecto FROM betamega_01_rechazosbyidticket WHERE idTicket IN ({tl})
+        SELECT idTicket, MAX(bRechazo) AS bRechazo, MAX(nomDefecto) AS nomDefecto
+        FROM {RECHAZO_PZAS_SQL} rp WHERE idTicket IN ({tl})
+        GROUP BY idTicket HAVING SUM(pz) > 0
     """, {})}
     ruta = {r["idTicket"]: r for r in run(f"""
         SELECT idTicket, bMOLD, bVACI, bDESM, bLIMP, FHrMOLD, FHrDESM, FHrLIMP
@@ -1076,10 +1155,11 @@ def evaluar_pcs_colada(col: dict, datos: dict, no_conf: set) -> dict:
     ref6 = rs["ts_ultimo_vaciado"] or col["fin_fusion"]
     mes6 = ref6.strftime("%Y-%m") if isinstance(ref6, datetime) else None
     if mes6 in no_conf:
-        m6 = (f"rechazo no confiable en {mes6}: desde el 9-jul-2026 las piezas nuevas no se marcan "
-              f"(betamega_02_pks_ticketcorrida detenida); 0 % aquí no significa sin rechazo")
+        m6 = (f"rechazo no confiable en {mes6}: el vaciado registrado del mes no alcanza a "
+              f"representarlo (o no hay rechazos marcados); 0 % aquí no significa sin rechazo")
     else:
-        m6 = _motivo_cobertura("rechazo", rs["n_rechazo"], n, "betamega_01_rechazosbyidticket")
+        m6 = _motivo_cobertura("rechazo", rs["n_rechazo"], n,
+                               "rechazo por pieza (b01 / vaciado + rechazo de piso)")
     ev6 = evaluar_carril(pc["PC-6"], None if m6 else rs["pct_rechazo"], rs["ts_ultimo_vaciado"], cid, m6)
 
     m7 = _motivo_cobertura("ruta de limpieza", rs["n_ruta"], n, "betamega_08_ticketrutacritica")
@@ -1249,14 +1329,17 @@ def historial_rechazo_partes(d_ini: str, d_fin: str) -> dict:
     ACTUALIZACIÓN 2026-10-11: alfamega_01 (la rama < 2025) fue borrada por IT; betamega_03
     cubre 2023 -> hoy, así que queda una sola consulta. Se excluyen los meses sin rechazo
     confiable (meses_rechazo_no_confiables) -- sus ceros falsos bajaban la tasa de cada parte.
+
+    ACTUALIZACIÓN 2026-10-28: RECHAZO_PZAS_SQL (b01 hasta jun-2026, vaciado + rechazo de
+    piso desde jul-2026) en vez de betamega_03 (~1 % de los tickets desde julio).
     """
     excluir = meses_rechazo_no_confiables(d_ini, d_fin)
     params = {"d": d_ini, "h": d_fin, **{f"m{i}": m for i, m in enumerate(excluir)}}
     filtro = ("AND DATE_FORMAT(FHrVaciado, '%Y-%m') NOT IN ("
               + ",".join(f":m{i}" for i in range(len(excluir))) + ")") if excluir else ""
     rows = run(f"""
-        SELECT No_Parte AS no_parte, COUNT(*) AS n, SUM(bRechazo) AS rechazos
-        FROM betamega_03_coladasproceso
+        SELECT No_Parte AS no_parte, SUM(pz) AS n, SUM(bRechazo) AS rechazos
+        FROM {RECHAZO_PZAS_SQL} rp
         WHERE FHrVaciado BETWEEN :d AND :h
           AND No_Parte IS NOT NULL AND No_Parte != ''
           {filtro}

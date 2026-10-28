@@ -21,7 +21,7 @@ from datetime import datetime, timedelta
 from typing import Optional
 from fastapi import APIRouter, Query
 
-from backend.core import (run, _evaluar_coladas_ventana, _buscar_protocolos, _REDISENO_COMBOS,
+from backend.core import (run, RECHAZO_PZAS_SQL, _evaluar_coladas_ventana, _buscar_protocolos, _REDISENO_COMBOS,
                           _referencia_actual_flujo, UMBRAL_PIEZAS_MES_CONFIABLE, piezas_de_coladas,
                           quimica_de_parte)
 
@@ -322,6 +322,11 @@ def beta_criticas(
 # marca "sin dato confiable" en vez de devolver un 0% que se leería como buena noticia
 # falsa. El chequeo es dinámico (agregado en vivo, no una fecha hardcodeada) -- en
 # cuanto IT reactive el pipeline, el mes vuelve a evaluarse solo sin tocar este código.
+#
+# 2026-10-28: la serie sale de core.RECHAZO_PZAS_SQL (b01 hasta jun-2026; desde jul-2026
+# vaciado + ia_fasa.rechazo, que solo trae rechazo INTERNO). Para que el mes y su baseline
+# se comparen igual con igual aunque crucen ese corte, la tendencia cuenta SOLO rechazo
+# interno en ambos lados (IntExt='Int').
 
 def _rango_mes(mes: str) -> tuple:
     anio, m = (int(x) for x in mes.split("-"))
@@ -340,9 +345,9 @@ def _mes_desplazado(mes: str, n: int) -> str:
 
 
 def _mes_confiable(d_ini: str, d_fin: str) -> dict:
-    row = run("""
-        SELECT COUNT(*) AS total, SUM(bRechazo) AS n_rechazo
-        FROM betamega_03_coladasproceso
+    row = run(f"""
+        SELECT SUM(pz) AS total, SUM(bRechazo) AS n_rechazo
+        FROM {RECHAZO_PZAS_SQL} rp
         WHERE FHrVaciado BETWEEN :d AND :h
     """, {"d": d_ini, "h": d_fin})
     r = row[0] if row else {}
@@ -366,8 +371,8 @@ def tendencia_rechazo_mensual(mes: str, meses_baseline: int = 3, min_piezas_mes:
     if not chk_mes["confiable"]:
         motivo = (
             f"{chk_mes['n_rechazo']} rechazos de {chk_mes['total_piezas']} piezas en {mes} -- "
-            "bRechazo depende de un pipeline (betamega_02_pks_ticketcorrida) detenido desde "
-            "2026-07-09; no hay veredicto de calidad confiable para este mes todavía."
+            "no hay rechazos marcados para las piezas del mes; no hay veredicto de calidad "
+            "confiable para este mes todavía."
             if chk_mes["total_piezas"] >= UMBRAL_PIEZAS_MES_CONFIABLE else
             f"Muestra insuficiente para {mes}: solo {chk_mes['total_piezas']} piezas registradas."
         )
@@ -388,15 +393,17 @@ def tendencia_rechazo_mensual(mes: str, meses_baseline: int = 3, min_piezas_mes:
         return {"mes": mes, "confiable": False, "motivo": motivo,
                 "baseline": f"{mes_base_ini} a {mes_base_fin}", "partes": []}
 
-    rows_mes = run("""
-        SELECT No_Parte AS no_parte, COUNT(*) AS total, SUM(bRechazo) AS rechazos
-        FROM betamega_03_coladasproceso
+    rows_mes = run(f"""
+        SELECT No_Parte AS no_parte, SUM(pz) AS total,
+               SUM(CASE WHEN IntExt = 'Int' THEN bRechazo ELSE 0 END) AS rechazos
+        FROM {RECHAZO_PZAS_SQL} rp
         WHERE FHrVaciado BETWEEN :d AND :h AND No_Parte IS NOT NULL
         GROUP BY No_Parte HAVING total >= :minp
     """, {"d": d_ini, "h": d_fin, "minp": min_piezas_mes})
-    rows_base = run("""
-        SELECT No_Parte AS no_parte, COUNT(*) AS total, SUM(bRechazo) AS rechazos
-        FROM betamega_03_coladasproceso
+    rows_base = run(f"""
+        SELECT No_Parte AS no_parte, SUM(pz) AS total,
+               SUM(CASE WHEN IntExt = 'Int' THEN bRechazo ELSE 0 END) AS rechazos
+        FROM {RECHAZO_PZAS_SQL} rp
         WHERE FHrVaciado BETWEEN :d AND :h AND No_Parte IS NOT NULL
         GROUP BY No_Parte HAVING total >= :minp
     """, {"d": base_d_ini, "h": base_d_fin, "minp": min_piezas_mes})
@@ -424,6 +431,7 @@ def tendencia_rechazo_mensual(mes: str, meses_baseline: int = 3, min_piezas_mes:
         "mes": mes,
         "confiable": True,
         "baseline": f"{mes_base_ini} a {mes_base_fin}",
+        "base_rechazo": "solo rechazo interno (el externo no tiene fuente viva desde jul-2026)",
         "partes": partes[:limit],
     }
 
