@@ -1,6 +1,7 @@
 """Genera backend/data/causa_raiz.json para la vista "Causa raíz" (Calidad del Producto).
 
-Recalcula todo desde la BD (solo lectura): ~4 min. Pensado para correr una vez por semana:
+Recalcula todo desde la BD (solo lectura): ~10 min. Corre solo cada lunes con la tarea programada de
+Windows "TorreFASA - Causa raiz" (scripts/causa_raiz/recalcular_semanal.cmd, log en logs/). A mano:
     python scripts/causa_raiz/generar.py            # reconstruye la tabla por colada y el JSON
     python scripts/causa_raiz/generar.py --rapido   # reusa la tabla por colada ya guardada
 
@@ -17,8 +18,18 @@ from pathlib import Path
 RAIZ = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(RAIZ))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from sqlalchemy import create_engine
+from backend import core
+
+# Sin límite de lectura, una conexión que la BD cierra a medio camino deja el script esperando para
+# siempre (pasó el 2026-10-30: 20 min colgado). Con read_timeout la consulta falla y coladas.py
+# reintenta el mes. Solo para este proceso; el servidor conserva su engine.
+core.engine = create_engine(core.engine.url, pool_pre_ping=True,
+                            connect_args={"read_timeout": 900, "write_timeout": 900})
+
 from backend.core import run
 from coladas import construir, norm_defecto, _defecto_sql
+from arena import senales_arena
 
 DATA = RAIZ / "backend" / "data"
 TABLA = DATA / "cache" / "causa_raiz_coladas.json"
@@ -106,10 +117,14 @@ HIPOTESIS = [
                      "corazones, exceso o mala aplicación de pegamento, o pintura sin secar. El metal casi no explica "
                      "la sopladura (sus señales de proceso salen cerca de 1.0). La Porosidad, en cambio, sí se "
                      "relaciona con el metal: temperatura arriba del máximo y Mn/Mg altos.",
-        "notas": ["Revisar efecto de temporada (humedad): en 2025 la sopladura subió en junio y septiembre."],
+        "notas": ["Revisar efecto de temporada (humedad): en 2025 la sopladura subió en junio y septiembre.",
+                  "Arena (2026): lo que mide el laboratorio no explica la sopladura de forma clara; solo hay pistas "
+                  "débiles con el LOI de los corazones K300 y los finos de la cama fluidizada (ver sección Arena)."],
         "validar": ["Moldeo y Corazones: venteo, pegamento y secado de pintura en las partes con más sopladura.",
                     "Piso: registrar la causa detallada (17.xx) en cada sopladura durante 4 semanas.",
-                    "Laboratorio de arenas: permeabilidad y humedad del día vs. sopladura."],
+                    "Corazones: revisar LOI (contenido de resina) de los corazones de las partes con más sopladura."],
+        "arena": {"defectos": ["sopladura", "porosidad"],
+                  "mensual": ["LOI-K300", "LOI ARENA COLD BOX", "FINOS CAMA FLUIDIZADA"]},
     },
     {
         "clave": "molde", "nombre": "Caído y Tirado", "familia": "Arena / corazon", "confianza": "media",
@@ -117,14 +132,19 @@ HIPOTESIS = [
                      {"clave": "tirado", "nombre": "Tirado", "nd": ["TIRADO"]}],
         "senales": [("tirado", "dem_juntan"), ("tirado", "dem_falta_moldes"), ("tirado", "horno_excede_50"),
                     ("caido", "dem_juntan"), ("caido", "temp_sobre_max"), ("caido", "carga_fuera")],
-        "hipotesis": "Caído: compactación o cierre de moldes en AF3 (propiedades de la arena, manejo del molde o "
-                     "herramental). Tirado: sujeción o contrapesos insuficientes y juntas de molde abiertas, sobre "
-                     "todo cuando la línea va con prisa porque se juntan coladas. El metal no influye en ninguno de "
-                     "los dos.",
-        "notas": ["Falta cruzar las propiedades de arena por día (betamega_09) contra el Caído por día."],
-        "validar": ["Laboratorio de arenas: resistencia, humedad y compactabilidad por día vs. Caído por día.",
-                    "Moldeo AF3: qué cambió desde junio de 2026 (personal, arena, mantenimiento, cierre).",
+        "hipotesis": "Caído: cierre y manejo del molde en AF3 o herramental. Las propiedades de arena que mide el "
+                     "laboratorio no lo explican: dentro de cada mes, los días con arena fuera de límite o caliente "
+                     "no tienen más Caído, y en octubre la arena se enfrió pero el Caído siguió alto. Tirado: "
+                     "sujeción o contrapesos insuficientes y juntas de molde abiertas, sobre todo cuando la línea va "
+                     "con prisa porque se juntan coladas. El metal no influye en ninguno de los dos.",
+        "notas": ["El Caído subió en los meses de arena AF3 más caliente (jun–ago), pero eso solo no prueba causa: "
+                  "la relación no aparece día a día dentro del mismo mes (ver sección Arena)."],
+        "validar": ["Moldeo AF3: qué cambió desde junio de 2026 (personal, cierre, mantenimiento, herramental).",
+                    "Moldeo AF3: revisar el proceso de la parte que más aporta al Caído.",
                     "Fusión y Moldeo: contrapesos y sujeción en los días con coladas juntas."],
+        "arena": {"defectos": ["caido", "tirado"],
+                  "mensual": ["TEMPERATURA ARENA AF3", "RESISTENCIA AF3 A LOS 15 MINUTOS",
+                              "TIEMPO DE TRABAJO AF3 (Minutos y Segundos)"]},
     },
     {
         "clave": "llenado", "nombre": "Fierro frío y No lleno", "familia": "Llenado deficiente", "confianza": "alta",
@@ -242,6 +262,23 @@ def main(rapido=False):
 
     fuentes = {f: cobertura(f) for f in {s[1] for s in SENALES.values()}}
 
+    # Arena (laboratorio) por día de moldeo; si falla, la vista sale sin esa sección en vez de no salir
+    con_arena = [h for h in HIPOTESIS if h.get("arena")]
+    try:
+        arena_res, arena_meta = senales_arena({k: subdef[k]["nd"] for h in con_arena for k in h["arena"]["defectos"]})
+        variables = sorted({v for h in con_arena for v in h["arena"]["mensual"]})
+        arena_mes = defaultdict(dict)
+        for r in run("""SELECT DATE_FORMAT(Fecha, '%Y-%m') m, TRIM(Variable) v,
+                          AVG(CAST(REPLACE(Respuesta, ',', '') AS DECIMAL(12,4))) x,
+                          AVG(CAST(REPLACE(Respuesta, ',', '') AS DECIMAL(12,4)) NOT BETWEEN LimiteInferior AND LimiteSuperior) * 100 fuera
+                        FROM betamega_09_variablesdecontrol
+                        WHERE Departamento='Laboratorio' AND TipoVariable='Cuantitativo' AND TRIM(Variable) IN :vs
+                        GROUP BY 1, 2""", {"vs": tuple(variables)}):
+            arena_mes[r["m"]][r["v"]] = {"prom": round(float(r["x"]), 2), "pct_fuera": round(float(r["fuera"] or 0))}
+    except Exception as e:
+        print("  arena ERR", str(e)[:200])
+        arena_res, arena_meta, arena_mes = None, None, {}
+
     tarjetas = []
     for h in HIPOTESIS:
         defs = []
@@ -301,8 +338,22 @@ def main(rapido=False):
             r = oe(L, k)
             senales.append({"defecto": subdef[k]["nombre"], "senal": s, "etiqueta": etiqueta, "fuente": fuente,
                             "coladas": len(L), **r})
+        arena = None
+        if h.get("arena") and arena_res is not None:
+            ks = h["arena"]["defectos"]
+            arena = {
+                "meta": arena_meta,
+                "por_defecto": [{"defecto": subdef[k]["nombre"], "senales": len(arena_res[k]),
+                                 "fuertes": sum(1 for s in arena_res[k] if s["p"] < 0.002)} for k in ks],
+                "senales": sorted(({**s, "defecto": subdef[k]["nombre"]} for k in ks for s in arena_res[k]),
+                                  key=lambda s: s["p"])[:8],
+                "variables": h["arena"]["mensual"],
+                "mensual": [{"mes": m, "valores": arena_mes[m],
+                             "oe": {subdef[k]["nombre"]: oe(por_mes[m], k)["oe"] for k in ks}}
+                            for m in meses if m in arena_mes],
+            }
         tarjetas.append({k: h[k] for k in ("clave", "nombre", "familia", "confianza", "hipotesis", "notas", "validar")}
-                        | {"defectos": defs, "senales": senales})
+                        | {"defectos": defs, "senales": senales, "arena": arena})
 
     ok = temp_idx.get("OK")
     gen = [r for r in piso]

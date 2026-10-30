@@ -602,6 +602,7 @@ main{padding:16px 20px;max-width:1100px;margin:0 auto}
 #p-crz .crz-tbl th{text-align:left;font-weight:600;color:var(--color-text-tertiary);font-size:11px;padding:4px 6px;border-bottom:0.5px solid var(--color-border-secondary)}
 #p-crz .crz-tbl td{padding:4px 6px;border-bottom:0.5px solid var(--color-border-tertiary)}
 #p-crz .crz-tbl .n{text-align:right;font-variant-numeric:tabular-nums}
+#p-crz .crz-mes td{white-space:nowrap}
 #p-crz .crz-chips{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px}
 #p-crz .crz-chip{font-size:11.5px;padding:3px 10px;border-radius:999px;border:0.5px solid var(--color-border-secondary);cursor:pointer;color:var(--color-text-secondary);background:transparent}
 #p-crz .crz-chip.on{background:var(--color-background-info);color:var(--color-text-info);border-color:var(--color-border-info)}
@@ -652,6 +653,9 @@ function crzPintar() {
       + d.n_coladas.toLocaleString('en-US') + ' coladas · ' + d.n_piezas.toLocaleString('en-US') + ' piezas · '
       + 'rechazo registrado hasta ' + crzEsc(d.rechazo_hasta) + ' · cifras calculadas el '
       + gen.toLocaleDateString('es-MX', {day: 'numeric', month: 'short', year: 'numeric'}) + '</div>'
+    + ((Date.now() - gen) / 864e5 > 8 ? '<div class="crz-banner" style="background:var(--color-background-warning);color:var(--color-text-warning);margin-bottom:10px">'
+      + '<b style="color:inherit">Cifras desactualizadas:</b> el último cálculo es de hace ' + Math.floor((Date.now() - gen) / 864e5)
+      + ' días. Debía recalcularse solo cada lunes: revisar la tarea programada «TorreFASA - Causa raiz» y logs/causa_raiz_semanal.log.</div>' : '')
     + '<div class="crz-banners">'
     + '<div class="crz-banner"><span class="big">' + d.piso_pct_causa_generica + ' %</span>de los rechazos se registran con la '
       + '<b>causa genérica</b> del defecto (p. ej. 17.00), no con la causa detallada del catálogo. Por eso estas hipótesis '
@@ -747,6 +751,7 @@ function crzTarjeta(t) {
       + (t.notas.length ? '<div class="crz-sec">Notas</div><ul class="crz-ul">' + t.notas.map(n => '<li>' + crzEsc(n) + '</li>').join('') + '</ul>' : '')
       + '<div class="crz-sec">Cómo validar</div><ul class="crz-ul">' + t.validar.map(n => '<li>' + crzEsc(n) + '</li>').join('') + '</ul>'
     + '</div><div id="crz-det-' + t.clave + '">' + crzDetalle(t) + '</div></div>'
+    + (t.arena ? crzArena(t.arena) : '')
     + '<div class="crz-estado"><div class="btns">' + Object.keys(CRZ_ESTADOS).map(e =>
         '<button class="op ' + e + (e === sel ? ' on' : '') + '" onclick="crzElegirEstado(\'' + t.clave + '\',\'' + e + '\')">' + CRZ_ESTADOS[e] + '</button>').join('') + '</div>'
       + '<textarea id="crz-nota-' + t.clave + '" placeholder="Nota de Calidad: qué se revisó, qué se encontró…">' + crzEsc(est.nota || '') + '</textarea>'
@@ -754,6 +759,32 @@ function crzTarjeta(t) {
       + '<button class="save" onclick="crzGuardar(\'' + t.clave + '\')">Guardar</button>'
       + '<div class="meta" id="crz-meta-' + t.clave + '">' + meta + '</div></div>'
     + '</div>'
+}
+
+// Arena del laboratorio (betamega_09) por día de moldeo, comparando días del MISMO mes (sin temporada).
+function crzArena(a) {
+  const m = a.meta
+  const veredicto = a.por_defecto.map(d => '<b>' + crzEsc(d.defecto) + '</b>: '
+    + (d.senales ? d.senales + ' señal' + (d.senales > 1 ? 'es' : '') + (d.fuertes ? ' (' + d.fuertes + ' fuerte' + (d.fuertes > 1 ? 's' : '') + ')' : ' débil' + (d.senales > 1 ? 'es' : '')) : 'ninguna señal')).join(' · ')
+  const sen = a.senales.length ? '<table class="crz-tbl"><tr><th>Defecto</th><th>Días con…</th><th class="n">O/E esos días</th><th class="n">O/E resto del mes</th><th class="n">Días</th><th class="n">p</th></tr>'
+    + a.senales.map(s => '<tr><td>' + crzEsc(s.defecto) + '</td><td>' + crzEsc(s.etiqueta) + '</td>'
+      + '<td class="n"><b style="color:' + (s.oe >= 1.2 ? 'var(--color-text-danger)' : s.oe <= 0.83 ? 'var(--color-text-success)' : 'inherit') + '">' + s.oe.toFixed(2) + '×</b></td>'
+      + '<td class="n">' + (s.oe_resto == null ? '—' : s.oe_resto.toFixed(2) + '×') + '</td><td class="n">' + s.dias + '</td>'
+      + '<td class="n">' + (s.p < 0.002 ? '<b>' + s.p.toFixed(3) + '</b>' : s.p.toFixed(3)) + '</td></tr>').join('') + '</table>'
+    : '<div class="crz-piso">Ninguna variable de arena se relaciona con estos defectos dentro del mismo mes.</div>'
+  const defs = a.por_defecto.map(d => d.defecto)
+  const mens = '<div style="overflow-x:auto"><table class="crz-tbl crz-mes"><tr><th>Mes</th>' + defs.map(d => '<th class="n">O/E ' + crzEsc(d) + '</th>').join('')
+    + a.variables.map(v => '<th class="n">' + crzEsc(v.replace(' (Minutos y Segundos)', '').toLowerCase()) + '</th>').join('') + '</tr>'
+    + a.mensual.map(r => '<tr><td>' + crzMes(r.mes) + '</td>'
+      + defs.map(d => { const v = r.oe[d]; return '<td class="n"' + (v != null && v >= 1.3 ? ' style="color:var(--color-text-danger);font-weight:600"' : '') + '>' + (v == null ? '—' : v.toFixed(2)) + '</td>' }).join('')
+      + a.variables.map(v => { const x = r.valores[v]; return '<td class="n">' + (x ? x.prom + (x.pct_fuera ? ' <small style="color:var(--color-text-tertiary)" title="% de mediciones fuera de límite">' + x.pct_fuera + '%↯</small>' : '') : '—') + '</td>' }).join('')
+      + '</tr>').join('') + '</table></div>'
+  return '<div class="crz-sec" style="margin-top:16px">Arena · laboratorio, por día de moldeo (desde ' + crzMes(m.desde.slice(0, 7)) + ')</div>'
+    + '<div class="crz-piso">' + veredicto + '. Se compararon ' + m.dias + ' días con producción contra ' + m.variables
+    + ' variables del laboratorio (' + m.pruebas.toLocaleString('en-US') + ' pruebas); <b>por azar se esperarían ~' + Math.round(m.falsos_esperados)
+    + ' señales con p &lt; ' + m.p_max + '</b>. Cada señal compara los días de un mes con la arena en esa condición contra el resto de los días del mismo mes, '
+    + 'así la temporada no se confunde con la arena. Solo una p &lt; 0.002 (en negritas) es una pista fuerte.</div>'
+    + '<div class="crz-grid" style="margin-top:8px"><div>' + sen + '</div><div><div class="crz-piso" style="margin-bottom:4px">Por mes (promedio del laboratorio; ↯ = % de mediciones fuera de límite):</div>' + mens + '</div></div>'
 }
 
 function crzElegir(clave, sub) {

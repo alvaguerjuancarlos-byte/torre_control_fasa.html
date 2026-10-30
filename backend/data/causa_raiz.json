@@ -1,5 +1,5 @@
 {
- "generado": "2026-10-30T12:55:08",
+ "generado": "2026-10-30T13:30:28",
  "periodo": {
   "desde": "2025-01",
   "hasta": "2026-10"
@@ -8,19 +8,7 @@
  "n_piezas": 94928,
  "metodo": "O/E = rechazos observados / esperados según la mezcla de partes de esas coladas (1.00 = lo normal para esas partes). Rechazo de producción del registro de piso (ia_fasa.rechazo).",
  "fuentes": {
-  "horno": {
-   "desde": "2025-01",
-   "hasta": "2026-10",
-   "meses_sin_dato": [
-    "2026-09"
-   ]
-  },
-  "carga": {
-   "desde": "2025-01",
-   "hasta": "2026-10",
-   "meses_sin_dato": []
-  },
-  "demoras": {
+  "itaca": {
    "desde": "2025-01",
    "hasta": "2026-10",
    "meses_sin_dato": [
@@ -32,7 +20,19 @@
    "hasta": "2026-10",
    "meses_sin_dato": []
   },
-  "itaca": {
+  "demoras": {
+   "desde": "2025-01",
+   "hasta": "2026-10",
+   "meses_sin_dato": [
+    "2026-09"
+   ]
+  },
+  "carga": {
+   "desde": "2025-01",
+   "hasta": "2026-10",
+   "meses_sin_dato": []
+  },
+  "horno": {
    "desde": "2025-01",
    "hasta": "2026-10",
    "meses_sin_dato": [
@@ -91,7 +91,7 @@
       {
        "anio": "2026",
        "rechazos": 1029,
-       "piezas": 39725,
+       "piezas": 39728,
        "tasa": 2.59
       }
      ],
@@ -346,7 +346,7 @@
       {
        "anio": "2026",
        "rechazos": 641,
-       "piezas": 39725,
+       "piezas": 39728,
        "tasa": 1.61
       }
      ],
@@ -597,7 +597,7 @@
       {
        "anio": "2026",
        "rechazos": 388,
-       "piezas": 39725,
+       "piezas": 39728,
        "tasa": 0.98
       }
      ],
@@ -859,20 +859,20 @@
      "senal": "horno_66",
      "etiqueta": "Más de 66 min en horno",
      "fuente": "horno",
-     "coladas": 2703,
+     "coladas": 2704,
      "oe": 1.47,
      "obs": 381,
-     "esp": 258.5
+     "esp": 258.6
     },
     {
      "defecto": "Depresión",
      "senal": "dem_falta_moldes",
      "etiqueta": "Demora por «Falta de moldes»",
      "fuente": "demoras",
-     "coladas": 912,
+     "coladas": 913,
      "oe": 1.8,
      "obs": 230,
-     "esp": 128.0
+     "esp": 128.1
     },
     {
      "defecto": "Rechupe + Depresión",
@@ -904,7 +904,8 @@
      "obs": 516,
      "esp": 350.4
     }
-   ]
+   ],
+   "arena": null
   },
   {
    "clave": "sopladura",
@@ -913,12 +914,13 @@
    "confianza": "media",
    "hipotesis": "Gases que salen de corazones y moldes en unas cuantas partes específicas: venteo insuficiente de corazones, exceso o mala aplicación de pegamento, o pintura sin secar. El metal casi no explica la sopladura (sus señales de proceso salen cerca de 1.0). La Porosidad, en cambio, sí se relaciona con el metal: temperatura arriba del máximo y Mn/Mg altos.",
    "notas": [
-    "Revisar efecto de temporada (humedad): en 2025 la sopladura subió en junio y septiembre."
+    "Revisar efecto de temporada (humedad): en 2025 la sopladura subió en junio y septiembre.",
+    "Arena (2026): lo que mide el laboratorio no explica la sopladura de forma clara; solo hay pistas débiles con el LOI de los corazones K300 y los finos de la cama fluidizada (ver sección Arena)."
    ],
    "validar": [
     "Moldeo y Corazones: venteo, pegamento y secado de pintura en las partes con más sopladura.",
     "Piso: registrar la causa detallada (17.xx) en cada sopladura durante 4 semanas.",
-    "Laboratorio de arenas: permeabilidad y humedad del día vs. sopladura."
+    "Corazones: revisar LOI (contenido de resina) de los corazones de las partes con más sopladura."
    ],
    "defectos": [
     {
@@ -934,7 +936,7 @@
       {
        "anio": "2026",
        "rechazos": 795,
-       "piezas": 39725,
+       "piezas": 39728,
        "tasa": 2.0
       }
      ],
@@ -1086,8 +1088,8 @@
        "parte": "16261C",
        "rechazos": 51,
        "pct_defecto": 6.4,
-       "moldeadas": 430,
-       "tasa": 11.9,
+       "moldeadas": 433,
+       "tasa": 11.8,
        "tasa_prev": 3.6,
        "desarrollo": true
       },
@@ -1189,7 +1191,7 @@
       {
        "anio": "2026",
        "rechazos": 247,
-       "piezas": 39725,
+       "piezas": 39728,
        "tasa": 0.62
       }
      ],
@@ -1359,7 +1361,7 @@
        "parte": "16261C",
        "rechazos": 26,
        "pct_defecto": 10.5,
-       "moldeadas": 430,
+       "moldeadas": 433,
        "tasa": 6.0,
        "tasa_prev": 1.0,
        "desarrollo": true
@@ -1437,10 +1439,10 @@
      "senal": "q_mn_alto",
      "etiqueta": "Manganeso alto (> 0.756)",
      "fuente": "quimica",
-     "coladas": 1607,
+     "coladas": 1608,
      "oe": 0.82,
      "obs": 137,
-     "esp": 167.7
+     "esp": 167.8
     },
     {
      "defecto": "Porosidad",
@@ -1457,7 +1459,7 @@
      "senal": "q_mn_alto",
      "etiqueta": "Manganeso alto (> 0.756)",
      "fuente": "quimica",
-     "coladas": 1607,
+     "coladas": 1608,
      "oe": 1.94,
      "obs": 99,
      "esp": 51.0
@@ -1472,20 +1474,509 @@
      "obs": 100,
      "esp": 49.8
     }
-   ]
+   ],
+   "arena": {
+    "meta": {
+     "desde": "2026-01-01",
+     "dias": 268,
+     "variables": 92,
+     "pruebas": 720,
+     "p_max": 0.01,
+     "falsos_esperados": 7.2
+    },
+    "por_defecto": [
+     {
+      "defecto": "Sopladura",
+      "senales": 9,
+      "fuertes": 0
+     },
+     {
+      "defecto": "Porosidad",
+      "senales": 0,
+      "fuertes": 0
+     }
+    ],
+    "senales": [
+     {
+      "variable": "AFS ARENA TERMICA",
+      "grupo": "bajo",
+      "etiqueta": "AFS ARENA TERMICA: tercio bajo (< 39.7)",
+      "limite": [
+       48.0,
+       54.0
+      ],
+      "oe": 1.25,
+      "oe_resto": 0.86,
+      "obs": 251,
+      "esp": 200.9,
+      "dias": 80,
+      "p": 0.0035,
+      "defecto": "Sopladura"
+     },
+     {
+      "variable": "LOI ARENA COLD BOX",
+      "grupo": "fuera",
+      "etiqueta": "LOI ARENA COLD BOX: fuera de límite",
+      "limite": [
+       1.05,
+       1.35
+      ],
+      "oe": 0.77,
+      "oe_resto": 1.12,
+      "obs": 121,
+      "esp": 157.5,
+      "dias": 78,
+      "p": 0.0055,
+      "defecto": "Sopladura"
+     },
+     {
+      "variable": "pH CAMA FLUIDIZADA",
+      "grupo": "alto",
+      "etiqueta": "pH CAMA FLUIDIZADA: tercio alto (> 8.5)",
+      "limite": [
+       7.0,
+       9.0
+      ],
+      "oe": 0.79,
+      "oe_resto": 1.08,
+      "obs": 123,
+      "esp": 155.7,
+      "dias": 81,
+      "p": 0.006,
+      "defecto": "Sopladura"
+     },
+     {
+      "variable": "LOI ARENA COLD BOX",
+      "grupo": "bajo",
+      "etiqueta": "LOI ARENA COLD BOX: tercio bajo (< 1.1)",
+      "limite": [
+       1.05,
+       1.35
+      ],
+      "oe": 0.76,
+      "oe_resto": 1.09,
+      "obs": 99,
+      "esp": 131.1,
+      "dias": 60,
+      "p": 0.0075,
+      "defecto": "Sopladura"
+     },
+     {
+      "variable": "LOI CAMA FLUIDIZADA",
+      "grupo": "bajo",
+      "etiqueta": "LOI CAMA FLUIDIZADA: tercio bajo (< 1.18)",
+      "limite": [
+       1.05,
+       1.35
+      ],
+      "oe": 0.79,
+      "oe_resto": 1.11,
+      "obs": 144,
+      "esp": 183.3,
+      "dias": 78,
+      "p": 0.009,
+      "defecto": "Sopladura"
+     },
+     {
+      "variable": "TEMPERATURA ARENA AF3",
+      "grupo": "bajo",
+      "etiqueta": "TEMPERATURA ARENA AF3: tercio bajo (< 27.5)",
+      "limite": [
+       18.0,
+       34.0
+      ],
+      "oe": 0.82,
+      "oe_resto": 1.07,
+      "obs": 126,
+      "esp": 152.9,
+      "dias": 82,
+      "p": 0.009,
+      "defecto": "Sopladura"
+     },
+     {
+      "variable": "LOI-K300",
+      "grupo": "bajo",
+      "etiqueta": "LOI-K300: tercio bajo (< 1.2)",
+      "limite": [
+       1.05,
+       1.35
+      ],
+      "oe": 0.78,
+      "oe_resto": 1.09,
+      "obs": 126,
+      "esp": 160.5,
+      "dias": 77,
+      "p": 0.0095,
+      "defecto": "Sopladura"
+     },
+     {
+      "variable": "FINOS CAMA FLUIDIZADA",
+      "grupo": "alto",
+      "etiqueta": "FINOS CAMA FLUIDIZADA: tercio alto (> 1.43)",
+      "limite": [
+       0.0,
+       3.0
+      ],
+      "oe": 1.22,
+      "oe_resto": 0.9,
+      "obs": 222,
+      "esp": 182.3,
+      "dias": 87,
+      "p": 0.0095,
+      "defecto": "Sopladura"
+     }
+    ],
+    "variables": [
+     "LOI-K300",
+     "LOI ARENA COLD BOX",
+     "FINOS CAMA FLUIDIZADA"
+    ],
+    "mensual": [
+     {
+      "mes": "2026-01",
+      "valores": {
+       "FINOS CAMA FLUIDIZADA": {
+        "prom": 1.33,
+        "pct_fuera": 0
+       },
+       "LOI ARENA COLD BOX": {
+        "prom": 1.15,
+        "pct_fuera": 26
+       },
+       "LOI-K300": {
+        "prom": 1.27,
+        "pct_fuera": 29
+       },
+       "RESISTENCIA AF3 A LOS 15 MINUTOS": {
+        "prom": 73.7,
+        "pct_fuera": 0
+       },
+       "TEMPERATURA ARENA AF3": {
+        "prom": 25.33,
+        "pct_fuera": 0
+       },
+       "TIEMPO DE TRABAJO AF3 (Minutos y Segundos)": {
+        "prom": 1.81,
+        "pct_fuera": 61
+       }
+      },
+      "oe": {
+       "Sopladura": 1.26,
+       "Porosidad": 2.1
+      }
+     },
+     {
+      "mes": "2026-02",
+      "valores": {
+       "FINOS CAMA FLUIDIZADA": {
+        "prom": 1.32,
+        "pct_fuera": 0
+       },
+       "LOI ARENA COLD BOX": {
+        "prom": 1.13,
+        "pct_fuera": 26
+       },
+       "LOI-K300": {
+        "prom": 1.22,
+        "pct_fuera": 18
+       },
+       "RESISTENCIA AF3 A LOS 15 MINUTOS": {
+        "prom": 76.5,
+        "pct_fuera": 14
+       },
+       "TEMPERATURA ARENA AF3": {
+        "prom": 24.84,
+        "pct_fuera": 0
+       },
+       "TIEMPO DE TRABAJO AF3 (Minutos y Segundos)": {
+        "prom": 2.21,
+        "pct_fuera": 41
+       }
+      },
+      "oe": {
+       "Sopladura": 0.49,
+       "Porosidad": 5.08
+      }
+     },
+     {
+      "mes": "2026-03",
+      "valores": {
+       "FINOS CAMA FLUIDIZADA": {
+        "prom": 1.3,
+        "pct_fuera": 1
+       },
+       "LOI ARENA COLD BOX": {
+        "prom": 1.13,
+        "pct_fuera": 20
+       },
+       "LOI-K300": {
+        "prom": 1.21,
+        "pct_fuera": 13
+       },
+       "RESISTENCIA AF3 A LOS 15 MINUTOS": {
+        "prom": 72.7,
+        "pct_fuera": 1
+       },
+       "TEMPERATURA ARENA AF3": {
+        "prom": 27.53,
+        "pct_fuera": 1
+       },
+       "TIEMPO DE TRABAJO AF3 (Minutos y Segundos)": {
+        "prom": 2.62,
+        "pct_fuera": 2
+       }
+      },
+      "oe": {
+       "Sopladura": 0.86,
+       "Porosidad": 1.2
+      }
+     },
+     {
+      "mes": "2026-04",
+      "valores": {
+       "FINOS CAMA FLUIDIZADA": {
+        "prom": 1.1,
+        "pct_fuera": 0
+       },
+       "LOI ARENA COLD BOX": {
+        "prom": 1.13,
+        "pct_fuera": 29
+       },
+       "LOI-K300": {
+        "prom": 1.31,
+        "pct_fuera": 45
+       },
+       "RESISTENCIA AF3 A LOS 15 MINUTOS": {
+        "prom": 74.46,
+        "pct_fuera": 1
+       },
+       "TEMPERATURA ARENA AF3": {
+        "prom": 27.88,
+        "pct_fuera": 4
+       },
+       "TIEMPO DE TRABAJO AF3 (Minutos y Segundos)": {
+        "prom": 2.44,
+        "pct_fuera": 0
+       }
+      },
+      "oe": {
+       "Sopladura": 1.57,
+       "Porosidad": 0.29
+      }
+     },
+     {
+      "mes": "2026-05",
+      "valores": {
+       "FINOS CAMA FLUIDIZADA": {
+        "prom": 1.21,
+        "pct_fuera": 0
+       },
+       "LOI ARENA COLD BOX": {
+        "prom": 1.01,
+        "pct_fuera": 43
+       },
+       "LOI-K300": {
+        "prom": 1.15,
+        "pct_fuera": 13
+       },
+       "RESISTENCIA AF3 A LOS 15 MINUTOS": {
+        "prom": 77.75,
+        "pct_fuera": 1
+       },
+       "TEMPERATURA ARENA AF3": {
+        "prom": 27.42,
+        "pct_fuera": 0
+       },
+       "TIEMPO DE TRABAJO AF3 (Minutos y Segundos)": {
+        "prom": 2.42,
+        "pct_fuera": 1
+       }
+      },
+      "oe": {
+       "Sopladura": 0.55,
+       "Porosidad": 0.12
+      }
+     },
+     {
+      "mes": "2026-06",
+      "valores": {
+       "FINOS CAMA FLUIDIZADA": {
+        "prom": 1.27,
+        "pct_fuera": 1
+       },
+       "LOI ARENA COLD BOX": {
+        "prom": 1.07,
+        "pct_fuera": 36
+       },
+       "LOI-K300": {
+        "prom": 1.21,
+        "pct_fuera": 23
+       },
+       "RESISTENCIA AF3 A LOS 15 MINUTOS": {
+        "prom": 76.77,
+        "pct_fuera": 0
+       },
+       "TEMPERATURA ARENA AF3": {
+        "prom": 30.45,
+        "pct_fuera": 6
+       },
+       "TIEMPO DE TRABAJO AF3 (Minutos y Segundos)": {
+        "prom": 2.41,
+        "pct_fuera": 0
+       }
+      },
+      "oe": {
+       "Sopladura": 0.61,
+       "Porosidad": 0.92
+      }
+     },
+     {
+      "mes": "2026-07",
+      "valores": {
+       "FINOS CAMA FLUIDIZADA": {
+        "prom": 1.31,
+        "pct_fuera": 0
+       },
+       "LOI ARENA COLD BOX": {
+        "prom": 1.11,
+        "pct_fuera": 39
+       },
+       "LOI-K300": {
+        "prom": 1.28,
+        "pct_fuera": 39
+       },
+       "RESISTENCIA AF3 A LOS 15 MINUTOS": {
+        "prom": 74.62,
+        "pct_fuera": 3
+       },
+       "TEMPERATURA ARENA AF3": {
+        "prom": 30.71,
+        "pct_fuera": 7
+       },
+       "TIEMPO DE TRABAJO AF3 (Minutos y Segundos)": {
+        "prom": 2.34,
+        "pct_fuera": 1
+       }
+      },
+      "oe": {
+       "Sopladura": 1.02,
+       "Porosidad": 0.33
+      }
+     },
+     {
+      "mes": "2026-08",
+      "valores": {
+       "FINOS CAMA FLUIDIZADA": {
+        "prom": 1.48,
+        "pct_fuera": 0
+       },
+       "LOI ARENA COLD BOX": {
+        "prom": 1.26,
+        "pct_fuera": 12
+       },
+       "LOI-K300": {
+        "prom": 1.33,
+        "pct_fuera": 39
+       },
+       "RESISTENCIA AF3 A LOS 15 MINUTOS": {
+        "prom": 73.82,
+        "pct_fuera": 4
+       },
+       "TEMPERATURA ARENA AF3": {
+        "prom": 30.53,
+        "pct_fuera": 4
+       },
+       "TIEMPO DE TRABAJO AF3 (Minutos y Segundos)": {
+        "prom": 2.35,
+        "pct_fuera": 0
+       }
+      },
+      "oe": {
+       "Sopladura": 1.01,
+       "Porosidad": 0.8
+      }
+     },
+     {
+      "mes": "2026-09",
+      "valores": {
+       "FINOS CAMA FLUIDIZADA": {
+        "prom": 1.5,
+        "pct_fuera": 1
+       },
+       "LOI ARENA COLD BOX": {
+        "prom": 1.2,
+        "pct_fuera": 0
+       },
+       "LOI-K300": {
+        "prom": 1.24,
+        "pct_fuera": 13
+       },
+       "RESISTENCIA AF3 A LOS 15 MINUTOS": {
+        "prom": 75.4,
+        "pct_fuera": 3
+       },
+       "TEMPERATURA ARENA AF3": {
+        "prom": 31.29,
+        "pct_fuera": 14
+       },
+       "TIEMPO DE TRABAJO AF3 (Minutos y Segundos)": {
+        "prom": 2.38,
+        "pct_fuera": 0
+       }
+      },
+      "oe": {
+       "Sopladura": 0.7,
+       "Porosidad": 0.53
+      }
+     },
+     {
+      "mes": "2026-10",
+      "valores": {
+       "FINOS CAMA FLUIDIZADA": {
+        "prom": 1.47,
+        "pct_fuera": 0
+       },
+       "LOI ARENA COLD BOX": {
+        "prom": 1.39,
+        "pct_fuera": 62
+       },
+       "LOI-K300": {
+        "prom": 1.5,
+        "pct_fuera": 75
+       },
+       "RESISTENCIA AF3 A LOS 15 MINUTOS": {
+        "prom": 74.28,
+        "pct_fuera": 2
+       },
+       "TEMPERATURA ARENA AF3": {
+        "prom": 27.46,
+        "pct_fuera": 0
+       },
+       "TIEMPO DE TRABAJO AF3 (Minutos y Segundos)": {
+        "prom": 2.46,
+        "pct_fuera": 0
+       }
+      },
+      "oe": {
+       "Sopladura": 0.38,
+       "Porosidad": 0.69
+      }
+     }
+    ]
+   }
   },
   {
    "clave": "molde",
    "nombre": "Caído y Tirado",
    "familia": "Arena / corazon",
    "confianza": "media",
-   "hipotesis": "Caído: compactación o cierre de moldes en AF3 (propiedades de la arena, manejo del molde o herramental). Tirado: sujeción o contrapesos insuficientes y juntas de molde abiertas, sobre todo cuando la línea va con prisa porque se juntan coladas. El metal no influye en ninguno de los dos.",
+   "hipotesis": "Caído: cierre y manejo del molde en AF3 o herramental. Las propiedades de arena que mide el laboratorio no lo explican: dentro de cada mes, los días con arena fuera de límite o caliente no tienen más Caído, y en octubre la arena se enfrió pero el Caído siguió alto. Tirado: sujeción o contrapesos insuficientes y juntas de molde abiertas, sobre todo cuando la línea va con prisa porque se juntan coladas. El metal no influye en ninguno de los dos.",
    "notas": [
-    "Falta cruzar las propiedades de arena por día (betamega_09) contra el Caído por día."
+    "El Caído subió en los meses de arena AF3 más caliente (jun–ago), pero eso solo no prueba causa: la relación no aparece día a día dentro del mismo mes (ver sección Arena)."
    ],
    "validar": [
-    "Laboratorio de arenas: resistencia, humedad y compactabilidad por día vs. Caído por día.",
-    "Moldeo AF3: qué cambió desde junio de 2026 (personal, arena, mantenimiento, cierre).",
+    "Moldeo AF3: qué cambió desde junio de 2026 (personal, cierre, mantenimiento, herramental).",
+    "Moldeo AF3: revisar el proceso de la parte que más aporta al Caído.",
     "Fusión y Moldeo: contrapesos y sujeción en los días con coladas juntas."
    ],
    "defectos": [
@@ -1502,7 +1993,7 @@
       {
        "anio": "2026",
        "rechazos": 656,
-       "piezas": 39725,
+       "piezas": 39728,
        "tasa": 1.65
       }
      ],
@@ -1757,7 +2248,7 @@
       {
        "anio": "2026",
        "rechazos": 374,
-       "piezas": 39725,
+       "piezas": 39728,
        "tasa": 0.94
       }
      ],
@@ -2016,10 +2507,10 @@
      "senal": "dem_falta_moldes",
      "etiqueta": "Demora por «Falta de moldes»",
      "fuente": "demoras",
-     "coladas": 912,
-     "oe": 1.33,
+     "coladas": 913,
+     "oe": 1.32,
      "obs": 101,
-     "esp": 76.2
+     "esp": 76.3
     },
     {
      "defecto": "Tirado",
@@ -2061,7 +2552,400 @@
      "obs": 297,
      "esp": 297.6
     }
-   ]
+   ],
+   "arena": {
+    "meta": {
+     "desde": "2026-01-01",
+     "dias": 268,
+     "variables": 92,
+     "pruebas": 720,
+     "p_max": 0.01,
+     "falsos_esperados": 7.2
+    },
+    "por_defecto": [
+     {
+      "defecto": "Caído",
+      "senales": 1,
+      "fuertes": 0
+     },
+     {
+      "defecto": "Tirado",
+      "senales": 1,
+      "fuertes": 0
+     }
+    ],
+    "senales": [
+     {
+      "variable": "RESISTENCIA AF2 A LOS 60 MINUTOS",
+      "grupo": "alto",
+      "etiqueta": "RESISTENCIA AF2 A LOS 60 MINUTOS: tercio alto (> 97)",
+      "limite": [
+       90.0,
+       150.0
+      ],
+      "oe": 1.29,
+      "oe_resto": 0.88,
+      "obs": 130,
+      "esp": 100.6,
+      "dias": 82,
+      "p": 0.004,
+      "defecto": "Tirado"
+     },
+     {
+      "variable": "TIEMPO DE TRABAJO AF3 (Minutos y Segundos)",
+      "grupo": "alto",
+      "etiqueta": "TIEMPO DE TRABAJO AF3 (Minutos y Segundos): tercio alto (> 2.46)",
+      "limite": [
+       2.0,
+       4.0
+      ],
+      "oe": 0.82,
+      "oe_resto": 1.08,
+      "obs": 146,
+      "esp": 178.5,
+      "dias": 81,
+      "p": 0.008,
+      "defecto": "Caído"
+     }
+    ],
+    "variables": [
+     "TEMPERATURA ARENA AF3",
+     "RESISTENCIA AF3 A LOS 15 MINUTOS",
+     "TIEMPO DE TRABAJO AF3 (Minutos y Segundos)"
+    ],
+    "mensual": [
+     {
+      "mes": "2026-01",
+      "valores": {
+       "FINOS CAMA FLUIDIZADA": {
+        "prom": 1.33,
+        "pct_fuera": 0
+       },
+       "LOI ARENA COLD BOX": {
+        "prom": 1.15,
+        "pct_fuera": 26
+       },
+       "LOI-K300": {
+        "prom": 1.27,
+        "pct_fuera": 29
+       },
+       "RESISTENCIA AF3 A LOS 15 MINUTOS": {
+        "prom": 73.7,
+        "pct_fuera": 0
+       },
+       "TEMPERATURA ARENA AF3": {
+        "prom": 25.33,
+        "pct_fuera": 0
+       },
+       "TIEMPO DE TRABAJO AF3 (Minutos y Segundos)": {
+        "prom": 1.81,
+        "pct_fuera": 61
+       }
+      },
+      "oe": {
+       "Caído": 1.11,
+       "Tirado": 0.88
+      }
+     },
+     {
+      "mes": "2026-02",
+      "valores": {
+       "FINOS CAMA FLUIDIZADA": {
+        "prom": 1.32,
+        "pct_fuera": 0
+       },
+       "LOI ARENA COLD BOX": {
+        "prom": 1.13,
+        "pct_fuera": 26
+       },
+       "LOI-K300": {
+        "prom": 1.22,
+        "pct_fuera": 18
+       },
+       "RESISTENCIA AF3 A LOS 15 MINUTOS": {
+        "prom": 76.5,
+        "pct_fuera": 14
+       },
+       "TEMPERATURA ARENA AF3": {
+        "prom": 24.84,
+        "pct_fuera": 0
+       },
+       "TIEMPO DE TRABAJO AF3 (Minutos y Segundos)": {
+        "prom": 2.21,
+        "pct_fuera": 41
+       }
+      },
+      "oe": {
+       "Caído": 0.69,
+       "Tirado": 0.51
+      }
+     },
+     {
+      "mes": "2026-03",
+      "valores": {
+       "FINOS CAMA FLUIDIZADA": {
+        "prom": 1.3,
+        "pct_fuera": 1
+       },
+       "LOI ARENA COLD BOX": {
+        "prom": 1.13,
+        "pct_fuera": 20
+       },
+       "LOI-K300": {
+        "prom": 1.21,
+        "pct_fuera": 13
+       },
+       "RESISTENCIA AF3 A LOS 15 MINUTOS": {
+        "prom": 72.7,
+        "pct_fuera": 1
+       },
+       "TEMPERATURA ARENA AF3": {
+        "prom": 27.53,
+        "pct_fuera": 1
+       },
+       "TIEMPO DE TRABAJO AF3 (Minutos y Segundos)": {
+        "prom": 2.62,
+        "pct_fuera": 2
+       }
+      },
+      "oe": {
+       "Caído": 0.56,
+       "Tirado": 0.46
+      }
+     },
+     {
+      "mes": "2026-04",
+      "valores": {
+       "FINOS CAMA FLUIDIZADA": {
+        "prom": 1.1,
+        "pct_fuera": 0
+       },
+       "LOI ARENA COLD BOX": {
+        "prom": 1.13,
+        "pct_fuera": 29
+       },
+       "LOI-K300": {
+        "prom": 1.31,
+        "pct_fuera": 45
+       },
+       "RESISTENCIA AF3 A LOS 15 MINUTOS": {
+        "prom": 74.46,
+        "pct_fuera": 1
+       },
+       "TEMPERATURA ARENA AF3": {
+        "prom": 27.88,
+        "pct_fuera": 4
+       },
+       "TIEMPO DE TRABAJO AF3 (Minutos y Segundos)": {
+        "prom": 2.44,
+        "pct_fuera": 0
+       }
+      },
+      "oe": {
+       "Caído": 0.97,
+       "Tirado": 0.9
+      }
+     },
+     {
+      "mes": "2026-05",
+      "valores": {
+       "FINOS CAMA FLUIDIZADA": {
+        "prom": 1.21,
+        "pct_fuera": 0
+       },
+       "LOI ARENA COLD BOX": {
+        "prom": 1.01,
+        "pct_fuera": 43
+       },
+       "LOI-K300": {
+        "prom": 1.15,
+        "pct_fuera": 13
+       },
+       "RESISTENCIA AF3 A LOS 15 MINUTOS": {
+        "prom": 77.75,
+        "pct_fuera": 1
+       },
+       "TEMPERATURA ARENA AF3": {
+        "prom": 27.42,
+        "pct_fuera": 0
+       },
+       "TIEMPO DE TRABAJO AF3 (Minutos y Segundos)": {
+        "prom": 2.42,
+        "pct_fuera": 1
+       }
+      },
+      "oe": {
+       "Caído": 0.71,
+       "Tirado": 0.96
+      }
+     },
+     {
+      "mes": "2026-06",
+      "valores": {
+       "FINOS CAMA FLUIDIZADA": {
+        "prom": 1.27,
+        "pct_fuera": 1
+       },
+       "LOI ARENA COLD BOX": {
+        "prom": 1.07,
+        "pct_fuera": 36
+       },
+       "LOI-K300": {
+        "prom": 1.21,
+        "pct_fuera": 23
+       },
+       "RESISTENCIA AF3 A LOS 15 MINUTOS": {
+        "prom": 76.77,
+        "pct_fuera": 0
+       },
+       "TEMPERATURA ARENA AF3": {
+        "prom": 30.45,
+        "pct_fuera": 6
+       },
+       "TIEMPO DE TRABAJO AF3 (Minutos y Segundos)": {
+        "prom": 2.41,
+        "pct_fuera": 0
+       }
+      },
+      "oe": {
+       "Caído": 1.37,
+       "Tirado": 0.89
+      }
+     },
+     {
+      "mes": "2026-07",
+      "valores": {
+       "FINOS CAMA FLUIDIZADA": {
+        "prom": 1.31,
+        "pct_fuera": 0
+       },
+       "LOI ARENA COLD BOX": {
+        "prom": 1.11,
+        "pct_fuera": 39
+       },
+       "LOI-K300": {
+        "prom": 1.28,
+        "pct_fuera": 39
+       },
+       "RESISTENCIA AF3 A LOS 15 MINUTOS": {
+        "prom": 74.62,
+        "pct_fuera": 3
+       },
+       "TEMPERATURA ARENA AF3": {
+        "prom": 30.71,
+        "pct_fuera": 7
+       },
+       "TIEMPO DE TRABAJO AF3 (Minutos y Segundos)": {
+        "prom": 2.34,
+        "pct_fuera": 1
+       }
+      },
+      "oe": {
+       "Caído": 1.48,
+       "Tirado": 1.21
+      }
+     },
+     {
+      "mes": "2026-08",
+      "valores": {
+       "FINOS CAMA FLUIDIZADA": {
+        "prom": 1.48,
+        "pct_fuera": 0
+       },
+       "LOI ARENA COLD BOX": {
+        "prom": 1.26,
+        "pct_fuera": 12
+       },
+       "LOI-K300": {
+        "prom": 1.33,
+        "pct_fuera": 39
+       },
+       "RESISTENCIA AF3 A LOS 15 MINUTOS": {
+        "prom": 73.82,
+        "pct_fuera": 4
+       },
+       "TEMPERATURA ARENA AF3": {
+        "prom": 30.53,
+        "pct_fuera": 4
+       },
+       "TIEMPO DE TRABAJO AF3 (Minutos y Segundos)": {
+        "prom": 2.35,
+        "pct_fuera": 0
+       }
+      },
+      "oe": {
+       "Caído": 1.49,
+       "Tirado": 1.23
+      }
+     },
+     {
+      "mes": "2026-09",
+      "valores": {
+       "FINOS CAMA FLUIDIZADA": {
+        "prom": 1.5,
+        "pct_fuera": 1
+       },
+       "LOI ARENA COLD BOX": {
+        "prom": 1.2,
+        "pct_fuera": 0
+       },
+       "LOI-K300": {
+        "prom": 1.24,
+        "pct_fuera": 13
+       },
+       "RESISTENCIA AF3 A LOS 15 MINUTOS": {
+        "prom": 75.4,
+        "pct_fuera": 3
+       },
+       "TEMPERATURA ARENA AF3": {
+        "prom": 31.29,
+        "pct_fuera": 14
+       },
+       "TIEMPO DE TRABAJO AF3 (Minutos y Segundos)": {
+        "prom": 2.38,
+        "pct_fuera": 0
+       }
+      },
+      "oe": {
+       "Caído": 1.12,
+       "Tirado": 1.23
+      }
+     },
+     {
+      "mes": "2026-10",
+      "valores": {
+       "FINOS CAMA FLUIDIZADA": {
+        "prom": 1.47,
+        "pct_fuera": 0
+       },
+       "LOI ARENA COLD BOX": {
+        "prom": 1.39,
+        "pct_fuera": 62
+       },
+       "LOI-K300": {
+        "prom": 1.5,
+        "pct_fuera": 75
+       },
+       "RESISTENCIA AF3 A LOS 15 MINUTOS": {
+        "prom": 74.28,
+        "pct_fuera": 2
+       },
+       "TEMPERATURA ARENA AF3": {
+        "prom": 27.46,
+        "pct_fuera": 0
+       },
+       "TIEMPO DE TRABAJO AF3 (Minutos y Segundos)": {
+        "prom": 2.46,
+        "pct_fuera": 0
+       }
+      },
+      "oe": {
+       "Caído": 1.39,
+       "Tirado": 0.94
+      }
+     }
+    ]
+   }
   },
   {
    "clave": "llenado",
@@ -2090,7 +2974,7 @@
       {
        "anio": "2026",
        "rechazos": 438,
-       "piezas": 39725,
+       "piezas": 39728,
        "tasa": 1.1
       }
      ],
@@ -2242,7 +3126,7 @@
        "parte": "16261C",
        "rechazos": 23,
        "pct_defecto": 5.3,
-       "moldeadas": 430,
+       "moldeadas": 433,
        "tasa": 5.3,
        "tasa_prev": 3.1,
        "desarrollo": true
@@ -2345,7 +3229,7 @@
       {
        "anio": "2026",
        "rechazos": 363,
-       "piezas": 39725,
+       "piezas": 39728,
        "tasa": 0.91
       }
      ],
@@ -2639,7 +3523,8 @@
      "obs": 17,
      "esp": 17.1
     }
-   ]
+   ],
+   "arena": null
   },
   {
    "clave": "dimensional",
@@ -2665,7 +3550,7 @@
       {
        "anio": "2026",
        "rechazos": 333,
-       "piezas": 39725,
+       "piezas": 39728,
        "tasa": 0.84
       }
      ],
@@ -2929,7 +3814,8 @@
      "obs": 184,
      "esp": 205.9
     }
-   ]
+   ],
+   "arena": null
   }
  ]
 }

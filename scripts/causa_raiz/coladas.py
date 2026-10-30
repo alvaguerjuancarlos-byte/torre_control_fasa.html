@@ -38,67 +38,82 @@ def construir(salida, desde=(2025, 1)):
              if desde <= (y, m) <= (hoy.year, hoy.month)]
     filas = []
     for y, m in meses:
-        t0 = time.time()
-        d = f"{y}-{m:02d}-01"
-        h = f"{y + (m == 12)}-{(m % 12) + 1:02d}-01"
-        cols = core.coladas_en_ventana(d, h + " 00:00:00", limite=100000)
-        cols = [c for c in cols if c["fin_fusion"] and c["fin_fusion"] < datetime.fromisoformat(h)]
-        ids = [c["id_colada"] for c in cols]
-        if not ids:
-            print(y, m, "sin coladas")
-            continue
-        idl = ",".join(str(i) for i in ids)
-        pz = {r["IdColada"]: r for r in run(f"""
-            SELECT IdColada, COUNT(DISTINCT IdTicket) n, COUNT(DISTINCT TRIM(no_parte)) np, MAX(IdClase) clase
-            FROM betamega_aleks_idtickethistorial WHERE IdColada IN ({idl}) GROUP BY IdColada""", {})}
-        rech = {}
-        for r in run(f"""
-            SELECT a.IdColada, {_defecto_sql()} nd, COUNT(DISTINCT r.idticket) n
-            FROM rechazo r JOIN (SELECT DISTINCT IdTicket, IdColada FROM betamega_aleks_idtickethistorial
-                                 WHERE IdColada IN ({idl})) a ON a.IdTicket = r.idticket
-            WHERE r.tipo_rech = 'Producción' GROUP BY a.IdColada, nd""", {}):
-            rech.setdefault(r["IdColada"], {})[norm_defecto(r["nd"])] = int(r["n"])
-        dem = {r["idColada"]: r for r in run(f"""
-            SELECT idColada, MAX(Demora) demora, MAX(MinutosTiempoHorno) min_horno, MAX(TiempoLimite) t_lim,
-                   MAX(Descripcion) desc_dem
-            FROM betamega_00_coladaprocesodemoras WHERE idColada IN ({idl}) GROUP BY idColada""", {})}
-        clase = {i: (pz.get(i) or {}).get("clase") for i in ids}
-        quim = _opcional("quim", core.quimica_por_coladas, cols, clase)
-        ita = _opcional("itaca", core.itaca_por_coladas, ids)
-        tmp = _opcional("temp", core.temperatura_por_coladas, ids)
-        car = _opcional("carga", core.cargas_por_colada, ids)
-        for c in cols:
-            i = c["id_colada"]
-            p = pz.get(i)
-            if not p:
-                continue
-            q = quim.get(i) or {}
-            it = ita.get(i) or {}
-            tp = tmp.get(i) or {}
-            dm = dem.get(i) or {}
-            rc = core.resumen_carga(car[i]) if car.get(i) else {}
-            filas.append({
-                "id": i, "mes": f"{y}-{m:02d}", "horno": c["horno"],
-                "hora": c["fin_fusion"].hour,
-                "n": int(p["n"]), "np": int(p["np"]), "clase": p["clase"],
-                "rech": rech.get(i, {}),
-                "q": {k: (float(q[k]) if q.get(k) is not None else None)
-                      for k in ("C", "Si", "Mg", "S", "P", "Mn")} if q else None,
-                "ita": it.get("alertas"), "ita_te": it.get("te"), "ita_n": it.get("n_copas"),
-                "t_avg": float(tp["temp_avg"]) if tp.get("temp_avg") else None,
-                "t_ok": (int(tp["n_ok"] or 0), int(tp["n_tickets"])) if tp else None,
-                "tmin": float(tp["tmin"]) if tp.get("tmin") else None,
-                "tmax": float(tp["tmax"]) if tp.get("tmax") else None,
-                "demora": float(dm["demora"]) if dm.get("demora") is not None else None,
-                "min_horno": float(dm["min_horno"]) if dm.get("min_horno") is not None else None,
-                "t_lim": float(dm["t_lim"]) if dm.get("t_lim") is not None else None,
-                "dem_desc": dm.get("desc_dem"),
-                "carga_ok": rc.get("pct_ok"),
-            })
-        print(y, m, len(cols), "coladas", f"{time.time() - t0:.0f}s", "quim", len(quim), "itaca", len(ita),
-              "temp", len(tmp), flush=True)
+        for intento in range(3):  # una conexión cortada a medio mes no debe tirar el recálculo completo
+            try:
+                filas.extend(_mes(y, m))
+                break
+            except Exception as e:
+                print(f"  {y}-{m:02d} intento {intento + 1} ERR {str(e)[:150]}", flush=True)
+                if intento == 2:
+                    raise
+                time.sleep(30)
     json.dump(filas, open(salida, "w", encoding="utf-8"), default=str)
     print("TOTAL", len(filas))
+    return filas
+
+
+def _mes(y, m):
+    """Filas de la tabla para un mes (todas las coladas liberadas en ese mes)."""
+    filas = []
+    t0 = time.time()
+    d = f"{y}-{m:02d}-01"
+    h = f"{y + (m == 12)}-{(m % 12) + 1:02d}-01"
+    cols = core.coladas_en_ventana(d, h + " 00:00:00", limite=100000)
+    cols = [c for c in cols if c["fin_fusion"] and c["fin_fusion"] < datetime.fromisoformat(h)]
+    ids = [c["id_colada"] for c in cols]
+    if not ids:
+        print(y, m, "sin coladas")
+        return filas
+    idl = ",".join(str(i) for i in ids)
+    pz = {r["IdColada"]: r for r in run(f"""
+        SELECT IdColada, COUNT(DISTINCT IdTicket) n, COUNT(DISTINCT TRIM(no_parte)) np, MAX(IdClase) clase
+        FROM betamega_aleks_idtickethistorial WHERE IdColada IN ({idl}) GROUP BY IdColada""", {})}
+    rech = {}
+    for r in run(f"""
+        SELECT a.IdColada, {_defecto_sql()} nd, COUNT(DISTINCT r.idticket) n
+        FROM rechazo r JOIN (SELECT DISTINCT IdTicket, IdColada FROM betamega_aleks_idtickethistorial
+                             WHERE IdColada IN ({idl})) a ON a.IdTicket = r.idticket
+        WHERE r.tipo_rech = 'Producción' GROUP BY a.IdColada, nd""", {}):
+        rech.setdefault(r["IdColada"], {})[norm_defecto(r["nd"])] = int(r["n"])
+    dem = {r["idColada"]: r for r in run(f"""
+        SELECT idColada, MAX(Demora) demora, MAX(MinutosTiempoHorno) min_horno, MAX(TiempoLimite) t_lim,
+               MAX(Descripcion) desc_dem
+        FROM betamega_00_coladaprocesodemoras WHERE idColada IN ({idl}) GROUP BY idColada""", {})}
+    clase = {i: (pz.get(i) or {}).get("clase") for i in ids}
+    quim = _opcional("quim", core.quimica_por_coladas, cols, clase)
+    ita = _opcional("itaca", core.itaca_por_coladas, ids)
+    tmp = _opcional("temp", core.temperatura_por_coladas, ids)
+    car = _opcional("carga", core.cargas_por_colada, ids)
+    for c in cols:
+        i = c["id_colada"]
+        p = pz.get(i)
+        if not p:
+            continue
+        q = quim.get(i) or {}
+        it = ita.get(i) or {}
+        tp = tmp.get(i) or {}
+        dm = dem.get(i) or {}
+        rc = core.resumen_carga(car[i]) if car.get(i) else {}
+        filas.append({
+            "id": i, "mes": f"{y}-{m:02d}", "horno": c["horno"],
+            "hora": c["fin_fusion"].hour,
+            "n": int(p["n"]), "np": int(p["np"]), "clase": p["clase"],
+            "rech": rech.get(i, {}),
+            "q": {k: (float(q[k]) if q.get(k) is not None else None)
+                  for k in ("C", "Si", "Mg", "S", "P", "Mn")} if q else None,
+            "ita": it.get("alertas"), "ita_te": it.get("te"), "ita_n": it.get("n_copas"),
+            "t_avg": float(tp["temp_avg"]) if tp.get("temp_avg") else None,
+            "t_ok": (int(tp["n_ok"] or 0), int(tp["n_tickets"])) if tp else None,
+            "tmin": float(tp["tmin"]) if tp.get("tmin") else None,
+            "tmax": float(tp["tmax"]) if tp.get("tmax") else None,
+            "demora": float(dm["demora"]) if dm.get("demora") is not None else None,
+            "min_horno": float(dm["min_horno"]) if dm.get("min_horno") is not None else None,
+            "t_lim": float(dm["t_lim"]) if dm.get("t_lim") is not None else None,
+            "dem_desc": dm.get("desc_dem"),
+            "carga_ok": rc.get("pct_ok"),
+        })
+    print(y, m, len(cols), "coladas", f"{time.time() - t0:.0f}s", "quim", len(quim), "itaca", len(ita),
+          "temp", len(tmp), flush=True)
     return filas
 
 
