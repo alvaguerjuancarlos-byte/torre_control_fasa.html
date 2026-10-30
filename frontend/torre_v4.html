@@ -386,6 +386,7 @@ main{padding:16px 20px;max-width:1100px;margin:0 auto}
     <button class="rp-subtab active" data-sub="semana" onclick="rpSwitchSub('semana')">Qué atender esta semana</button>
     <button class="rp-subtab" data-sub="todas" onclick="rpSwitchSub('todas')">Todas las partes</button>
     <button class="rp-subtab" data-sub="simular" onclick="rpSwitchSub('simular')">Simular una parte</button>
+    <button class="rp-subtab" data-sub="causa" onclick="rpSwitchSub('causa')">Causa raíz</button>
   </div>
 
   <!-- ── Sub-panel: Qué atender esta semana (antes tab "Criticidad") ── -->
@@ -549,6 +550,242 @@ main{padding:16px 20px;max-width:1100px;margin:0 auto}
   </div>
   </section>
   </div>
+
+  <!-- ── Sub-panel: Causa raíz (2026-10-30) — hipótesis de los 5 defectos principales.
+       Cifras precalculadas por scripts/causa_raiz/generar.py (semanal); estado lo captura Calidad. ── -->
+  <div id="rp-sub-causa" class="rp-subpanel" style="display:none">
+  <section id="p-crz">
+    <div class="crz-eyebrow">Causa raíz · 5 defectos principales</div>
+    <div id="crz-head" class="crz-head"><div class="loading-msg">Cargando…</div></div>
+    <div id="crz-cards"></div>
+    <div id="crz-foot" class="cr-foot"></div>
+  </section>
+  </div>
+
+<style>
+#p-crz .crz-eyebrow{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--color-text-tertiary);margin-bottom:8px}
+#p-crz .crz-head{margin-bottom:14px}
+#p-crz .crz-sub{font-size:12px;color:var(--color-text-secondary);margin-bottom:10px}
+#p-crz .crz-banners{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:10px}
+#p-crz .crz-banner{background:var(--color-background-secondary);border-radius:var(--border-radius-md);padding:10px 14px;font-size:12.5px;line-height:1.5;color:var(--color-text-secondary)}
+#p-crz .crz-banner b{color:var(--color-text-primary)}
+#p-crz .crz-banner .big{font-size:20px;font-weight:600;color:var(--color-text-primary);margin-right:6px}
+#p-crz .crz-card{background:var(--color-background-primary);border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-lg);padding:16px 18px;margin-bottom:14px}
+#p-crz .crz-ch{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px}
+#p-crz .crz-title{font-size:16px;font-weight:600;color:var(--color-text-primary)}
+#p-crz .crz-pill{font-size:11px;font-weight:600;padding:3px 9px;border-radius:999px;background:var(--color-background-secondary);color:var(--color-text-secondary)}
+#p-crz .crz-pill.alta{background:var(--color-background-success);color:var(--color-text-success)}
+#p-crz .crz-pill.media{background:var(--color-background-warning);color:var(--color-text-warning)}
+#p-crz .crz-pill.baja{background:var(--color-background-secondary);color:var(--color-text-tertiary)}
+#p-crz .crz-pill.por_validar{background:var(--color-background-info);color:var(--color-text-info)}
+#p-crz .crz-pill.confirmada{background:var(--color-background-success);color:var(--color-text-success)}
+#p-crz .crz-pill.descartada{background:var(--color-background-danger);color:var(--color-text-danger)}
+#p-crz .crz-grid{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);gap:18px}
+@media (max-width:900px){#p-crz .crz-grid{grid-template-columns:1fr}}
+#p-crz .crz-sec{font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--color-text-tertiary);margin:12px 0 6px}
+#p-crz .crz-sec:first-child{margin-top:0}
+#p-crz .crz-hip{font-size:13.5px;line-height:1.55;color:var(--color-text-primary);border-left:3px solid var(--color-border-info);padding:2px 0 2px 12px}
+#p-crz .crz-defs{display:flex;flex-direction:column;gap:6px}
+#p-crz .crz-def{display:grid;grid-template-columns:150px 1fr 230px;align-items:center;gap:10px;font-size:12.5px}
+@media (max-width:700px){#p-crz .crz-def{grid-template-columns:1fr}}
+#p-crz .crz-def .tasa{color:var(--color-text-secondary);white-space:nowrap}
+#p-crz .crz-def .tasa b{color:var(--color-text-primary)}
+#p-crz .crz-spark{width:230px;height:42px;display:block}
+#p-crz .crz-sen{display:grid;grid-template-columns:minmax(0,1fr) 120px 52px;align-items:center;gap:8px;font-size:12.5px;padding:4px 0;border-bottom:0.5px solid var(--color-border-tertiary)}
+#p-crz .crz-sen:last-child{border-bottom:none}
+#p-crz .crz-sen .lbl small{display:block;font-size:11px;color:var(--color-text-tertiary)}
+#p-crz .crz-oebar{position:relative;height:10px;background:var(--color-background-secondary);border-radius:5px}
+#p-crz .crz-oebar .one{position:absolute;left:33.3%;top:-3px;bottom:-3px;width:1px;background:var(--color-text-tertiary)}
+#p-crz .crz-oebar .fill{position:absolute;top:0;bottom:0;border-radius:5px}
+#p-crz .crz-oev{font-weight:600;text-align:right;font-variant-numeric:tabular-nums}
+#p-crz .crz-tbl{width:100%;border-collapse:collapse;font-size:12px}
+#p-crz .crz-tbl th{text-align:left;font-weight:600;color:var(--color-text-tertiary);font-size:11px;padding:4px 6px;border-bottom:0.5px solid var(--color-border-secondary)}
+#p-crz .crz-tbl td{padding:4px 6px;border-bottom:0.5px solid var(--color-border-tertiary)}
+#p-crz .crz-tbl .n{text-align:right;font-variant-numeric:tabular-nums}
+#p-crz .crz-chips{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px}
+#p-crz .crz-chip{font-size:11.5px;padding:3px 10px;border-radius:999px;border:0.5px solid var(--color-border-secondary);cursor:pointer;color:var(--color-text-secondary);background:transparent}
+#p-crz .crz-chip.on{background:var(--color-background-info);color:var(--color-text-info);border-color:var(--color-border-info)}
+#p-crz ul.crz-ul{margin:0;padding-left:18px;font-size:12.5px;line-height:1.55;color:var(--color-text-secondary)}
+#p-crz .crz-piso{font-size:12.5px;color:var(--color-text-secondary);line-height:1.6}
+#p-crz .crz-estado{margin-top:14px;padding-top:12px;border-top:0.5px solid var(--color-border-tertiary);display:flex;flex-wrap:wrap;gap:8px;align-items:flex-start}
+#p-crz .crz-estado .btns{display:flex;gap:4px}
+#p-crz .crz-estado button.op{font-size:12px;padding:5px 11px;border-radius:6px;border:0.5px solid var(--color-border-secondary);background:transparent;cursor:pointer;color:var(--color-text-secondary)}
+#p-crz .crz-estado button.op.on.por_validar{background:var(--color-background-info);color:var(--color-text-info)}
+#p-crz .crz-estado button.op.on.confirmada{background:var(--color-background-success);color:var(--color-text-success)}
+#p-crz .crz-estado button.op.on.descartada{background:var(--color-background-danger);color:var(--color-text-danger)}
+#p-crz .crz-estado textarea{flex:1 1 320px;min-height:34px;font:inherit;font-size:12.5px;padding:6px 8px;border-radius:6px;border:0.5px solid var(--color-border-secondary);background:var(--color-background-primary);color:var(--color-text-primary)}
+#p-crz .crz-estado input{width:140px;font:inherit;font-size:12.5px;padding:6px 8px;border-radius:6px;border:0.5px solid var(--color-border-secondary);background:var(--color-background-primary);color:var(--color-text-primary)}
+#p-crz .crz-estado .save{font-size:12px;font-weight:600;padding:6px 14px;border-radius:6px;border:none;background:var(--color-text-info);color:#fff;cursor:pointer}
+#p-crz .crz-estado .meta{flex-basis:100%;font-size:11px;color:var(--color-text-tertiary)}
+</style>
+
+<script>
+// ── Causa raíz (2026-10-30) ─────────────────────────────────────────────────────────────
+// Lee /v3/calidad/causa-raiz (JSON precalculado) y guarda el estado de cada hipótesis.
+let CRZ = null
+const crzSel = {}            // clave de tarjeta -> sub-defecto elegido para partes/piso
+const crzEstadoSel = {}      // clave de tarjeta -> estado elegido (antes de guardar)
+const crzEsc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))
+const CRZ_ESTADOS = {por_validar: 'Por validar', confirmada: 'Confirmada', descartada: 'Descartada'}
+const CRZ_FUENTE = {temperatura: 'temperatura de vaciado', itaca: 'ITACA', horno: 'tiempo en horno', demoras: 'demoras', quimica: 'química', carga: 'carga metálica'}
+const crzMes = m => { const [y, mm] = m.split('-'); return MESES_CORTOS[+mm - 1] + '-' + y.slice(2) }
+
+async function crzCargar() {
+  const head = document.getElementById('crz-head')
+  try {
+    const r = await fetch('/v3/calidad/causa-raiz', {cache: 'no-store'})
+    const j = await r.json()
+    if (!r.ok) throw new Error(j.detail || r.status)
+    CRZ = j
+  } catch (e) {
+    head.innerHTML = '<div class="empty-msg">No se pudo cargar el análisis: ' + crzEsc(e.message) + '</div>'
+    return
+  }
+  crzPintar()
+}
+
+function crzPintar() {
+  const d = CRZ, tb = d.temperatura_buenas
+  const gen = new Date(d.generado)
+  document.getElementById('crz-head').innerHTML =
+    '<div class="crz-sub">' + crzMes(d.periodo.desde) + ' a ' + crzMes(d.periodo.hasta) + ' · '
+      + d.n_coladas.toLocaleString('en-US') + ' coladas · ' + d.n_piezas.toLocaleString('en-US') + ' piezas · '
+      + 'rechazo registrado hasta ' + crzEsc(d.rechazo_hasta) + ' · cifras calculadas el '
+      + gen.toLocaleDateString('es-MX', {day: 'numeric', month: 'short', year: 'numeric'}) + '</div>'
+    + '<div class="crz-banners">'
+    + '<div class="crz-banner"><span class="big">' + d.piso_pct_causa_generica + ' %</span>de los rechazos se registran con la '
+      + '<b>causa genérica</b> del defecto (p. ej. 17.00), no con la causa detallada del catálogo. Por eso estas hipótesis '
+      + 'salen de datos de proceso, no de lo que anota piso.</div>'
+    + (tb ? '<div class="crz-banner"><span class="big">' + Math.round(tb.pct_sobre_max) + ' %</span>de las piezas <b>buenas</b> '
+      + 'se vacían arriba del máximo de temperatura de su parte y <b>' + Math.round(tb.pct_bajo_min) + ' %</b> abajo del mínimo. '
+      + 'Cumplir la ventana ataca a la vez Contracción, Porosidad y Fierro frío.</div>' : '')
+    + '</div>'
+  document.getElementById('crz-cards').innerHTML = d.tarjetas.map(crzTarjeta).join('')
+  const sinT = (d.fuentes.temperatura || {}).meses_sin_dato || []
+  document.getElementById('crz-foot').innerHTML =
+    '<b>Método:</b> ' + crzEsc(d.metodo) + ' Una señal con O/E de 1.5× tuvo 50 % más rechazo del esperado; '
+    + 'debajo de 1.0× la condición no se relaciona con el defecto. Solo se muestran O/E con al menos 3 rechazos esperados. '
+    + (sinT.length ? '<b>Sin temperatura de vaciado:</b> ' + sinT.map(crzMes).join(', ') + ' (las señales de temperatura se apoyan en los meses anteriores). ' : '')
+    + '<b>Son correlaciones, no causas probadas:</b> sirven para decidir qué validar primero. '
+    + '<b>Recálculo:</b> <code>python scripts/causa_raiz/generar.py</code> (semanal, ~4 min).'
+}
+
+function crzSpark(mensual) {
+  const W = 230, H = 42, pad = 4, n = mensual.length
+  const vals = mensual.map(m => m.oe)
+  const max = Math.max(2, ...vals.filter(v => v != null))
+  const x = i => pad + i * (W - 2 * pad) / Math.max(1, n - 1)
+  const y = v => H - pad - (Math.min(v, max) / max) * (H - 2 * pad)
+  let path = '', open = false
+  vals.forEach((v, i) => { if (v == null) { open = false; return } path += (open ? 'L' : 'M') + x(i).toFixed(1) + ' ' + y(v).toFixed(1) + ' '; open = true })
+  const dots = vals.map((v, i) => v == null ? '' : '<circle cx="' + x(i).toFixed(1) + '" cy="' + y(v).toFixed(1) + '" r="2" fill="'
+    + (v >= 1.3 ? 'var(--color-text-danger)' : 'var(--color-text-info)') + '"><title>' + crzMes(mensual[i].mes) + ': ' + v.toFixed(2) + '× (' + mensual[i].obs + ' rechazos)</title></circle>').join('')
+  return '<svg class="crz-spark" viewBox="0 0 ' + W + ' ' + H + '">'
+    + '<line x1="' + pad + '" x2="' + (W - pad) + '" y1="' + y(1) + '" y2="' + y(1) + '" stroke="var(--color-text-tertiary)" stroke-dasharray="3 3" stroke-width="1"/>'
+    + '<path d="' + path + '" fill="none" stroke="var(--color-text-info)" stroke-width="1.5"/>' + dots
+    + '</svg>'
+}
+
+function crzSenal(s) {
+  const v = s.oe
+  const color = v == null ? 'var(--color-text-tertiary)' : v >= 1.3 ? 'var(--color-text-danger)' : v >= 1.1 ? 'var(--color-text-warning)' : 'var(--color-text-tertiary)'
+  const pos = v == null ? 0 : Math.min(v, 3) / 3 * 100, uno = 100 / 3
+  const fill = v == null ? '' : '<div class="fill" style="left:' + Math.min(pos, uno) + '%;width:' + Math.abs(pos - uno) + '%;background:' + color + '"></div>'
+  return '<div class="crz-sen"><div class="lbl">' + crzEsc(s.etiqueta) + '<small>' + crzEsc(s.defecto) + ' · ' + s.obs + ' rechazos en '
+    + s.coladas.toLocaleString('en-US') + ' coladas · fuente: ' + (CRZ_FUENTE[s.fuente] || s.fuente) + '</small></div>'
+    + '<div class="crz-oebar"><div class="one"></div>' + fill + '</div>'
+    + '<div class="crz-oev" style="color:' + color + '">' + (v == null ? '—' : v.toFixed(2) + '×') + '</div></div>'
+}
+
+function crzDetalle(t) {
+  const k = crzSel[t.clave] || t.defectos[0].clave
+  const df = t.defectos.find(x => x.clave === k) || t.defectos[0]
+  const anios = df.anual.map(a => a.anio)
+  const ult = anios[anios.length - 1], prev = anios[anios.length - 2]
+  const chips = t.defectos.length > 1 ? '<div class="crz-chips">' + t.defectos.map(x =>
+    '<button class="crz-chip' + (x.clave === df.clave ? ' on' : '') + '" onclick="crzElegir(\'' + t.clave + '\',\'' + x.clave + '\')">' + crzEsc(x.nombre) + '</button>').join('') + '</div>' : ''
+  const partes = df.partes.length ? '<table class="crz-tbl"><tr><th>Parte</th><th class="n">Rech. ' + ult + '</th><th class="n">% del defecto</th>'
+    + '<th class="n">Tasa ' + ult + '</th><th class="n">Tasa ' + (prev || '') + '</th></tr>'
+    + df.partes.map(p => '<tr><td>' + crzEsc(p.parte) + (p.desarrollo ? ' <span class="crz-pill" title="La mayoría de sus rechazos son de piezas en desarrollo">desarrollo</span>' : '') + '</td>'
+      + '<td class="n">' + p.rechazos + '</td><td class="n">' + (p.pct_defecto == null ? '—' : p.pct_defecto + ' %') + '</td>'
+      + '<td class="n"><b>' + (p.tasa == null ? '—' : p.tasa + ' %') + '</b></td><td class="n">' + (p.tasa_prev == null ? '—' : p.tasa_prev + ' %') + '</td></tr>').join('')
+    + '</table>' : '<div class="crz-piso">Sin rechazos en ' + ult + '.</div>'
+  const ps = df.piso, tp = df.temp_pieza, tb = CRZ.temperatura_buenas
+  const piso = '<div class="crz-piso">' + ps.rechazos.toLocaleString('en-US') + ' rechazos registrados · <b>' + ps.pct_causa_generica + ' %</b> con causa genérica<br>'
+    + 'Responsable: ' + ps.responsable.map(r => crzEsc(r.valor) + ' ' + r.pct + ' %').join(' · ') + '<br>'
+    + 'Área: ' + ps.area.map(r => crzEsc(r.valor) + ' ' + r.pct + ' %').join(' · ')
+    + (ps.causas_detalladas.length ? '<br>Causas detalladas que sí se registran: ' + ps.causas_detalladas.map(c => crzEsc(c.causa) + ' (' + c.n + ')').join(' · ') : '')
+    + '</div>'
+  const temp = tp && tb ? '<div class="crz-sec">Temperatura con que se vació cada pieza</div><table class="crz-tbl">'
+    + '<tr><th>Piezas</th><th class="n">Bajo el mínimo</th><th class="n">Arriba del máximo</th><th class="n">°C sobre el mínimo</th></tr>'
+    + '<tr><td>Buenas</td><td class="n">' + tb.pct_bajo_min + ' %</td><td class="n">' + tb.pct_sobre_max + ' %</td><td class="n">' + tb.sobre_min + '</td></tr>'
+    + '<tr><td><b>Con ' + crzEsc(df.nombre) + '</b> (' + tp.n.toLocaleString('en-US') + ')</td><td class="n"><b>' + tp.pct_bajo_min + ' %</b></td><td class="n"><b>' + tp.pct_sobre_max + ' %</b></td><td class="n"><b>' + tp.sobre_min + '</b></td></tr></table>' : ''
+  return chips + '<div class="crz-sec">Partes que más aportan · ' + crzEsc(df.nombre) + '</div>' + partes + temp
+    + '<div class="crz-sec">Registro de piso</div>' + piso
+}
+
+function crzTarjeta(t) {
+  const est = t.estado || {estado: 'por_validar'}
+  const sel = crzEstadoSel[t.clave] || est.estado
+  const defs = t.defectos.map(df => {
+    const a = df.anual, u = a[a.length - 1], p = a[a.length - 2]
+    return '<div class="crz-def"><div><b>' + crzEsc(df.nombre) + '</b></div>'
+      + '<div class="tasa">' + (p ? p.anio + ': ' + p.tasa + ' % → ' : '') + u.anio + ': <b>' + u.tasa + ' %</b> de las piezas (' + u.rechazos.toLocaleString('en-US') + ')</div>'
+      + crzSpark(df.mensual) + '</div>'
+  }).join('')
+  const meta = est.fecha ? 'Último cambio: ' + new Date(est.fecha).toLocaleString('es-MX', {day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit'})
+    + (est.autor ? ' · ' + crzEsc(est.autor) : '') : 'Sin revisar todavía.'
+  return '<div class="crz-card" id="crz-' + t.clave + '">'
+    + '<div class="crz-ch"><span class="crz-title">' + crzEsc(t.nombre) + '</span>'
+    + '<span class="crz-pill" style="background:' + famColor(t.familia) + '22;color:' + famColor(t.familia) + '">' + crzEsc(famLabel(t.familia)) + '</span>'
+    + '<span class="crz-pill ' + t.confianza + '">Confianza ' + t.confianza + '</span>'
+    + '<span class="crz-pill ' + est.estado + '">' + CRZ_ESTADOS[est.estado] + '</span></div>'
+    + '<div class="crz-sec">Tasa y tendencia mensual ajustada por parte (O/E · punteada = 1.0×, lo normal · rojo = 1.3× o más)</div><div class="crz-defs">' + defs + '</div>'
+    + '<div class="crz-grid"><div>'
+      + '<div class="crz-sec">Hipótesis</div><div class="crz-hip">' + crzEsc(t.hipotesis) + '</div>'
+      + '<div class="crz-sec">Señales de proceso (rechazo vs. lo esperado para esas partes)</div>' + t.senales.map(crzSenal).join('')
+      + (t.notas.length ? '<div class="crz-sec">Notas</div><ul class="crz-ul">' + t.notas.map(n => '<li>' + crzEsc(n) + '</li>').join('') + '</ul>' : '')
+      + '<div class="crz-sec">Cómo validar</div><ul class="crz-ul">' + t.validar.map(n => '<li>' + crzEsc(n) + '</li>').join('') + '</ul>'
+    + '</div><div id="crz-det-' + t.clave + '">' + crzDetalle(t) + '</div></div>'
+    + '<div class="crz-estado"><div class="btns">' + Object.keys(CRZ_ESTADOS).map(e =>
+        '<button class="op ' + e + (e === sel ? ' on' : '') + '" onclick="crzElegirEstado(\'' + t.clave + '\',\'' + e + '\')">' + CRZ_ESTADOS[e] + '</button>').join('') + '</div>'
+      + '<textarea id="crz-nota-' + t.clave + '" placeholder="Nota de Calidad: qué se revisó, qué se encontró…">' + crzEsc(est.nota || '') + '</textarea>'
+      + '<input id="crz-autor-' + t.clave + '" placeholder="Quién" value="' + crzEsc(est.autor || '') + '">'
+      + '<button class="save" onclick="crzGuardar(\'' + t.clave + '\')">Guardar</button>'
+      + '<div class="meta" id="crz-meta-' + t.clave + '">' + meta + '</div></div>'
+    + '</div>'
+}
+
+function crzElegir(clave, sub) {
+  crzSel[clave] = sub
+  const t = CRZ.tarjetas.find(x => x.clave === clave)
+  document.getElementById('crz-det-' + clave).innerHTML = crzDetalle(t)
+}
+
+function crzElegirEstado(clave, e) {
+  crzEstadoSel[clave] = e
+  document.querySelectorAll('#crz-' + clave + ' .crz-estado button.op').forEach(b => b.classList.toggle('on', b.classList.contains(e)))
+}
+
+async function crzGuardar(clave) {
+  const t = CRZ.tarjetas.find(x => x.clave === clave)
+  const body = {clave, estado: crzEstadoSel[clave] || (t.estado || {}).estado || 'por_validar',
+    nota: document.getElementById('crz-nota-' + clave).value, autor: document.getElementById('crz-autor-' + clave).value}
+  const meta = document.getElementById('crz-meta-' + clave)
+  meta.textContent = 'Guardando…'
+  try {
+    const r = await fetch('/v3/calidad/causa-raiz/estado', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)})
+    const j = await r.json()
+    if (!r.ok) throw new Error(j.detail || r.status)
+    t.estado = j
+    delete crzEstadoSel[clave]
+    const card = document.getElementById('crz-' + clave)
+    card.outerHTML = crzTarjeta(t)
+  } catch (e) {
+    meta.textContent = 'No se pudo guardar: ' + e.message
+  }
+}
+</script>
 
 </main>
 </div>
@@ -1195,7 +1432,7 @@ function switchTab(name) {
 
 // Sub-nav interno del tab "Riesgo · Parte" -- une Criticidad (landing),
 // Probabilidad de Rechazo (tabla + simulación de programa) y Simulador de Parte.
-const RP_SUBS = ['semana', 'todas', 'simular']
+const RP_SUBS = ['semana', 'todas', 'simular', 'causa']
 const rpSubLoaded = {}
 
 function rpSwitchSub(sub) {
@@ -1208,6 +1445,7 @@ function rpSwitchSub(sub) {
     if (sub === 'semana') window.initCritPanel()
     if (sub === 'todas') initRiesgo()
     if (sub === 'simular') initSimPanel()
+    if (sub === 'causa') crzCargar()
   }
 }
 

@@ -11,3 +11,6 @@ logs/
 uvicorn_err.txt
 uvicorn_out.txt
 *.tmp.*
+backend/data/cache/
+backend/data/causa_raiz_estado.json
+backend/data/*.tmp

@@ -1,12 +1,14 @@
-"""Cruza factores de proceso por colada contra los defectos principales, ajustando por mezcla de partes.
-O/E = rechazos observados / esperados (esperado = piezas de cada parte x tasa histórica de esa parte)."""
+"""Reporte de texto exploratorio: cruza muchos factores de proceso por colada contra los defectos principales
+(O/E ajustado por mezcla de partes). La vista Causa raíz usa generar.py; este script sirve para buscar señales nuevas.
+Uso: python scripts/causa_raiz/analisis.py backend/data/cache   (carpeta con causa_raiz_coladas.json)"""
 import sys, json
 from collections import defaultdict
-sys.path.insert(0, r"C:\Users\Administrator\Documents\FASA\torre-de-control-fasa")
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from backend.core import run
 
 S = sys.argv[1]
-C = json.load(open(S + "/coladas.json", encoding="utf-8"))
+C = json.load(open(S + "/causa_raiz_coladas.json", encoding="utf-8"))
 ids = [c["id"] for c in C]
 GR = {
     "SOPLADURA": ["SOPLADURA"], "POROSIDAD": ["POROSIDAD"],
@@ -88,7 +90,6 @@ for k in ("calcC", "calcSi", "calcCeq", "CE", "Ceq"):
         lo, hi = cuant(vals)
         tabla(f"ITACA telurio {k} (p20={lo}, p80={hi})", lambda c, k=k, lo=lo, hi=hi: bucket((c.get("ita_te") or {}).get(k), lo, hi))
 for el in ("C", "Si", "Mg", "S", "P", "Mn"):
-    tabla(f"Química {el} vs especificación", lambda c, el=el: None if not c["q_ev"] or c["q_ev"].get(el) is None else ("PASS" if c["q_ev"][el] else "FAIL"))
     vals = [c["q"].get(el) for c in C if c["q"]]
     lo, hi = cuant(vals)
     tabla(f"Química {el} valor (p20={lo}, p80={hi})", lambda c, el=el, lo=lo, hi=hi: bucket((c["q"] or {}).get(el), lo, hi, "{:.3f}"))
