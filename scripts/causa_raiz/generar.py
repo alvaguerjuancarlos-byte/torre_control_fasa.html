@@ -1,7 +1,7 @@
 """Genera backend/data/causa_raiz.json para la vista "Causa raíz" (Calidad del Producto).
 
-Recalcula todo desde la BD (solo lectura): ~10 min. Corre solo cada lunes con la tarea programada de
-Windows "TorreFASA - Causa raiz" (scripts/causa_raiz/recalcular_semanal.cmd, log en logs/). A mano:
+Recalcula todo desde la BD (solo lectura): ~8 min. Lo dispara solo el servidor cada lunes 05:30
+(backend/routers/causa_raiz.py, log en logs/causa_raiz_semanal.log). A mano:
     python scripts/causa_raiz/generar.py            # reconstruye la tabla por colada y el JSON
     python scripts/causa_raiz/generar.py --rapido   # reusa la tabla por colada ya guardada
 

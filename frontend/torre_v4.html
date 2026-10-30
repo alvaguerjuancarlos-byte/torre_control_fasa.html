@@ -652,10 +652,13 @@ function crzPintar() {
     '<div class="crz-sub">' + crzMes(d.periodo.desde) + ' a ' + crzMes(d.periodo.hasta) + ' · '
       + d.n_coladas.toLocaleString('en-US') + ' coladas · ' + d.n_piezas.toLocaleString('en-US') + ' piezas · '
       + 'rechazo registrado hasta ' + crzEsc(d.rechazo_hasta) + ' · cifras calculadas el '
-      + gen.toLocaleDateString('es-MX', {day: 'numeric', month: 'short', year: 'numeric'}) + '</div>'
+      + gen.toLocaleDateString('es-MX', {day: 'numeric', month: 'short', year: 'numeric'})
+      + (d.recalculo ? (d.recalculo.corriendo ? ' · <b>recalculando ahora…</b>'
+        : ' · próximo recálculo automático: ' + new Date(d.recalculo.proximo).toLocaleString('es-MX', {weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit'})) : '')
+      + '</div>'
     + ((Date.now() - gen) / 864e5 > 8 ? '<div class="crz-banner" style="background:var(--color-background-warning);color:var(--color-text-warning);margin-bottom:10px">'
       + '<b style="color:inherit">Cifras desactualizadas:</b> el último cálculo es de hace ' + Math.floor((Date.now() - gen) / 864e5)
-      + ' días. Debía recalcularse solo cada lunes: revisar la tarea programada «TorreFASA - Causa raiz» y logs/causa_raiz_semanal.log.</div>' : '')
+      + ' días. El servidor las recalcula solo cada lunes 05:30 (o al prender, si se le pasó): revisar que el servidor esté corriendo y logs/causa_raiz_semanal.log.</div>' : '')
     + '<div class="crz-banners">'
     + '<div class="crz-banner"><span class="big">' + d.piso_pct_causa_generica + ' %</span>de los rechazos se registran con la '
       + '<b>causa genérica</b> del defecto (p. ej. 17.00), no con la causa detallada del catálogo. Por eso estas hipótesis '
