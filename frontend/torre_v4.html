@@ -327,6 +327,9 @@ main{padding:16px 20px;max-width:1100px;margin:0 auto}
     <button id="al-btn-beta" class="al-toggle-btn" onclick="toggleAlertasPanel('beta')">
       🤖 Agente Beta · <span id="al-count-beta">—</span> críticas
     </button>
+    <button id="al-btn-empeora" class="al-toggle-btn" onclick="toggleAlertasPanel('empeora')">
+      📈 Partes empeorando · <span id="al-count-empeora">—</span>
+    </button>
   </div>
 
   <div id="al-panel-alertas" class="al-panel collapsed">
@@ -345,6 +348,13 @@ main{padding:16px 20px;max-width:1100px;margin:0 auto}
       antecedente de riesgo alto. Ordenado por tiempo transcurrido desde la detección (proxy de urgencia,
       no hay SLA real en la fuente de datos).</div>
     <div id="al-lista-beta"><div class="loading-msg">Cargando…</div></div>
+  </div>
+
+  <div id="al-panel-empeora" class="al-panel collapsed">
+    <div class="al-panel-title">Partes empeorando — rechazo de las últimas 4 semanas contra el año anterior de la
+      misma parte (z ≥ 2 y al menos 5 puntos más; mínimo 20 piezas recientes). La ventana cierra 10 días antes
+      de la referencia porque el rechazo se captura con retraso. <span id="al-empeora-ventana"></span></div>
+    <div id="al-lista-empeora"><div class="loading-msg">Cargando…</div></div>
   </div>
 
   <!-- ── Control de Arenas: panel de planta por línea/tipo de arena (no es un PC por colada:
@@ -2889,7 +2899,7 @@ function renderCarril(c){
 let _alData = null
 // Colapsados por defecto (antes abiertos) -- desde la fusión 2026-08-05 esta franja
 // comparte página con Flujo del Proceso, ya no es el único contenido de su propio tab.
-const _alPanelOpen = { alertas: false, protocolos: false, beta: false }
+const _alPanelOpen = { alertas: false, protocolos: false, beta: false, empeora: false }
 
 function toggleAlertasPanel(which){
   _alPanelOpen[which] = !_alPanelOpen[which]
@@ -2913,6 +2923,7 @@ async function cargarAlertas(){
     const partesAlerta = [...new Set((data.alertas||[]).map(a=>a.no_parte_top).filter(Boolean))]
     if (partesAlerta.length) flPintarRiesgoBeta({skus: partesAlerta.map(p => ({sku: p}))})
     cargarBetaCriticas(ref, horas)
+    cargarPartesEmpeorando(ref)
   }catch(e){
     status.textContent = ''
     document.getElementById('al-lista-alertas').innerHTML =
@@ -2982,6 +2993,40 @@ function renderProtocolos(data){
       <div class="al-proto-row" style="background:var(--gray-bg)">${r.nota}</div></div>`
   })
   cont.innerHTML = html
+}
+
+// Señal en vivo equivalente a gamamega_00_recomendaciones_02_catalogos_parte de CSC (foto fija del
+// 29-oct, datos hasta ago-2026) -- ver /v3/gestion/partes-empeorando.
+async function cargarPartesEmpeorando(ref){
+  const d = await apiFetch(`/v3/gestion/partes-empeorando?referencia=${encodeURIComponent(ref)}`)
+  if (!d) { document.getElementById('al-count-empeora').textContent = '—'; return }
+  const n = (d.partes || []).length
+  document.getElementById('al-count-empeora').textContent = n
+  document.getElementById('al-btn-empeora').classList.toggle('lit-red', n > 0)
+  document.getElementById('al-empeora-ventana').textContent =
+    `Reciente: ${d.reciente_desde} a ${d.reciente_hasta} · base desde ${d.base_desde} · ${d.evaluables} partes evaluables.`
+  const cont = document.getElementById('al-lista-empeora')
+  if (d.aviso) { cont.innerHTML = `<div class="al-empty">${d.aviso}</div>`; return }
+  if (!n) { cont.innerHTML = '<div class="al-empty">Ninguna parte empeoró de forma significativa en la ventana.</div>'; return }
+  cont.innerHTML = d.partes.map(x => {
+    const tag = x.rediseno ? '<span class="al-rediseno-tag">REDISEÑO — no accionable por proceso</span>' : ''
+    const def = x.defecto_top ? ` · defecto dominante <strong>${x.defecto_top}</strong> (${x.defecto_top_n})` : ''
+    const protos = (x.protocolos || []).slice(0, 3)
+    const protoHtml = !x.defecto_top ? '' : protos.length
+      ? protos.map(p => `<div class="al-proto-row" style="margin-top:4px">
+          <div class="al-proto-puesto">${p.puesto || '—'} <span style="font-weight:400;color:var(--muted)">· ${p.proceso || '—'}</span></div>
+          <div class="al-proto-elemento">${p.elemento_control || '—'}</div>
+        </div>`).join('') + ((x.protocolos.length > 3) ? `<div style="font-size:11px;color:var(--muted)">+${x.protocolos.length - 3} más…</div>` : '')
+      : '<div class="al-proto-row" style="margin-top:4px;color:var(--muted)">Sin protocolo para este defecto en el puente (recomendacionescontrol).</div>'
+    return `<div class="al-row ROJO">
+      <span class="pc-chip pc-ROJO">z ${x.z}</span>
+      <div class="al-row-body">
+        <div class="al-row-title">${x.no_parte} · ${x.pct_reciente}% contra ${x.pct_base}% del año anterior${tag}</div>
+        <div class="al-row-meta">${x.rechazo_reciente} de ${x.piezas_recientes} piezas recientes rechazadas · base ${x.piezas_base.toLocaleString('es-MX')} piezas${def}</div>
+        ${protoHtml}
+      </div>
+    </div>`
+  }).join('')
 }
 
 async function cargarBetaCriticas(ref, horas){

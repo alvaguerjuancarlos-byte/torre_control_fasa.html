@@ -3426,6 +3426,92 @@ def v3_gestion_alertas(
     }
 
 
+# Partes empeorando (2026-11-02): misma idea que gamamega_00_recomendaciones_02_catalogos_parte de
+# CSC (últimas corridas vs las anteriores, z de dos proporciones), pero en vivo sobre
+# core.RECHAZO_PZAS_SQL: la tabla de CSC es una foto del 29-oct con datos solo hasta ago-2026 y el
+# hueco de tickets jul-ago. La ventana reciente termina EMP_LAG_DIAS antes de la referencia porque
+# el rechazo se captura con retraso (ago-sep 2026: 66 % en 3 días, 91 % en 7, 96 % en 10).
+EMP_LAG_DIAS, EMP_RECIENTE_DIAS, EMP_BASE_DIAS = 10, 28, 365
+EMP_MIN_RECIENTE, EMP_MIN_BASE, EMP_Z, EMP_DIF_PP = 20, 50, 2.0, 5.0
+
+
+@app.get("/v3/gestion/partes-empeorando")
+def v3_partes_empeorando(referencia: Optional[str] = Query(default=None)):
+    """Partes cuyo rechazo de las últimas EMP_RECIENTE_DIAS (cerradas EMP_LAG_DIAS antes de la
+    referencia) está significativamente arriba de su propio año anterior: z >= EMP_Z y al menos
+    EMP_DIF_PP puntos más. Meses no confiables (meses_rechazo_no_confiables) salen de la base; si
+    caen en la ventana reciente no se evalúa. Con defecto dominante reciente y su protocolo."""
+    ref = datetime.fromisoformat(referencia) if referencia else datetime.now()
+    r1 = ref - timedelta(days=EMP_LAG_DIAS)
+    r0 = r1 - timedelta(days=EMP_RECIENTE_DIAS)
+    b0 = r0 - timedelta(days=EMP_BASE_DIAS)
+    fmt = lambda d: d.strftime("%Y-%m-%d %H:%M:%S")
+    p = {"b0": fmt(b0), "r0": fmt(r0), "r1": fmt(r1)}
+    ventana = {"reciente_desde": r0.date().isoformat(), "reciente_hasta": r1.date().isoformat(),
+               "base_desde": b0.date().isoformat()}
+    malos = set(meses_rechazo_no_confiables(p["b0"], p["r1"]))
+    if any(r0.strftime("%Y-%m") <= m <= r1.strftime("%Y-%m") for m in malos):
+        return {**ventana, "partes": [], "evaluables": 0,
+                "aviso": "La ventana reciente cae en un mes sin rechazo confiable; no se evalúa."}
+
+    # Por ticket primero: la parte nueva de RECHAZO_PZAS_SQL trae pieza y rechazo en filas separadas.
+    rows = run(f"""
+        SELECT t.np AS no_parte, DATE_FORMAT(t.f, '%Y-%m') AS mes, t.f >= :r0 AS reciente,
+               SUM(t.pz) AS n, SUM(t.rec) AS rec
+        FROM (SELECT idTicket, MAX(No_Parte) AS np, MIN(FHrVaciado) AS f,
+                     MAX(pz) AS pz, MAX(bRechazo) AS rec
+              FROM {RECHAZO_PZAS_SQL} rp
+              WHERE FHrVaciado >= :b0 AND FHrVaciado < :r1
+              GROUP BY idTicket) t
+        GROUP BY t.np, mes, reciente
+    """, p)
+    agg = {}
+    for r in rows:
+        if not r["reciente"] and r["mes"] in malos:
+            continue
+        a = agg.setdefault((r["no_parte"] or "").strip(), {"nr": 0, "rr": 0, "nb": 0, "rb": 0})
+        n_k, r_k = ("nr", "rr") if r["reciente"] else ("nb", "rb")
+        a[n_k] += int(r["n"] or 0)
+        a[r_k] += int(r["rec"] or 0)
+
+    partes, evaluables = [], 0
+    for np_, a in agg.items():
+        nr, rr, nb, rb = a["nr"], a["rr"], a["nb"], a["rb"]
+        if not np_ or nr < EMP_MIN_RECIENTE or nb < EMP_MIN_BASE:
+            continue
+        evaluables += 1
+        pr, pb, pool = rr / nr, rb / nb, (rr + rb) / (nr + nb)
+        se = math.sqrt(pool * (1 - pool) * (1 / nr + 1 / nb))
+        z = (pr - pb) / se if se else 0.0
+        if z >= EMP_Z and (pr - pb) * 100 >= EMP_DIF_PP:
+            partes.append({"no_parte": np_, "piezas_recientes": nr, "rechazo_reciente": rr,
+                           "pct_reciente": round(pr * 100, 1), "piezas_base": nb,
+                           "pct_base": round(pb * 100, 1), "z": round(z, 2)})
+    partes.sort(key=lambda x: -x["z"])
+
+    if partes:
+        ph = ",".join(f":p{i}" for i in range(len(partes)))
+        defs = run(f"""
+            SELECT TRIM(No_Parte) AS no_parte, nomDefecto AS defecto, COUNT(DISTINCT idTicket) AS n
+            FROM {RECHAZO_PZAS_SQL} rp
+            WHERE FHrVaciado >= :r0 AND FHrVaciado < :r1 AND bRechazo = 1 AND nomDefecto IS NOT NULL
+              AND TRIM(No_Parte) IN ({ph})
+            GROUP BY TRIM(No_Parte), nomDefecto
+        """, {**p, **{f"p{i}": x["no_parte"] for i, x in enumerate(partes)}})
+        top = {}
+        for d in defs:
+            if d["n"] > top.get(d["no_parte"], {}).get("n", 0):
+                top[d["no_parte"]] = d
+        protos = _buscar_protocolos(sorted({d["defecto"] for d in top.values()}))
+        for x in partes:
+            d = top.get(x["no_parte"])
+            x["defecto_top"] = d["defecto"] if d else None
+            x["defecto_top_n"] = int(d["n"]) if d else 0
+            x["protocolos"] = [q for q in protos if d and q["defecto"] == d["defecto"]]
+            x["rediseno"] = bool(d) and (d["defecto"], x["no_parte"]) in _REDISENO_COMBOS
+    return {**ventana, "partes": partes, "evaluables": evaluables, "aviso": None}
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # CLIENTES · PEDIDOS · PARTES — capa informativa (ia_fasa.fdbase: copia viva de piso_ia.fdbase,
 # cargada a diario desde 2026-10-27; piso_ia.fdbase sigue congelada en 2026-03-09)
