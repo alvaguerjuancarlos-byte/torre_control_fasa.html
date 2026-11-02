@@ -3427,7 +3427,8 @@ def v3_gestion_alertas(
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# CLIENTES · PEDIDOS · PARTES — capa informativa (piso_ia.fdbase)
+# CLIENTES · PEDIDOS · PARTES — capa informativa (ia_fasa.fdbase: copia viva de piso_ia.fdbase,
+# cargada a diario desde 2026-10-27; piso_ia.fdbase sigue congelada en 2026-03-09)
 # ══════════════════════════════════════════════════════════════════════════════
 # fdbase es facturación/embarque por pedido, NO el pedido original capturado —
 # es la fuente más cercana disponible hoy (no hay Orden de Trabajo de cliente
@@ -3537,12 +3538,12 @@ def v2_pedidos_lista(
     limit: int = Query(default=200),
 ):
     """
-    Pedidos con piezas facturadas/embarcadas por No_Parte (piso_ia.fdbase),
+    Pedidos con piezas facturadas/embarcadas por No_Parte (ia_fasa.fdbase),
     cruzado con cliente. Default: últimos 90 días desde el dato más reciente
     disponible en fdbase (no desde "hoy", que puede estar fuera de cobertura).
     """
     if not hasta:
-        row = run("SELECT MAX(fecha) AS mx FROM piso_ia.fdbase", {})
+        row = run("SELECT MAX(fecha) AS mx FROM ia_fasa.fdbase", {})
         hasta_dt = row[0]["mx"] if row and row[0]["mx"] else datetime.now().date()
     else:
         hasta_dt = datetime.fromisoformat(hasta).date()
@@ -3550,7 +3551,7 @@ def v2_pedidos_lista(
 
     rows = run("""
         SELECT nopedido, no_parte, fecha, SUM(cant) AS piezas
-        FROM piso_ia.fdbase
+        FROM ia_fasa.fdbase
         WHERE fecha BETWEEN :d AND :h
         GROUP BY nopedido, no_parte, fecha
     """, {"d": desde_dt.isoformat(), "h": hasta_dt.isoformat()})
@@ -3639,7 +3640,7 @@ def v2_pedidos_lista(
 def v2_pedido_detalle(nopedido: str):
     rows = run("""
         SELECT no_parte, SUM(cant) AS piezas, MIN(fecha) AS fecha_ini, MAX(fecha) AS fecha_fin
-        FROM piso_ia.fdbase
+        FROM ia_fasa.fdbase
         WHERE nopedido = :ped
         GROUP BY no_parte
         ORDER BY piezas DESC
@@ -3670,7 +3671,7 @@ def v2_pedidos_clientes_lista():
     para el selector del panel de toneladas entregadas / % rechazo."""
     rows = run("""
         SELECT c.Cliente AS cliente, SUM(f.cant) AS piezas
-        FROM piso_ia.fdbase f
+        FROM ia_fasa.fdbase f
         JOIN (
             SELECT NoParte, MAX(IdModelo) AS IdModelo
             FROM corex_test.modelos WHERE PesoKgs > 0
@@ -3691,7 +3692,7 @@ def v2_pedidos_cliente_tonelaje(
     hasta: str = Query(default=None),
     bucket: str = Query(default="mes"),
 ):
-    """Toneladas entregadas (piso_ia.fdbase x corex_test.modelos.PesoKgs) y % de rechazo real de
+    """Toneladas entregadas (ia_fasa.fdbase x corex_test.modelos.PesoKgs) y % de rechazo real de
     producción (betamega_01_rechazosbyidticket; antes cscmega_01rechazosbyidticket, borrada por IT
     2026-10) para un cliente. Ventana y granularidad vienen del
     período activo en el resto del tab (Año/Trimestre → bucket 'mes'; Mes/Semana → bucket 'semana',
@@ -3704,7 +3705,7 @@ def v2_pedidos_cliente_tonelaje(
     import calendar as cal_mod
     MESES = ['', 'Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic']
 
-    row = run("SELECT MAX(fecha) AS mx FROM piso_ia.fdbase", {})
+    row = run("SELECT MAX(fecha) AS mx FROM ia_fasa.fdbase", {})
     max_date = row[0]["mx"] if row and row[0]["mx"] else date.today()
     max_date = max_date.date() if isinstance(max_date, datetime) else max_date
     if desde and hasta:
@@ -3749,7 +3750,7 @@ def v2_pedidos_cliente_tonelaje(
 
         tons_rows = run(f"""
             SELECT DATE_FORMAT({tons_key_sql},'{fmt}') AS bk, no_parte, SUM(cant) AS piezas
-            FROM piso_ia.fdbase
+            FROM ia_fasa.fdbase
             WHERE no_parte IN ({placeholders}) AND fecha BETWEEN :d AND :h
             GROUP BY bk, no_parte
         """, {**params, "d": d_ini.isoformat(), "h": d_fin.isoformat()})
@@ -3782,7 +3783,7 @@ def v2_pedidos_cliente_tonelaje(
                 m = 1
                 y += 1
 
-    # 2026-10-26: sin ceros falsos. fdbase está congelada (último embarque = max_date): un
+    # 2026-10-26: sin ceros falsos. fdbase va por detrás de hoy (último embarque = max_date): un
     # período que empieza después no tiene "0 t entregadas", no tiene dato -> None. Y el % de
     # rechazo de un mes no confiable (core.meses_rechazo_no_confiables: bRechazo sin marcar
     # desde 9-jul-2026) también va a None en vez de 0 %.

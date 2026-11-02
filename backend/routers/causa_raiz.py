@@ -65,10 +65,20 @@ def _toca_recalcular(ahora: datetime) -> bool:
 
 
 def _tomar_candado() -> bool:
+    """Atómico (O_EXCL): el 2-nov dos hilos revisaron exists() en el mismo instante y ambos
+    lanzaron generar.py. Un candado vencido (servidor muerto a media corrida) se borra y se reintenta."""
     _CANDADO.parent.mkdir(parents=True, exist_ok=True)
-    if _CANDADO.exists() and time.time() - _CANDADO.stat().st_mtime < _CANDADO_VENCE_SEG:
+    try:
+        if time.time() - _CANDADO.stat().st_mtime >= _CANDADO_VENCE_SEG:
+            _CANDADO.unlink(missing_ok=True)
+    except FileNotFoundError:
+        pass
+    try:
+        fd = os.open(str(_CANDADO), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    except FileExistsError:
         return False
-    _CANDADO.write_text(str(os.getpid()), encoding="utf-8")
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        f.write(str(os.getpid()))
     return True
 
 
@@ -107,8 +117,17 @@ def _programador():
         time.sleep(_REVISAR_CADA_SEG)
 
 
+_PROGRAMADOR = {"iniciado": False}
+
+
 @router.on_event("startup")
 def _iniciar_programador():
+    # FastAPI dispara este startup dos veces (el del router incluido y el que copia la app):
+    # el 2-nov eso arrancó dos hilos y dos recálculos simultáneos. Un solo hilo por proceso.
+    with _LOCK:
+        if _PROGRAMADOR["iniciado"]:
+            return
+        _PROGRAMADOR["iniciado"] = True
     threading.Thread(target=_programador, daemon=True, name="causa-raiz-semanal").start()
 
 
