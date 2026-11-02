@@ -9,8 +9,11 @@ mismas correcciones ya aplicadas ahí:
 - Rechazo con costo: piso_ia.rechazo, SOLO tipo_rech='Producción' -- Maquinado/Prueba ya
   absorbieron costo adicional (fundición completa + maquinado) no desglosado en el archivo de
   costeo, se excluyen en vez de aplicarles el mismo factor por error.
-- Peso unitario: corex_test.modelos.PesoKgs (MAX por NoParte trimmeado -- ~7% de las filas tienen
-  NoParte duplicado con peso distinto, ninguna aparece en rechazo real, no bloqueante).
+- Peso unitario: ia_fasa.modelos.PesoKgs (MAX por NoParte trimmeado -- ~7% de las filas tienen
+  NoParte duplicado con peso distinto, ninguna aparece en rechazo real, no bloqueante). Hasta el
+  2-nov-2026 era corex_test.modelos, congelada el 11-mar-2026: las partes nuevas quedaban sin peso
+  y su rechazo no contaba (oct-2026: 63 piezas, 96.3 t vs 108.9 t con ia_fasa.modelos, copia
+  viva cargada a diario; mismo peso en todas las partes salvo 9 que cambiaron).
 - Producción total 2025 (para % de rechazo y costo de producción, no solo costo de no-calidad):
   ia_fasa.cscmega_01rechazosbyidticket (idTicket único, verificado sin duplicados) x
   cscmega_00_ticketsproducidos (mapa idTicket -> no_parte) x PesoKgs.
@@ -72,7 +75,7 @@ COSTO_TON_USD = {
 def _mapa_peso() -> dict:
     rows = run("""
         SELECT TRIM(NoParte) AS no_parte, MAX(PesoKgs) AS peso
-        FROM corex_test.modelos
+        FROM ia_fasa.modelos
         WHERE PesoKgs > 0
         GROUP BY TRIM(NoParte)
     """)
@@ -111,7 +114,7 @@ def _ton_rechazadas_por_mes() -> dict:
         FROM ia_fasa.rechazo r
         JOIN (
             SELECT TRIM(NoParte) AS NoParte, MAX(PesoKgs) AS PesoKgs
-            FROM corex_test.modelos WHERE PesoKgs > 0 GROUP BY TRIM(NoParte)
+            FROM ia_fasa.modelos WHERE PesoKgs > 0 GROUP BY TRIM(NoParte)
         ) m ON m.NoParte = TRIM(r.no_parte)
         WHERE r.fecha >= '2025-01-01'
         GROUP BY YEAR(r.fecha), MONTH(r.fecha), r.tipo_rech, m.PesoKgs
