@@ -109,7 +109,7 @@ def _filas_semanales() -> dict:
     """{periodo: (filas deduplicadas, carga_duplicada)} -- una fila por parte×defecto."""
     rows = run("""
         SELECT Periodo, TRIM(No_Parte) AS no_parte, nPzasProg, KgsPzasProgAsProgProd AS kg_prog,
-               TRIM(nomDefecto) AS defecto, KgsDefecto AS kg_def, Seq
+               TRIM(nomDefecto7d) AS defecto, KgsDefecto AS kg_def, Seq  -- 3-nov-2026: CSC renombró nomDefecto -> nomDefecto7d
         FROM gamamega_01_paretopesoperiodo
         WHERE Periodo >= 100000
     """, {})
