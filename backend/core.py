@@ -1366,11 +1366,17 @@ def _buscar_protocolos(defectos_unicos: list) -> list:
     puntos de control cambian mes a mes (partes críticas distintas, puntos que
     entran/salen). Sin este filtro se mezclaban recomendaciones vigentes con
     obsoletas del mes previo. Hallazgo 2026-08-07, JC confirmó aplicar el fix.
+
+    2026-11-03: CSC recreó la tabla (solo queda el periodo semanal 202644, 267 filas) y
+    renombró DefectoCritico -> DefectoCritico7d (defecto con rechazo en 7 días); agregó
+    Fuente ('piso.defectos' = catálogo de causas de piso, 'Puntos Críticos de Control').
+    Ya cubre Fierro frío, No lleno, Inclusión y Porosidad; Depresión sigue sin protocolo.
     """
     if not defectos_unicos:
         return []
     puente = run("""
-        SELECT Puesto, Proceso, ElementoControl, DefectoCritico, NoParteCritica
+        SELECT Puesto, Proceso, ElementoControl, DefectoCritico7d AS DefectoCritico, NoParteCritica,
+               Fuente
         FROM gamamega_02_recomendacionescontrol
         WHERE Periodo = (SELECT MAX(Periodo) FROM gamamega_02_recomendacionescontrol)
     """, {})
@@ -1385,6 +1391,7 @@ def _buscar_protocolos(defectos_unicos: list) -> list:
                     "proceso":           row["Proceso"],
                     "elemento_control":  row["ElementoControl"],
                     "no_parte_critica":  row["NoParteCritica"],
+                    "fuente":            row["Fuente"],
                 })
     return protocolos
 
