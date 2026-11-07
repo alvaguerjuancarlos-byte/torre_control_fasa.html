@@ -59,6 +59,10 @@ from backend.core import run, meses_rechazo_no_confiables, RECHAZO_PZAS_SQL
 
 router = APIRouter(prefix="/produccion", tags=["costo-calidad"])
 
+# Costo de venta por tonelada (USD): fila 265 "Total Costo Ventas" de la hoja "Costos 2026" en
+# Documents/FASA/costos/Costos Tonelada Graficas 2026*.xlsx (lo actualiza Finanzas de FASA). Un mes
+# sale aquí cuando la hoja ya trae su producción; antes sale #N/A y el mes no aparece en la vista.
+# 2026-11-06: archivo "oct 2026" trae hasta sep (octubre sin producción capturada todavía).
 COSTO_TON_USD = {
     2025: {
         1: 2493.60, 2: 2430.79, 3: 2304.18, 4: 2095.63,
@@ -67,7 +71,7 @@ COSTO_TON_USD = {
     },
     2026: {
         1: 2274.98, 2: 2269.38, 3: 2453.99, 4: 2241.37,
-        5: 2573.91, 6: 2296.96, 7: 2466.73, 8: 2322.60,
+        5: 2573.91, 6: 2296.96, 7: 2466.73, 8: 2322.60, 9: 2443.20,
     },
 }
 
