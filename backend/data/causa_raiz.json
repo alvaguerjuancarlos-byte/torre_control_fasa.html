@@ -1,30 +1,21 @@
 {
- "generado": "2026-11-02T08:58:31",
+ "generado": "2026-11-06T18:09:18",
  "periodo": {
   "desde": "2025-01",
   "hasta": "2026-11"
  },
- "n_coladas": 15532,
- "n_piezas": 95178,
+ "n_coladas": 15660,
+ "n_piezas": 95930,
  "metodo": "O/E = rechazos observados / esperados según la mezcla de partes de esas coladas (1.00 = lo normal para esas partes). Rechazo de producción del registro de piso (ia_fasa.rechazo).",
  "fuentes": {
-  "carga": {
+  "demoras": {
    "desde": "2025-01",
    "hasta": "2026-11",
-   "meses_sin_dato": []
-  },
-  "temperatura": {
-   "desde": "2025-01",
-   "hasta": "2026-06",
    "meses_sin_dato": [
-    "2026-07",
-    "2026-08",
-    "2026-09",
-    "2026-10",
-    "2026-11"
+    "2026-09"
    ]
   },
-  "horno": {
+  "itaca": {
    "desde": "2025-01",
    "hasta": "2026-11",
    "meses_sin_dato": [
@@ -36,31 +27,35 @@
    "hasta": "2026-11",
    "meses_sin_dato": []
   },
-  "itaca": {
-   "desde": "2025-01",
-   "hasta": "2026-10",
-   "meses_sin_dato": [
-    "2026-09",
-    "2026-11"
-   ]
-  },
-  "demoras": {
+  "horno": {
    "desde": "2025-01",
    "hasta": "2026-11",
    "meses_sin_dato": [
     "2026-09"
    ]
+  },
+  "temperatura": {
+   "desde": "2025-01",
+   "hasta": "2026-11",
+   "meses_sin_dato": [
+    "2026-07"
+   ]
+  },
+  "carga": {
+   "desde": "2025-01",
+   "hasta": "2026-11",
+   "meses_sin_dato": []
   }
  },
- "rechazo_hasta": "2026-10-31",
+ "rechazo_hasta": "2026-11-05",
  "piso_pct_causa_generica": 88,
  "temperatura_buenas": {
-  "n": 61691,
-  "pct_bajo_min": 11.3,
-  "pct_sobre_max": 34.9,
-  "sobre_min": 12.5,
+  "n": 78027,
+  "pct_bajo_min": 9.4,
+  "pct_sobre_max": 39.6,
+  "sobre_min": 13.4,
   "desde": "2025-01-06",
-  "hasta": "2026-10-31"
+  "hasta": "2026-11-05"
  },
  "tarjetas": [
   {
@@ -92,149 +87,149 @@
       },
       {
        "anio": "2026",
-       "rechazos": 1036,
-       "piezas": 39975,
-       "tasa": 2.59
+       "rechazos": 1035,
+       "piezas": 40762,
+       "tasa": 2.54
       }
      ],
      "mensual": [
       {
        "mes": "2025-01",
-       "oe": 3.94,
+       "oe": 3.96,
        "obs": 399,
-       "esp": 101.4
+       "esp": 100.7
       },
       {
        "mes": "2025-02",
        "oe": 1.16,
        "obs": 112,
-       "esp": 96.6
+       "esp": 96.2
       },
       {
        "mes": "2025-03",
        "oe": 0.81,
        "obs": 87,
-       "esp": 107.7
+       "esp": 107.0
       },
       {
        "mes": "2025-04",
        "oe": 0.6,
        "obs": 49,
-       "esp": 81.7
+       "esp": 81.1
       },
       {
        "mes": "2025-05",
-       "oe": 0.93,
+       "oe": 0.94,
        "obs": 66,
-       "esp": 70.8
+       "esp": 70.3
       },
       {
        "mes": "2025-06",
-       "oe": 0.4,
+       "oe": 0.41,
        "obs": 35,
-       "esp": 86.7
+       "esp": 86.1
       },
       {
        "mes": "2025-07",
-       "oe": 1.09,
+       "oe": 1.1,
        "obs": 91,
-       "esp": 83.7
+       "esp": 83.0
       },
       {
        "mes": "2025-08",
        "oe": 1.05,
        "obs": 77,
-       "esp": 73.7
+       "esp": 73.3
       },
       {
        "mes": "2025-09",
-       "oe": 1.31,
+       "oe": 1.32,
        "obs": 75,
-       "esp": 57.5
+       "esp": 56.9
       },
       {
        "mes": "2025-10",
-       "oe": 0.94,
+       "oe": 0.95,
        "obs": 41,
-       "esp": 43.4
+       "esp": 43.0
       },
       {
        "mes": "2025-11",
-       "oe": 1.04,
+       "oe": 1.05,
        "obs": 83,
-       "esp": 79.5
+       "esp": 78.8
       },
       {
        "mes": "2025-12",
        "oe": 0.29,
        "obs": 23,
-       "esp": 78.6
+       "esp": 78.2
       },
       {
        "mes": "2026-01",
-       "oe": 1.02,
+       "oe": 1.03,
        "obs": 133,
-       "esp": 130.4
+       "esp": 129.6
       },
       {
        "mes": "2026-02",
-       "oe": 1.86,
+       "oe": 1.87,
        "obs": 231,
-       "esp": 124.2
+       "esp": 123.2
       },
       {
        "mes": "2026-03",
-       "oe": 2.27,
+       "oe": 2.28,
        "obs": 242,
-       "esp": 106.6
+       "esp": 106.0
       },
       {
        "mes": "2026-04",
-       "oe": 1.34,
+       "oe": 1.35,
        "obs": 158,
-       "esp": 117.8
+       "esp": 117.0
       },
       {
        "mes": "2026-05",
        "oe": 0.33,
        "obs": 39,
-       "esp": 118.2
+       "esp": 117.3
       },
       {
        "mes": "2026-06",
        "oe": 0.42,
        "obs": 62,
-       "esp": 149.2
+       "esp": 147.5
       },
       {
        "mes": "2026-07",
        "oe": 0.32,
        "obs": 42,
-       "esp": 131.9
+       "esp": 130.3
       },
       {
        "mes": "2026-08",
        "oe": 0.22,
        "obs": 27,
-       "esp": 124.9
+       "esp": 123.5
       },
       {
        "mes": "2026-09",
-       "oe": 0.27,
-       "obs": 25,
-       "esp": 91.5
+       "oe": 0.25,
+       "obs": 23,
+       "esp": 90.5
       },
       {
        "mes": "2026-10",
-       "oe": 0.6,
-       "obs": 60,
-       "esp": 100.6
+       "oe": 0.61,
+       "obs": 61,
+       "esp": 99.2
       },
       {
        "mes": "2026-11",
-       "oe": null,
+       "oe": 0.0,
        "obs": 0,
-       "esp": 0.5
+       "esp": 17.7
       }
      ],
      "partes": [
@@ -242,17 +237,17 @@
        "parte": "42091301",
        "rechazos": 204,
        "pct_defecto": 19.7,
-       "moldeadas": 5112,
+       "moldeadas": 5134,
        "tasa": 4.0,
        "tasa_prev": 0.0,
        "desarrollo": false
       },
       {
        "parte": "C-AC612LG",
-       "rechazos": 137,
-       "pct_defecto": 13.2,
-       "moldeadas": 608,
-       "tasa": 22.5,
+       "rechazos": 139,
+       "pct_defecto": 13.4,
+       "moldeadas": 626,
+       "tasa": 22.2,
        "tasa_prev": 0.0,
        "desarrollo": true
       },
@@ -269,8 +264,8 @@
        "parte": "C-AC608LG",
        "rechazos": 82,
        "pct_defecto": 7.9,
-       "moldeadas": 516,
-       "tasa": 15.9,
+       "moldeadas": 522,
+       "tasa": 15.7,
        "tasa_prev": 2.9,
        "desarrollo": false
       },
@@ -285,7 +280,7 @@
       }
      ],
      "piso": {
-      "rechazos": 2164,
+      "rechazos": 2163,
       "pct_causa_generica": 97,
       "responsable": [
        {
@@ -318,15 +313,15 @@
       "causas_detalladas": [
        {
         "causa": "16.20 Análisis químico inadecuado.",
-        "n": 26
+        "n": 24
        },
        {
         "causa": "16.80 Ejecución errónea de practica de Vaciado",
-        "n": 18
+        "n": 17
        },
        {
         "causa": "16.70 Temperatura alta de vaciado.",
-        "n": 10
+        "n": 9
        },
        {
         "causa": "43.10 Colapso del Molde Antes de Solidificacion",
@@ -335,10 +330,10 @@
       ]
      },
      "temp_pieza": {
-      "n": 1862,
-      "pct_bajo_min": 8.6,
-      "pct_sobre_max": 41.9,
-      "sobre_min": 15.8
+      "n": 2028,
+      "pct_bajo_min": 8.4,
+      "pct_sobre_max": 43.6,
+      "sobre_min": 15.7
      }
     },
     {
@@ -353,167 +348,167 @@
       },
       {
        "anio": "2026",
-       "rechazos": 646,
-       "piezas": 39975,
-       "tasa": 1.62
+       "rechazos": 644,
+       "piezas": 40762,
+       "tasa": 1.58
       }
      ],
      "mensual": [
       {
        "mes": "2025-01",
-       "oe": 1.07,
+       "oe": 1.08,
        "obs": 32,
-       "esp": 30.0
+       "esp": 29.6
       },
       {
        "mes": "2025-02",
        "oe": 0.18,
        "obs": 6,
-       "esp": 34.0
+       "esp": 33.7
       },
       {
        "mes": "2025-03",
-       "oe": 0.35,
+       "oe": 0.36,
        "obs": 7,
-       "esp": 19.9
+       "esp": 19.7
       },
       {
        "mes": "2025-04",
        "oe": 0.3,
        "obs": 8,
-       "esp": 26.9
+       "esp": 26.6
       },
       {
        "mes": "2025-05",
-       "oe": 0.29,
+       "oe": 0.3,
        "obs": 8,
-       "esp": 27.3
+       "esp": 27.0
       },
       {
        "mes": "2025-06",
        "oe": 0.11,
        "obs": 4,
-       "esp": 36.6
+       "esp": 36.4
       },
       {
        "mes": "2025-07",
-       "oe": 0.61,
+       "oe": 0.62,
        "obs": 17,
-       "esp": 27.7
+       "esp": 27.3
       },
       {
        "mes": "2025-08",
        "oe": 0.62,
        "obs": 17,
-       "esp": 27.4
+       "esp": 27.3
       },
       {
        "mes": "2025-09",
-       "oe": 1.54,
+       "oe": 1.56,
        "obs": 44,
-       "esp": 28.6
+       "esp": 28.2
       },
       {
        "mes": "2025-10",
-       "oe": 1.43,
+       "oe": 1.45,
        "obs": 32,
-       "esp": 22.4
+       "esp": 22.1
       },
       {
        "mes": "2025-11",
-       "oe": 1.63,
+       "oe": 1.65,
        "obs": 41,
-       "esp": 25.2
+       "esp": 24.8
       },
       {
        "mes": "2025-12",
        "oe": 0.48,
        "obs": 18,
-       "esp": 37.8
+       "esp": 37.6
       },
       {
        "mes": "2026-01",
-       "oe": 1.76,
+       "oe": 1.77,
        "obs": 123,
-       "esp": 70.0
+       "esp": 69.6
       },
       {
        "mes": "2026-02",
-       "oe": 3.78,
+       "oe": 3.81,
        "obs": 229,
-       "esp": 60.6
+       "esp": 60.1
       },
       {
        "mes": "2026-03",
-       "oe": 1.31,
+       "oe": 1.32,
        "obs": 78,
-       "esp": 59.4
+       "esp": 58.9
       },
       {
        "mes": "2026-04",
-       "oe": 0.53,
+       "oe": 0.54,
        "obs": 21,
-       "esp": 39.5
+       "esp": 39.1
       },
       {
        "mes": "2026-05",
        "oe": 0.82,
        "obs": 34,
-       "esp": 41.7
+       "esp": 41.2
       },
       {
        "mes": "2026-06",
-       "oe": 0.9,
+       "oe": 0.92,
        "obs": 48,
-       "esp": 53.4
+       "esp": 52.3
       },
       {
        "mes": "2026-07",
-       "oe": 0.61,
+       "oe": 0.63,
        "obs": 29,
-       "esp": 47.4
+       "esp": 46.2
       },
       {
        "mes": "2026-08",
        "oe": 0.34,
        "obs": 18,
-       "esp": 53.3
+       "esp": 52.4
       },
       {
        "mes": "2026-09",
-       "oe": 0.39,
-       "obs": 18,
-       "esp": 46.2
+       "oe": 0.35,
+       "obs": 16,
+       "esp": 45.2
       },
       {
        "mes": "2026-10",
-       "oe": 0.65,
+       "oe": 0.67,
        "obs": 31,
-       "esp": 47.8
+       "esp": 46.4
       },
       {
        "mes": "2026-11",
-       "oe": null,
+       "oe": 0.0,
        "obs": 0,
-       "esp": 0.2
+       "esp": 9.2
       }
      ],
      "partes": [
       {
        "parte": "42091301",
        "rechazos": 146,
-       "pct_defecto": 22.6,
-       "moldeadas": 5112,
-       "tasa": 2.9,
+       "pct_defecto": 22.7,
+       "moldeadas": 5134,
+       "tasa": 2.8,
        "tasa_prev": 0.0,
        "desarrollo": false
       },
       {
        "parte": "C-AC612LG",
-       "rechazos": 137,
-       "pct_defecto": 21.2,
-       "moldeadas": 608,
-       "tasa": 22.5,
+       "rechazos": 139,
+       "pct_defecto": 21.6,
+       "moldeadas": 626,
+       "tasa": 22.2,
        "tasa_prev": 0.0,
        "desarrollo": true
       },
@@ -521,8 +516,8 @@
        "parte": "C-AC608LG",
        "rechazos": 80,
        "pct_defecto": 12.4,
-       "moldeadas": 516,
-       "tasa": 15.5,
+       "moldeadas": 522,
+       "tasa": 15.3,
        "tasa_prev": 0.0,
        "desarrollo": false
       },
@@ -539,15 +534,15 @@
        "parte": "C-AF438LG",
        "rechazos": 27,
        "pct_defecto": 4.2,
-       "moldeadas": 181,
-       "tasa": 14.9,
+       "moldeadas": 189,
+       "tasa": 14.3,
        "tasa_prev": 0.0,
        "desarrollo": true
       }
      ],
      "piso": {
-      "rechazos": 865,
-      "pct_causa_generica": 93,
+      "rechazos": 863,
+      "pct_causa_generica": 94,
       "responsable": [
        {
         "valor": "IPROCESO",
@@ -555,7 +550,7 @@
        },
        {
         "valor": "FAFUSION",
-        "pct": 15
+        "pct": 14
        },
        {
         "valor": "INGHTALES",
@@ -575,15 +570,15 @@
       "causas_detalladas": [
        {
         "causa": "16.20 Análisis químico inadecuado.",
-        "n": 26
+        "n": 24
        },
        {
         "causa": "16.80 Ejecución errónea de practica de Vaciado",
-        "n": 18
+        "n": 17
        },
        {
         "causa": "16.70 Temperatura alta de vaciado.",
-        "n": 10
+        "n": 9
        },
        {
         "causa": "16.90 Re-Diseño de Ingeniería",
@@ -592,9 +587,9 @@
       ]
      },
      "temp_pieza": {
-      "n": 728,
-      "pct_bajo_min": 5.1,
-      "pct_sobre_max": 38.6,
+      "n": 831,
+      "pct_bajo_min": 4.6,
+      "pct_sobre_max": 42.4,
       "sobre_min": 13.7
      }
     },
@@ -610,156 +605,156 @@
       },
       {
        "anio": "2026",
-       "rechazos": 390,
-       "piezas": 39975,
-       "tasa": 0.98
+       "rechazos": 391,
+       "piezas": 40762,
+       "tasa": 0.96
       }
      ],
      "mensual": [
       {
        "mes": "2025-01",
-       "oe": 5.15,
+       "oe": 5.18,
        "obs": 367,
-       "esp": 71.2
+       "esp": 70.9
       },
       {
        "mes": "2025-02",
-       "oe": 1.71,
+       "oe": 1.72,
        "obs": 106,
-       "esp": 62.0
+       "esp": 61.8
       },
       {
        "mes": "2025-03",
-       "oe": 0.88,
+       "oe": 0.89,
        "obs": 77,
-       "esp": 87.5
+       "esp": 86.9
       },
       {
        "mes": "2025-04",
        "oe": 0.75,
        "obs": 41,
-       "esp": 54.7
+       "esp": 54.4
       },
       {
        "mes": "2025-05",
-       "oe": 1.33,
+       "oe": 1.34,
        "obs": 58,
-       "esp": 43.5
+       "esp": 43.3
       },
       {
        "mes": "2025-06",
        "oe": 0.57,
        "obs": 28,
-       "esp": 49.0
+       "esp": 48.7
       },
       {
        "mes": "2025-07",
        "oe": 1.33,
        "obs": 74,
-       "esp": 55.8
+       "esp": 55.5
       },
       {
        "mes": "2025-08",
        "oe": 1.31,
        "obs": 60,
-       "esp": 45.9
+       "esp": 45.7
       },
       {
        "mes": "2025-09",
        "oe": 1.13,
        "obs": 31,
-       "esp": 27.5
+       "esp": 27.3
       },
       {
        "mes": "2025-10",
        "oe": 0.43,
        "obs": 9,
-       "esp": 20.9
+       "esp": 20.7
       },
       {
        "mes": "2025-11",
-       "oe": 0.77,
+       "oe": 0.78,
        "obs": 42,
-       "esp": 54.3
+       "esp": 54.0
       },
       {
        "mes": "2025-12",
        "oe": 0.12,
        "obs": 5,
-       "esp": 40.7
+       "esp": 40.5
       },
       {
        "mes": "2026-01",
        "oe": 0.17,
        "obs": 10,
-       "esp": 60.3
+       "esp": 59.8
       },
       {
        "mes": "2026-02",
        "oe": 0.03,
        "obs": 2,
-       "esp": 63.5
+       "esp": 63.0
       },
       {
        "mes": "2026-03",
-       "oe": 3.48,
+       "oe": 3.5,
        "obs": 164,
-       "esp": 47.1
+       "esp": 46.9
       },
       {
        "mes": "2026-04",
-       "oe": 1.75,
+       "oe": 1.76,
        "obs": 137,
-       "esp": 78.3
+       "esp": 77.9
       },
       {
        "mes": "2026-05",
        "oe": 0.07,
        "obs": 5,
-       "esp": 76.6
+       "esp": 76.0
       },
       {
        "mes": "2026-06",
        "oe": 0.15,
        "obs": 14,
-       "esp": 95.1
+       "esp": 94.5
       },
       {
        "mes": "2026-07",
        "oe": 0.15,
        "obs": 13,
-       "esp": 84.5
+       "esp": 84.0
       },
       {
        "mes": "2026-08",
        "oe": 0.13,
        "obs": 9,
-       "esp": 71.5
+       "esp": 71.0
       },
       {
        "mes": "2026-09",
-       "oe": 0.15,
+       "oe": 0.16,
        "obs": 7,
-       "esp": 45.2
+       "esp": 45.1
       },
       {
        "mes": "2026-10",
-       "oe": 0.55,
-       "obs": 29,
-       "esp": 52.7
+       "oe": 0.57,
+       "obs": 30,
+       "esp": 52.8
       },
       {
        "mes": "2026-11",
-       "oe": null,
+       "oe": 0.0,
        "obs": 0,
-       "esp": 0.3
+       "esp": 8.5
       }
      ],
      "partes": [
       {
        "parte": "617260- RC",
        "rechazos": 92,
-       "pct_defecto": 23.6,
+       "pct_defecto": 23.5,
        "moldeadas": 488,
        "tasa": 18.9,
        "tasa_prev": 1.7,
@@ -768,8 +763,8 @@
       {
        "parte": "42091301",
        "rechazos": 58,
-       "pct_defecto": 14.9,
-       "moldeadas": 5112,
+       "pct_defecto": 14.8,
+       "moldeadas": 5134,
        "tasa": 1.1,
        "tasa_prev": 0.0,
        "desarrollo": false
@@ -778,16 +773,16 @@
        "parte": "2076246- RC",
        "rechazos": 35,
        "pct_defecto": 9.0,
-       "moldeadas": 606,
-       "tasa": 5.8,
+       "moldeadas": 626,
+       "tasa": 5.6,
        "tasa_prev": 0.5,
        "desarrollo": true
       },
       {
        "parte": "42091101",
        "rechazos": 33,
-       "pct_defecto": 8.5,
-       "moldeadas": 3822,
+       "pct_defecto": 8.4,
+       "moldeadas": 3882,
        "tasa": 0.9,
        "tasa_prev": 19.5,
        "desarrollo": false
@@ -803,7 +798,7 @@
       }
      ],
      "piso": {
-      "rechazos": 1293,
+      "rechazos": 1294,
       "pct_causa_generica": 100,
       "responsable": [
        {
@@ -836,10 +831,10 @@
       "causas_detalladas": []
      },
      "temp_pieza": {
-      "n": 1134,
-      "pct_bajo_min": 10.9,
-      "pct_sobre_max": 44.1,
-      "sobre_min": 17.2
+      "n": 1197,
+      "pct_bajo_min": 11.1,
+      "pct_sobre_max": 44.4,
+      "sobre_min": 17.1
      }
     }
    ],
@@ -849,37 +844,37 @@
      "senal": "temp_sobre_max",
      "etiqueta": "Temperatura promedio arriba del máximo de la parte",
      "fuente": "temperatura",
-     "coladas": 2846,
-     "oe": 1.95,
-     "obs": 362,
-     "esp": 185.5
+     "coladas": 3696,
+     "oe": 1.52,
+     "obs": 379,
+     "esp": 249.7
     },
     {
      "defecto": "Depresión",
      "senal": "temp_ventana_50",
      "etiqueta": "Menos de 50 % de las piezas dentro de la ventana de temperatura",
      "fuente": "temperatura",
-     "coladas": 5127,
-     "oe": 1.6,
-     "obs": 537,
-     "esp": 335.9
+     "coladas": 6431,
+     "oe": 1.36,
+     "obs": 558,
+     "esp": 411.3
     },
     {
      "defecto": "Depresión",
      "senal": "horno_excede_50",
      "etiqueta": "Tiempo en horno excede su límite por más de 50 %",
      "fuente": "horno",
-     "coladas": 690,
-     "oe": 1.73,
+     "coladas": 700,
+     "oe": 1.72,
      "obs": 170,
-     "esp": 98.1
+     "esp": 98.7
     },
     {
      "defecto": "Depresión",
      "senal": "horno_66",
      "etiqueta": "Más de 66 min en horno",
      "fuente": "horno",
-     "coladas": 2707,
+     "coladas": 2727,
      "oe": 1.48,
      "obs": 382,
      "esp": 258.7
@@ -889,40 +884,40 @@
      "senal": "dem_falta_moldes",
      "etiqueta": "Demora por «Falta de moldes»",
      "fuente": "demoras",
-     "coladas": 917,
-     "oe": 1.8,
-     "obs": 231,
-     "esp": 128.1
+     "coladas": 938,
+     "oe": 1.79,
+     "obs": 232,
+     "esp": 129.6
     },
     {
      "defecto": "Rechupe + Depresión",
      "senal": "te_c_bajo",
      "etiqueta": "ITACA telurio: carbono < 3.45",
      "fuente": "itaca",
-     "coladas": 2215,
-     "oe": 1.34,
+     "coladas": 2221,
+     "oe": 1.35,
      "obs": 483,
-     "esp": 359.7
+     "esp": 356.8
     },
     {
      "defecto": "Rechupe + Depresión",
      "senal": "te_ceq_bajo",
      "etiqueta": "ITACA telurio: carbono equivalente < 4.02",
      "fuente": "itaca",
-     "coladas": 2229,
-     "oe": 1.23,
-     "obs": 479,
-     "esp": 389.6
+     "coladas": 2237,
+     "oe": 1.24,
+     "obs": 478,
+     "esp": 386.6
     },
     {
      "defecto": "Depresión",
      "senal": "ita_reprueba",
      "etiqueta": "Dos o más copas ITACA (re-prueba)",
      "fuente": "itaca",
-     "coladas": 4090,
-     "oe": 1.47,
+     "coladas": 4113,
+     "oe": 1.48,
      "obs": 517,
-     "esp": 351.1
+     "esp": 349.7
     }
    ],
    "arena": null
@@ -955,9 +950,9 @@
       },
       {
        "anio": "2026",
-       "rechazos": 803,
-       "piezas": 39975,
-       "tasa": 2.01
+       "rechazos": 810,
+       "piezas": 40762,
+       "tasa": 1.99
       }
      ],
      "mensual": [
@@ -965,156 +960,156 @@
        "mes": "2025-01",
        "oe": 1.01,
        "obs": 93,
-       "esp": 92.4
+       "esp": 92.0
       },
       {
        "mes": "2025-02",
        "oe": 1.44,
        "obs": 129,
-       "esp": 89.9
+       "esp": 89.7
       },
       {
        "mes": "2025-03",
-       "oe": 1.55,
+       "oe": 1.56,
        "obs": 130,
-       "esp": 83.7
+       "esp": 83.3
       },
       {
        "mes": "2025-04",
-       "oe": 0.7,
+       "oe": 0.71,
        "obs": 65,
-       "esp": 92.5
+       "esp": 91.9
       },
       {
        "mes": "2025-05",
        "oe": 1.02,
        "obs": 74,
-       "esp": 72.7
+       "esp": 72.3
       },
       {
        "mes": "2025-06",
        "oe": 1.72,
        "obs": 132,
-       "esp": 76.8
+       "esp": 76.6
       },
       {
        "mes": "2025-07",
        "oe": 0.85,
        "obs": 88,
-       "esp": 103.7
+       "esp": 103.4
       },
       {
        "mes": "2025-08",
        "oe": 1.15,
        "obs": 82,
-       "esp": 71.6
-      },
-      {
-       "mes": "2025-09",
-       "oe": 2.04,
-       "obs": 123,
-       "esp": 60.2
-      },
-      {
-       "mes": "2025-10",
-       "oe": 1.0,
-       "obs": 98,
-       "esp": 98.0
-      },
-      {
-       "mes": "2025-11",
-       "oe": 0.94,
-       "obs": 67,
        "esp": 71.2
       },
       {
+       "mes": "2025-09",
+       "oe": 2.06,
+       "obs": 123,
+       "esp": 59.7
+      },
+      {
+       "mes": "2025-10",
+       "oe": 1.01,
+       "obs": 98,
+       "esp": 97.5
+      },
+      {
+       "mes": "2025-11",
+       "oe": 0.95,
+       "obs": 67,
+       "esp": 70.9
+      },
+      {
        "mes": "2025-12",
-       "oe": 0.52,
+       "oe": 0.53,
        "obs": 44,
-       "esp": 84.0
+       "esp": 83.8
       },
       {
        "mes": "2026-01",
        "oe": 1.27,
        "obs": 104,
-       "esp": 82.1
+       "esp": 82.0
       },
       {
        "mes": "2026-02",
        "oe": 0.49,
        "obs": 45,
-       "esp": 91.5
+       "esp": 91.2
       },
       {
        "mes": "2026-03",
        "oe": 0.86,
        "obs": 80,
-       "esp": 92.8
+       "esp": 92.6
       },
       {
        "mes": "2026-04",
        "oe": 1.58,
        "obs": 148,
-       "esp": 93.8
+       "esp": 93.6
       },
       {
        "mes": "2026-05",
        "oe": 0.55,
        "obs": 40,
-       "esp": 73.0
+       "esp": 72.8
       },
       {
        "mes": "2026-06",
        "oe": 0.61,
        "obs": 64,
-       "esp": 105.0
+       "esp": 104.5
       },
       {
        "mes": "2026-07",
        "oe": 1.03,
        "obs": 109,
-       "esp": 106.3
+       "esp": 105.7
       },
       {
        "mes": "2026-08",
        "oe": 1.02,
        "obs": 109,
-       "esp": 107.2
+       "esp": 106.5
       },
       {
        "mes": "2026-09",
        "oe": 0.7,
        "obs": 45,
-       "esp": 64.4
+       "esp": 64.0
       },
       {
        "mes": "2026-10",
-       "oe": 0.41,
-       "obs": 39,
-       "esp": 94.5
+       "oe": 0.44,
+       "obs": 42,
+       "esp": 94.7
       },
       {
        "mes": "2026-11",
-       "oe": null,
-       "obs": 0,
-       "esp": 1.2
+       "oe": 0.15,
+       "obs": 2,
+       "esp": 13.4
       }
      ],
      "partes": [
       {
        "parte": "C-AD626LG",
        "rechazos": 290,
-       "pct_defecto": 36.1,
-       "moldeadas": 859,
-       "tasa": 33.8,
+       "pct_defecto": 35.8,
+       "moldeadas": 879,
+       "tasa": 33.0,
        "tasa_prev": 39.1,
        "desarrollo": false
       },
       {
        "parte": "16261C",
        "rechazos": 51,
-       "pct_defecto": 6.4,
-       "moldeadas": 442,
+       "pct_defecto": 6.3,
+       "moldeadas": 445,
        "tasa": 11.5,
        "tasa_prev": 3.6,
        "desarrollo": true
@@ -1141,14 +1136,14 @@
        "parte": "42091101",
        "rechazos": 28,
        "pct_defecto": 3.5,
-       "moldeadas": 3822,
+       "moldeadas": 3882,
        "tasa": 0.7,
        "tasa_prev": 1.8,
        "desarrollo": false
       }
      ],
      "piso": {
-      "rechazos": 1919,
+      "rechazos": 1926,
       "pct_causa_generica": 94,
       "responsable": [
        {
@@ -1198,10 +1193,10 @@
       ]
      },
      "temp_pieza": {
-      "n": 1511,
-      "pct_bajo_min": 12.5,
-      "pct_sobre_max": 43.3,
-      "sobre_min": 17.2
+      "n": 1803,
+      "pct_bajo_min": 11.8,
+      "pct_sobre_max": 46.6,
+      "sobre_min": 17.3
      }
     },
     {
@@ -1217,8 +1212,8 @@
       {
        "anio": "2026",
        "rechazos": 247,
-       "piezas": 39975,
-       "tasa": 0.62
+       "piezas": 40762,
+       "tasa": 0.61
       }
      ],
      "mensual": [
@@ -1226,13 +1221,13 @@
        "mes": "2025-01",
        "oe": 0.39,
        "obs": 10,
-       "esp": 25.9
+       "esp": 25.8
       },
       {
        "mes": "2025-02",
        "oe": 0.53,
        "obs": 11,
-       "esp": 20.8
+       "esp": 20.7
       },
       {
        "mes": "2025-03",
@@ -1242,7 +1237,7 @@
       },
       {
        "mes": "2025-04",
-       "oe": 0.19,
+       "oe": 0.2,
        "obs": 2,
        "esp": 10.3
       },
@@ -1250,67 +1245,67 @@
        "mes": "2025-05",
        "oe": 0.32,
        "obs": 3,
-       "esp": 9.4
+       "esp": 9.2
       },
       {
        "mes": "2025-06",
-       "oe": 0.76,
+       "oe": 0.77,
        "obs": 7,
-       "esp": 9.3
+       "esp": 9.1
       },
       {
        "mes": "2025-07",
-       "oe": 0.67,
+       "oe": 0.68,
        "obs": 11,
-       "esp": 16.3
+       "esp": 16.2
       },
       {
        "mes": "2025-08",
-       "oe": 2.49,
+       "oe": 2.51,
        "obs": 29,
-       "esp": 11.6
+       "esp": 11.5
       },
       {
        "mes": "2025-09",
-       "oe": 1.44,
+       "oe": 1.46,
        "obs": 12,
-       "esp": 8.3
+       "esp": 8.2
       },
       {
        "mes": "2025-10",
        "oe": 0.92,
        "obs": 15,
-       "esp": 16.4
+       "esp": 16.3
       },
       {
        "mes": "2025-11",
        "oe": 0.37,
        "obs": 6,
-       "esp": 16.4
+       "esp": 16.3
       },
       {
        "mes": "2025-12",
        "oe": 0.0,
        "obs": 0,
-       "esp": 12.6
+       "esp": 12.5
       },
       {
        "mes": "2026-01",
-       "oe": 2.1,
+       "oe": 2.11,
        "obs": 49,
-       "esp": 23.3
+       "esp": 23.2
       },
       {
        "mes": "2026-02",
-       "oe": 5.09,
+       "oe": 5.12,
        "obs": 112,
-       "esp": 22.0
+       "esp": 21.9
       },
       {
        "mes": "2026-03",
        "oe": 1.2,
        "obs": 41,
-       "esp": 34.2
+       "esp": 34.1
       },
       {
        "mes": "2026-04",
@@ -1322,43 +1317,43 @@
        "mes": "2026-05",
        "oe": 0.12,
        "obs": 3,
-       "esp": 24.7
+       "esp": 24.6
       },
       {
        "mes": "2026-06",
        "oe": 0.92,
        "obs": 11,
-       "esp": 12.0
+       "esp": 11.9
       },
       {
        "mes": "2026-07",
        "oe": 0.33,
        "obs": 4,
-       "esp": 12.1
+       "esp": 12.0
       },
       {
        "mes": "2026-08",
-       "oe": 0.8,
+       "oe": 0.81,
        "obs": 6,
-       "esp": 7.5
+       "esp": 7.4
       },
       {
        "mes": "2026-09",
        "oe": 0.53,
        "obs": 4,
-       "esp": 7.6
+       "esp": 7.5
       },
       {
        "mes": "2026-10",
        "oe": 0.67,
        "obs": 6,
-       "esp": 9.0
+       "esp": 8.9
       },
       {
        "mes": "2026-11",
        "oe": null,
        "obs": 0,
-       "esp": 0.2
+       "esp": 2.0
       }
      ],
      "partes": [
@@ -1384,7 +1379,7 @@
        "parte": "2C-2473-000",
        "rechazos": 29,
        "pct_defecto": 11.7,
-       "moldeadas": 1799,
+       "moldeadas": 1856,
        "tasa": 1.6,
        "tasa_prev": 1.1,
        "desarrollo": true
@@ -1393,8 +1388,8 @@
        "parte": "16261C",
        "rechazos": 26,
        "pct_defecto": 10.5,
-       "moldeadas": 442,
-       "tasa": 5.9,
+       "moldeadas": 445,
+       "tasa": 5.8,
        "tasa_prev": 1.0,
        "desarrollo": true
       },
@@ -1438,10 +1433,10 @@
       "causas_detalladas": []
      },
      "temp_pieza": {
-      "n": 330,
-      "pct_bajo_min": 2.7,
-      "pct_sobre_max": 65.2,
-      "sobre_min": 20.6
+      "n": 350,
+      "pct_bajo_min": 4.3,
+      "pct_sobre_max": 63.7,
+      "sobre_min": 19.7
      }
     }
    ],
@@ -1451,17 +1446,17 @@
      "senal": "temp_sobre_max",
      "etiqueta": "Temperatura promedio arriba del máximo de la parte",
      "fuente": "temperatura",
-     "coladas": 2846,
-     "oe": 1.02,
-     "obs": 205,
-     "esp": 200.2
+     "coladas": 3696,
+     "oe": 0.9,
+     "obs": 264,
+     "esp": 294.5
     },
     {
      "defecto": "Sopladura",
      "senal": "horno_excede_50",
      "etiqueta": "Tiempo en horno excede su límite por más de 50 %",
      "fuente": "horno",
-     "coladas": 690,
+     "coladas": 700,
      "oe": 1.36,
      "obs": 121,
      "esp": 88.7
@@ -1471,48 +1466,48 @@
      "senal": "q_mn_alto",
      "etiqueta": "Manganeso alto (> 0.756)",
      "fuente": "quimica",
-     "coladas": 1612,
-     "oe": 0.81,
+     "coladas": 1634,
+     "oe": 0.79,
      "obs": 137,
-     "esp": 169.3
+     "esp": 173.6
     },
     {
      "defecto": "Porosidad",
      "senal": "temp_sobre_max",
      "etiqueta": "Temperatura promedio arriba del máximo de la parte",
      "fuente": "temperatura",
-     "coladas": 2846,
-     "oe": 1.74,
-     "obs": 191,
-     "esp": 109.7
+     "coladas": 3696,
+     "oe": 1.59,
+     "obs": 198,
+     "esp": 124.4
     },
     {
      "defecto": "Porosidad",
      "senal": "q_mn_alto",
      "etiqueta": "Manganeso alto (> 0.756)",
      "fuente": "quimica",
-     "coladas": 1612,
-     "oe": 1.94,
+     "coladas": 1634,
+     "oe": 1.93,
      "obs": 99,
-     "esp": 51.0
+     "esp": 51.4
     },
     {
      "defecto": "Porosidad",
      "senal": "q_mg_alto",
      "etiqueta": "Magnesio alto (> 0.002)",
      "fuente": "quimica",
-     "coladas": 1555,
-     "oe": 2.01,
+     "coladas": 1564,
+     "oe": 2.02,
      "obs": 100,
-     "esp": 49.7
+     "esp": 49.5
     }
    ],
    "arena": {
     "meta": {
      "desde": "2026-01-01",
-     "dias": 270,
-     "variables": 92,
-     "pruebas": 720,
+     "dias": 275,
+     "variables": 119,
+     "pruebas": 724,
      "p_max": 0.01,
      "falsos_esperados": 7.2
     },
@@ -1520,7 +1515,7 @@
      {
       "defecto": "Sopladura",
       "senales": 6,
-      "fuertes": 2
+      "fuertes": 0
      },
      {
       "defecto": "Porosidad",
@@ -1530,22 +1525,6 @@
     ],
     "senales": [
      {
-      "variable": "LOI CAMA FLUIDIZADA",
-      "grupo": "bajo",
-      "etiqueta": "LOI CAMA FLUIDIZADA: tercio bajo (< 1.18)",
-      "limite": [
-       1.05,
-       1.35
-      ],
-      "oe": 0.76,
-      "oe_resto": 1.12,
-      "obs": 136,
-      "esp": 179.7,
-      "dias": 77,
-      "p": 0.0015,
-      "defecto": "Sopladura"
-     },
-     {
       "variable": "LOI ARENA COLD BOX",
       "grupo": "fuera",
       "etiqueta": "LOI ARENA COLD BOX: fuera de límite",
@@ -1553,12 +1532,12 @@
        1.05,
        1.35
       ],
-      "oe": 0.76,
-      "oe_resto": 1.12,
-      "obs": 122,
-      "esp": 160.2,
-      "dias": 79,
-      "p": 0.0015,
+      "oe": 0.75,
+      "oe_resto": 1.13,
+      "obs": 123,
+      "esp": 163.3,
+      "dias": 81,
+      "p": 0.0025,
       "defecto": "Sopladura"
      },
      {
@@ -1569,27 +1548,43 @@
        48.0,
        54.0
       ],
-      "oe": 1.22,
-      "oe_resto": 0.88,
-      "obs": 245,
-      "esp": 200.0,
-      "dias": 80,
-      "p": 0.0045,
+      "oe": 1.25,
+      "oe_resto": 0.85,
+      "obs": 254,
+      "esp": 203.8,
+      "dias": 81,
+      "p": 0.003,
       "defecto": "Sopladura"
      },
      {
-      "variable": "FINOS CAMA FLUIDIZADA",
-      "grupo": "alto",
-      "etiqueta": "FINOS CAMA FLUIDIZADA: tercio alto (> 1.43)",
+      "variable": "LOI CAMA FLUIDIZADA",
+      "grupo": "bajo",
+      "etiqueta": "LOI CAMA FLUIDIZADA: tercio bajo (< 1.18)",
       "limite": [
-       0.0,
-       3.0
+       1.05,
+       1.35
       ],
-      "oe": 1.22,
-      "oe_resto": 0.9,
-      "obs": 227,
-      "esp": 185.8,
-      "dias": 88,
+      "oe": 0.77,
+      "oe_resto": 1.11,
+      "obs": 140,
+      "esp": 181.9,
+      "dias": 78,
+      "p": 0.004,
+      "defecto": "Sopladura"
+     },
+     {
+      "variable": "TEMPERATURA ARENA AF3",
+      "grupo": "bajo",
+      "etiqueta": "TEMPERATURA ARENA AF3: tercio bajo (< 27.5)",
+      "limite": [
+       18.0,
+       34.0
+      ],
+      "oe": 0.83,
+      "oe_resto": 1.07,
+      "obs": 129,
+      "esp": 155.5,
+      "dias": 84,
       "p": 0.007,
       "defecto": "Sopladura"
      },
@@ -1604,25 +1599,25 @@
       "oe": 0.78,
       "oe_resto": 1.09,
       "obs": 126,
-      "esp": 160.6,
-      "dias": 77,
-      "p": 0.0095,
+      "esp": 161.1,
+      "dias": 78,
+      "p": 0.0085,
       "defecto": "Sopladura"
      },
      {
-      "variable": "pH CAMA FLUIDIZADA",
+      "variable": "FINOS CAMA FLUIDIZADA",
       "grupo": "alto",
-      "etiqueta": "pH CAMA FLUIDIZADA: tercio alto (> 8.5)",
+      "etiqueta": "FINOS CAMA FLUIDIZADA: tercio alto (> 1.43)",
       "limite": [
-       7.0,
-       9.0
+       0.0,
+       3.0
       ],
-      "oe": 0.8,
-      "oe_resto": 1.07,
-      "obs": 127,
-      "esp": 157.9,
-      "dias": 82,
-      "p": 0.0095,
+      "oe": 1.22,
+      "oe_resto": 0.9,
+      "obs": 224,
+      "esp": 183.8,
+      "dias": 89,
+      "p": 0.0085,
       "defecto": "Sopladura"
      }
     ],
@@ -1662,7 +1657,7 @@
       },
       "oe": {
        "Sopladura": 1.27,
-       "Porosidad": 2.1
+       "Porosidad": 2.11
       }
      },
      {
@@ -1695,7 +1690,7 @@
       },
       "oe": {
        "Sopladura": 0.49,
-       "Porosidad": 5.09
+       "Porosidad": 5.12
       }
      },
      {
@@ -1893,7 +1888,7 @@
       },
       "oe": {
        "Sopladura": 1.02,
-       "Porosidad": 0.8
+       "Porosidad": 0.81
       }
      },
      {
@@ -1958,8 +1953,41 @@
        }
       },
       "oe": {
-       "Sopladura": 0.41,
+       "Sopladura": 0.44,
        "Porosidad": 0.67
+      }
+     },
+     {
+      "mes": "2026-11",
+      "valores": {
+       "FINOS CAMA FLUIDIZADA": {
+        "prom": 1.63,
+        "pct_fuera": 8
+       },
+       "LOI ARENA COLD BOX": {
+        "prom": 1.24,
+        "pct_fuera": 50
+       },
+       "LOI-K300": {
+        "prom": 1.24,
+        "pct_fuera": 12
+       },
+       "RESISTENCIA AF3 A LOS 15 MINUTOS": {
+        "prom": 76.6,
+        "pct_fuera": 10
+       },
+       "TEMPERATURA ARENA AF3": {
+        "prom": 29.36,
+        "pct_fuera": 0
+       },
+       "TIEMPO DE TRABAJO AF3 (Minutos y Segundos)": {
+        "prom": 2.67,
+        "pct_fuera": 0
+       }
+      },
+      "oe": {
+       "Sopladura": 0.15,
+       "Porosidad": null
       }
      }
     ]
@@ -1992,9 +2020,9 @@
       },
       {
        "anio": "2026",
-       "rechazos": 674,
-       "piezas": 39975,
-       "tasa": 1.69
+       "rechazos": 681,
+       "piezas": 40762,
+       "tasa": 1.67
       }
      ],
      "mensual": [
@@ -2002,91 +2030,91 @@
        "mes": "2025-01",
        "oe": 0.6,
        "obs": 29,
-       "esp": 48.1
+       "esp": 48.3
       },
       {
        "mes": "2025-02",
        "oe": 0.89,
        "obs": 55,
-       "esp": 62.1
+       "esp": 62.0
       },
       {
        "mes": "2025-03",
-       "oe": 1.13,
+       "oe": 1.12,
        "obs": 55,
-       "esp": 48.6
+       "esp": 49.0
       },
       {
        "mes": "2025-04",
        "oe": 0.8,
        "obs": 46,
-       "esp": 57.5
+       "esp": 57.7
       },
       {
        "mes": "2025-05",
        "oe": 0.79,
        "obs": 37,
-       "esp": 47.0
+       "esp": 46.7
       },
       {
        "mes": "2025-06",
        "oe": 0.75,
        "obs": 37,
-       "esp": 49.6
+       "esp": 49.2
       },
       {
        "mes": "2025-07",
        "oe": 0.63,
        "obs": 35,
-       "esp": 55.3
+       "esp": 55.1
       },
       {
        "mes": "2025-08",
        "oe": 0.9,
        "obs": 41,
-       "esp": 45.7
+       "esp": 45.5
       },
       {
        "mes": "2025-09",
-       "oe": 1.01,
+       "oe": 1.02,
        "obs": 33,
-       "esp": 32.6
+       "esp": 32.4
       },
       {
        "mes": "2025-10",
-       "oe": 0.74,
+       "oe": 0.75,
        "obs": 33,
-       "esp": 44.7
+       "esp": 44.2
       },
       {
        "mes": "2025-11",
-       "oe": 1.32,
+       "oe": 1.33,
        "obs": 41,
-       "esp": 31.1
+       "esp": 30.9
       },
       {
        "mes": "2025-12",
-       "oe": 1.49,
+       "oe": 1.5,
        "obs": 44,
-       "esp": 29.5
+       "esp": 29.4
       },
       {
        "mes": "2026-01",
-       "oe": 1.1,
+       "oe": 1.11,
        "obs": 57,
-       "esp": 51.7
+       "esp": 51.5
       },
       {
        "mes": "2026-02",
        "oe": 0.69,
        "obs": 34,
-       "esp": 49.4
+       "esp": 49.5
       },
       {
        "mes": "2026-03",
        "oe": 0.55,
        "obs": 35,
-       "esp": 64.0
+       "esp": 63.7
       },
       {
        "mes": "2026-04",
@@ -2098,7 +2126,7 @@
        "mes": "2026-05",
        "oe": 0.71,
        "obs": 35,
-       "esp": 49.5
+       "esp": 49.3
       },
       {
        "mes": "2026-06",
@@ -2108,41 +2136,41 @@
       },
       {
        "mes": "2026-07",
-       "oe": 1.47,
+       "oe": 1.48,
        "obs": 85,
-       "esp": 57.8
+       "esp": 57.5
       },
       {
        "mes": "2026-08",
-       "oe": 1.49,
-       "obs": 99,
-       "esp": 66.5
+       "oe": 1.48,
+       "obs": 98,
+       "esp": 66.1
       },
       {
        "mes": "2026-09",
-       "oe": 1.12,
-       "obs": 70,
-       "esp": 62.5
+       "oe": 1.1,
+       "obs": 68,
+       "esp": 61.9
       },
       {
        "mes": "2026-10",
-       "oe": 1.53,
-       "obs": 101,
-       "esp": 65.9
+       "oe": 1.62,
+       "obs": 106,
+       "esp": 65.5
       },
       {
        "mes": "2026-11",
-       "oe": null,
-       "obs": 0,
-       "esp": 0.9
+       "oe": 0.39,
+       "obs": 4,
+       "esp": 10.3
       }
      ],
      "partes": [
       {
        "parte": "42091301",
-       "rechazos": 202,
-       "pct_defecto": 30.0,
-       "moldeadas": 5112,
+       "rechazos": 205,
+       "pct_defecto": 30.1,
+       "moldeadas": 5134,
        "tasa": 4.0,
        "tasa_prev": 2.3,
        "desarrollo": false
@@ -2159,16 +2187,16 @@
       {
        "parte": "072-01790-00-G",
        "rechazos": 24,
-       "pct_defecto": 3.6,
-       "moldeadas": 1239,
-       "tasa": 1.9,
+       "pct_defecto": 3.5,
+       "moldeadas": 1309,
+       "tasa": 1.8,
        "tasa_prev": 0.0,
        "desarrollo": false
       },
       {
        "parte": "421564",
        "rechazos": 24,
-       "pct_defecto": 3.6,
+       "pct_defecto": 3.5,
        "moldeadas": 1346,
        "tasa": 1.8,
        "tasa_prev": 0.8,
@@ -2177,7 +2205,7 @@
       {
        "parte": "2C-4656-000",
        "rechazos": 20,
-       "pct_defecto": 3.0,
+       "pct_defecto": 2.9,
        "moldeadas": 492,
        "tasa": 4.1,
        "tasa_prev": 2.8,
@@ -2185,7 +2213,7 @@
       }
      ],
      "piso": {
-      "rechazos": 1156,
+      "rechazos": 1163,
       "pct_causa_generica": 93,
       "responsable": [
        {
@@ -2218,7 +2246,7 @@
       "causas_detalladas": [
        {
         "causa": "3.12 Cerrado inadecuado del molde. AF3",
-        "n": 47
+        "n": 45
        },
        {
         "causa": "3.20 Descuido, golpeo o trato rudo del molde AF3",
@@ -2229,16 +2257,16 @@
         "n": 7
        },
        {
-        "causa": "3.11 Cerrado inadecuado del molde. AF2",
+        "causa": "3.50 Descuido al centrar corazon AF3",
         "n": 4
        }
       ]
      },
      "temp_pieza": {
-      "n": 716,
-      "pct_bajo_min": 14.5,
-      "pct_sobre_max": 33.0,
-      "sobre_min": 11.3
+      "n": 1104,
+      "pct_bajo_min": 10.2,
+      "pct_sobre_max": 39.9,
+      "sobre_min": 12.5
      }
     },
     {
@@ -2253,165 +2281,165 @@
       },
       {
        "anio": "2026",
-       "rechazos": 381,
-       "piezas": 39975,
-       "tasa": 0.95
+       "rechazos": 392,
+       "piezas": 40762,
+       "tasa": 0.96
       }
      ],
      "mensual": [
       {
        "mes": "2025-01",
-       "oe": 1.55,
+       "oe": 1.56,
        "obs": 85,
-       "esp": 54.7
+       "esp": 54.6
       },
       {
        "mes": "2025-02",
-       "oe": 1.28,
+       "oe": 1.27,
        "obs": 91,
-       "esp": 71.1
+       "esp": 71.9
       },
       {
        "mes": "2025-03",
-       "oe": 0.8,
+       "oe": 0.81,
        "obs": 57,
-       "esp": 71.0
+       "esp": 70.7
       },
       {
        "mes": "2025-04",
-       "oe": 0.98,
+       "oe": 0.99,
        "obs": 59,
-       "esp": 59.9
+       "esp": 59.8
       },
       {
        "mes": "2025-05",
-       "oe": 0.54,
+       "oe": 0.52,
        "obs": 18,
-       "esp": 33.6
+       "esp": 34.8
       },
       {
        "mes": "2025-06",
-       "oe": 1.16,
+       "oe": 1.12,
        "obs": 34,
-       "esp": 29.4
+       "esp": 30.3
       },
       {
        "mes": "2025-07",
-       "oe": 1.11,
+       "oe": 1.1,
        "obs": 51,
-       "esp": 45.8
+       "esp": 46.5
       },
       {
        "mes": "2025-08",
        "oe": 0.85,
        "obs": 38,
-       "esp": 44.5
+       "esp": 44.6
       },
       {
        "mes": "2025-09",
-       "oe": 0.93,
+       "oe": 0.94,
        "obs": 21,
-       "esp": 22.6
+       "esp": 22.4
       },
       {
        "mes": "2025-10",
        "oe": 1.02,
        "obs": 27,
-       "esp": 26.5
+       "esp": 26.4
       },
       {
        "mes": "2025-11",
        "oe": 0.93,
        "obs": 32,
-       "esp": 34.5
+       "esp": 34.2
       },
       {
        "mes": "2025-12",
        "oe": 1.24,
        "obs": 29,
-       "esp": 23.5
+       "esp": 23.3
       },
       {
        "mes": "2026-01",
-       "oe": 0.88,
+       "oe": 0.89,
        "obs": 31,
-       "esp": 35.2
+       "esp": 35.0
       },
       {
        "mes": "2026-02",
-       "oe": 0.51,
+       "oe": 0.5,
        "obs": 18,
-       "esp": 35.2
+       "esp": 35.8
       },
       {
        "mes": "2026-03",
        "oe": 0.46,
        "obs": 15,
-       "esp": 32.7
+       "esp": 32.9
       },
       {
        "mes": "2026-04",
        "oe": 0.9,
        "obs": 38,
-       "esp": 42.4
+       "esp": 42.3
       },
       {
        "mes": "2026-05",
-       "oe": 0.95,
+       "oe": 0.94,
        "obs": 35,
-       "esp": 36.7
+       "esp": 37.1
       },
       {
        "mes": "2026-06",
        "oe": 0.89,
        "obs": 47,
-       "esp": 52.7
+       "esp": 52.9
       },
       {
        "mes": "2026-07",
-       "oe": 1.2,
+       "oe": 1.21,
        "obs": 55,
-       "esp": 45.6
+       "esp": 45.3
       },
       {
        "mes": "2026-08",
-       "oe": 1.22,
+       "oe": 1.23,
        "obs": 58,
-       "esp": 47.4
+       "esp": 47.3
       },
       {
        "mes": "2026-09",
        "oe": 1.23,
        "obs": 44,
-       "esp": 35.8
+       "esp": 35.6
       },
       {
        "mes": "2026-10",
-       "oe": 1.05,
-       "obs": 43,
-       "esp": 40.9
+       "oe": 1.12,
+       "obs": 46,
+       "esp": 41.2
       },
       {
        "mes": "2026-11",
-       "oe": null,
-       "obs": 0,
-       "esp": 0.8
+       "oe": 0.94,
+       "obs": 8,
+       "esp": 8.5
       }
      ],
      "partes": [
       {
        "parte": "42091101",
        "rechazos": 67,
-       "pct_defecto": 17.6,
-       "moldeadas": 3822,
-       "tasa": 1.8,
+       "pct_defecto": 17.1,
+       "moldeadas": 3882,
+       "tasa": 1.7,
        "tasa_prev": 2.0,
        "desarrollo": false
       },
       {
        "parte": "617260- RC",
        "rechazos": 47,
-       "pct_defecto": 12.3,
+       "pct_defecto": 12.0,
        "moldeadas": 488,
        "tasa": 9.6,
        "tasa_prev": 1.9,
@@ -2419,9 +2447,9 @@
       },
       {
        "parte": "42091301",
-       "rechazos": 29,
-       "pct_defecto": 7.6,
-       "moldeadas": 5112,
+       "rechazos": 30,
+       "pct_defecto": 7.7,
+       "moldeadas": 5134,
        "tasa": 0.6,
        "tasa_prev": 0.4,
        "desarrollo": false
@@ -2429,24 +2457,24 @@
       {
        "parte": "2076246- RC",
        "rechazos": 17,
-       "pct_defecto": 4.5,
-       "moldeadas": 606,
-       "tasa": 2.8,
+       "pct_defecto": 4.3,
+       "moldeadas": 626,
+       "tasa": 2.7,
        "tasa_prev": 4.2,
        "desarrollo": true
       },
       {
        "parte": "2076242- RC",
        "rechazos": 16,
-       "pct_defecto": 4.2,
-       "moldeadas": 445,
+       "pct_defecto": 4.1,
+       "moldeadas": 450,
        "tasa": 3.6,
        "tasa_prev": 6.3,
        "desarrollo": true
       }
      ],
      "piso": {
-      "rechazos": 927,
+      "rechazos": 938,
       "pct_causa_generica": 94,
       "responsable": [
        {
@@ -2496,10 +2524,10 @@
       ]
      },
      "temp_pieza": {
-      "n": 663,
-      "pct_bajo_min": 17.6,
-      "pct_sobre_max": 31.5,
-      "sobre_min": 9.0
+      "n": 873,
+      "pct_bajo_min": 13.6,
+      "pct_sobre_max": 36.9,
+      "sobre_min": 10.9
      }
     }
    ],
@@ -2509,68 +2537,68 @@
      "senal": "dem_juntan",
      "etiqueta": "Demora por «Se juntan las coladas»",
      "fuente": "demoras",
-     "coladas": 582,
-     "oe": 1.45,
-     "obs": 52,
-     "esp": 35.9
+     "coladas": 589,
+     "oe": 1.57,
+     "obs": 58,
+     "esp": 36.9
     },
     {
      "defecto": "Tirado",
      "senal": "dem_falta_moldes",
      "etiqueta": "Demora por «Falta de moldes»",
      "fuente": "demoras",
-     "coladas": 917,
-     "oe": 1.32,
+     "coladas": 938,
+     "oe": 1.29,
      "obs": 102,
-     "esp": 77.0
+     "esp": 79.1
     },
     {
      "defecto": "Tirado",
      "senal": "horno_excede_50",
      "etiqueta": "Tiempo en horno excede su límite por más de 50 %",
      "fuente": "horno",
-     "coladas": 690,
+     "coladas": 700,
      "oe": 1.16,
-     "obs": 62,
-     "esp": 53.4
+     "obs": 64,
+     "esp": 55.3
     },
     {
      "defecto": "Caído",
      "senal": "dem_juntan",
      "etiqueta": "Demora por «Se juntan las coladas»",
      "fuente": "demoras",
-     "coladas": 582,
-     "oe": 1.18,
-     "obs": 50,
-     "esp": 42.2
+     "coladas": 589,
+     "oe": 1.24,
+     "obs": 53,
+     "esp": 42.7
     },
     {
      "defecto": "Caído",
      "senal": "temp_sobre_max",
      "etiqueta": "Temperatura promedio arriba del máximo de la parte",
      "fuente": "temperatura",
-     "coladas": 2846,
-     "oe": 0.72,
-     "obs": 137,
-     "esp": 191.6
+     "coladas": 3696,
+     "oe": 0.88,
+     "obs": 220,
+     "esp": 250.9
     },
     {
      "defecto": "Caído",
      "senal": "carga_fuera",
      "etiqueta": "Carga metálica con algún material fuera de tolerancia",
      "fuente": "carga",
-     "coladas": 4165,
+     "coladas": 4229,
      "oe": 1.01,
-     "obs": 307,
-     "esp": 303.0
+     "obs": 308,
+     "esp": 305.1
     }
    ],
    "arena": {
     "meta": {
      "desde": "2026-01-01",
-     "dias": 270,
-     "variables": 92,
-     "pruebas": 720,
+     "dias": 275,
+     "variables": 119,
+     "pruebas": 724,
      "p_max": 0.01,
      "falsos_esperados": 7.2
     },
@@ -2622,8 +2650,8 @@
        }
       },
       "oe": {
-       "Caído": 1.1,
-       "Tirado": 0.88
+       "Caído": 1.11,
+       "Tirado": 0.89
       }
      },
      {
@@ -2656,7 +2684,7 @@
       },
       "oe": {
        "Caído": 0.69,
-       "Tirado": 0.51
+       "Tirado": 0.5
       }
      },
      {
@@ -2755,7 +2783,7 @@
       },
       "oe": {
        "Caído": 0.71,
-       "Tirado": 0.95
+       "Tirado": 0.94
       }
      },
      {
@@ -2820,8 +2848,8 @@
        }
       },
       "oe": {
-       "Caído": 1.47,
-       "Tirado": 1.2
+       "Caído": 1.48,
+       "Tirado": 1.21
       }
      },
      {
@@ -2853,8 +2881,8 @@
        }
       },
       "oe": {
-       "Caído": 1.49,
-       "Tirado": 1.22
+       "Caído": 1.48,
+       "Tirado": 1.23
       }
      },
      {
@@ -2886,7 +2914,7 @@
        }
       },
       "oe": {
-       "Caído": 1.12,
+       "Caído": 1.1,
        "Tirado": 1.23
       }
      },
@@ -2919,8 +2947,41 @@
        }
       },
       "oe": {
-       "Caído": 1.53,
-       "Tirado": 1.05
+       "Caído": 1.62,
+       "Tirado": 1.12
+      }
+     },
+     {
+      "mes": "2026-11",
+      "valores": {
+       "FINOS CAMA FLUIDIZADA": {
+        "prom": 1.63,
+        "pct_fuera": 8
+       },
+       "LOI ARENA COLD BOX": {
+        "prom": 1.24,
+        "pct_fuera": 50
+       },
+       "LOI-K300": {
+        "prom": 1.24,
+        "pct_fuera": 12
+       },
+       "RESISTENCIA AF3 A LOS 15 MINUTOS": {
+        "prom": 76.6,
+        "pct_fuera": 10
+       },
+       "TEMPERATURA ARENA AF3": {
+        "prom": 29.36,
+        "pct_fuera": 0
+       },
+       "TIEMPO DE TRABAJO AF3 (Minutos y Segundos)": {
+        "prom": 2.67,
+        "pct_fuera": 0
+       }
+      },
+      "oe": {
+       "Caído": 0.39,
+       "Tirado": 0.94
       }
      }
     ]
@@ -2952,9 +3013,9 @@
       },
       {
        "anio": "2026",
-       "rechazos": 456,
-       "piezas": 39975,
-       "tasa": 1.14
+       "rechazos": 467,
+       "piezas": 40762,
+       "tasa": 1.15
       }
      ],
      "mensual": [
@@ -2962,25 +3023,25 @@
        "mes": "2025-01",
        "oe": 1.01,
        "obs": 59,
-       "esp": 58.4
+       "esp": 58.3
       },
       {
        "mes": "2025-02",
        "oe": 1.09,
        "obs": 90,
-       "esp": 82.8
+       "esp": 82.5
       },
       {
        "mes": "2025-03",
        "oe": 1.22,
        "obs": 106,
-       "esp": 87.2
+       "esp": 87.1
       },
       {
        "mes": "2025-04",
        "oe": 0.93,
        "obs": 65,
-       "esp": 69.9
+       "esp": 69.6
       },
       {
        "mes": "2025-05",
@@ -2990,15 +3051,15 @@
       },
       {
        "mes": "2025-06",
-       "oe": 0.75,
+       "oe": 0.74,
        "obs": 14,
-       "esp": 18.7
+       "esp": 18.8
       },
       {
        "mes": "2025-07",
        "oe": 0.59,
        "obs": 29,
-       "esp": 49.3
+       "esp": 49.2
       },
       {
        "mes": "2025-08",
@@ -3010,31 +3071,31 @@
        "mes": "2025-09",
        "oe": 1.19,
        "obs": 37,
-       "esp": 31.2
+       "esp": 31.1
       },
       {
        "mes": "2025-10",
        "oe": 0.45,
        "obs": 15,
-       "esp": 33.6
+       "esp": 33.5
       },
       {
        "mes": "2025-11",
        "oe": 0.91,
        "obs": 29,
-       "esp": 32.0
+       "esp": 31.8
       },
       {
        "mes": "2025-12",
        "oe": 1.15,
        "obs": 18,
-       "esp": 15.7
+       "esp": 15.6
       },
       {
        "mes": "2026-01",
        "oe": 1.3,
        "obs": 33,
-       "esp": 25.4
+       "esp": 25.5
       },
       {
        "mes": "2026-02",
@@ -3046,81 +3107,81 @@
        "mes": "2026-03",
        "oe": 0.62,
        "obs": 25,
-       "esp": 40.2
+       "esp": 40.0
       },
       {
        "mes": "2026-04",
        "oe": 0.97,
        "obs": 44,
-       "esp": 45.2
+       "esp": 45.1
       },
       {
        "mes": "2026-05",
-       "oe": 1.29,
+       "oe": 1.3,
        "obs": 43,
-       "esp": 33.2
+       "esp": 33.1
       },
       {
        "mes": "2026-06",
        "oe": 0.84,
        "obs": 38,
-       "esp": 45.2
+       "esp": 45.1
       },
       {
        "mes": "2026-07",
        "oe": 1.21,
        "obs": 64,
-       "esp": 52.9
+       "esp": 52.8
       },
       {
        "mes": "2026-08",
        "oe": 1.36,
        "obs": 65,
-       "esp": 47.9
+       "esp": 47.7
       },
       {
        "mes": "2026-09",
-       "oe": 1.24,
+       "oe": 1.23,
        "obs": 47,
-       "esp": 37.9
+       "esp": 38.2
       },
       {
        "mes": "2026-10",
-       "oe": 1.07,
-       "obs": 46,
-       "esp": 42.9
+       "oe": 1.11,
+       "obs": 48,
+       "esp": 43.1
       },
       {
        "mes": "2026-11",
-       "oe": null,
-       "obs": 0,
-       "esp": 0.6
+       "oe": 0.62,
+       "obs": 6,
+       "esp": 9.7
       }
      ],
      "partes": [
       {
        "parte": "2076246- RC",
-       "rechazos": 32,
-       "pct_defecto": 7.0,
-       "moldeadas": 606,
-       "tasa": 5.3,
+       "rechazos": 35,
+       "pct_defecto": 7.5,
+       "moldeadas": 626,
+       "tasa": 5.6,
        "tasa_prev": 6.2,
        "desarrollo": true
       },
       {
        "parte": "2076244- RC",
-       "rechazos": 26,
-       "pct_defecto": 5.7,
-       "moldeadas": 381,
-       "tasa": 6.8,
+       "rechazos": 28,
+       "pct_defecto": 6.0,
+       "moldeadas": 419,
+       "tasa": 6.7,
        "tasa_prev": 12.9,
        "desarrollo": false
       },
       {
        "parte": "16261C",
        "rechazos": 23,
-       "pct_defecto": 5.0,
-       "moldeadas": 442,
+       "pct_defecto": 4.9,
+       "moldeadas": 445,
        "tasa": 5.2,
        "tasa_prev": 3.1,
        "desarrollo": true
@@ -3128,24 +3189,24 @@
       {
        "parte": "2076242- RC",
        "rechazos": 23,
-       "pct_defecto": 5.0,
-       "moldeadas": 445,
-       "tasa": 5.2,
+       "pct_defecto": 4.9,
+       "moldeadas": 450,
+       "tasa": 5.1,
        "tasa_prev": 10.6,
        "desarrollo": true
       },
       {
        "parte": "915305- RC",
        "rechazos": 22,
-       "pct_defecto": 4.8,
-       "moldeadas": 334,
-       "tasa": 6.6,
+       "pct_defecto": 4.7,
+       "moldeadas": 338,
+       "tasa": 6.5,
        "tasa_prev": 6.9,
        "desarrollo": false
       }
      ],
      "piso": {
-      "rechazos": 983,
+      "rechazos": 994,
       "pct_causa_generica": 94,
       "responsable": [
        {
@@ -3164,7 +3225,7 @@
       "area": [
        {
         "valor": "AF3",
-        "pct": 84
+        "pct": 85
        },
        {
         "valor": "AF2",
@@ -3195,10 +3256,10 @@
       ]
      },
      "temp_pieza": {
-      "n": 683,
-      "pct_bajo_min": 34.0,
-      "pct_sobre_max": 23.6,
-      "sobre_min": 1.8
+      "n": 919,
+      "pct_bajo_min": 27.1,
+      "pct_sobre_max": 27.6,
+      "sobre_min": 4.2
      }
     },
     {
@@ -3213,35 +3274,35 @@
       },
       {
        "anio": "2026",
-       "rechazos": 367,
-       "piezas": 39975,
+       "rechazos": 376,
+       "piezas": 40762,
        "tasa": 0.92
       }
      ],
      "mensual": [
       {
        "mes": "2025-01",
-       "oe": 0.96,
+       "oe": 0.95,
        "obs": 36,
-       "esp": 37.7
+       "esp": 37.9
       },
       {
        "mes": "2025-02",
        "oe": 0.75,
        "obs": 36,
-       "esp": 48.1
+       "esp": 48.0
       },
       {
        "mes": "2025-03",
        "oe": 1.09,
        "obs": 50,
-       "esp": 45.7
+       "esp": 46.0
       },
       {
        "mes": "2025-04",
-       "oe": 0.93,
+       "oe": 0.92,
        "obs": 50,
-       "esp": 53.8
+       "esp": 54.2
       },
       {
        "mes": "2025-05",
@@ -3253,7 +3314,7 @@
        "mes": "2025-06",
        "oe": 1.14,
        "obs": 49,
-       "esp": 42.9
+       "esp": 42.8
       },
       {
        "mes": "2025-07",
@@ -3263,21 +3324,21 @@
       },
       {
        "mes": "2025-08",
-       "oe": 1.19,
+       "oe": 1.18,
        "obs": 51,
-       "esp": 42.9
+       "esp": 43.1
       },
       {
        "mes": "2025-09",
        "oe": 1.01,
        "obs": 26,
-       "esp": 25.7
+       "esp": 25.8
       },
       {
        "mes": "2025-10",
        "oe": 0.71,
        "obs": 23,
-       "esp": 32.3
+       "esp": 32.4
       },
       {
        "mes": "2025-11",
@@ -3305,9 +3366,9 @@
       },
       {
        "mes": "2026-03",
-       "oe": 1.22,
+       "oe": 1.23,
        "obs": 54,
-       "esp": 44.2
+       "esp": 44.0
       },
       {
        "mes": "2026-04",
@@ -3323,15 +3384,15 @@
       },
       {
        "mes": "2026-06",
-       "oe": 0.99,
+       "oe": 0.98,
        "obs": 36,
-       "esp": 36.5
+       "esp": 36.7
       },
       {
        "mes": "2026-07",
-       "oe": 0.93,
+       "oe": 0.92,
        "obs": 35,
-       "esp": 37.6
+       "esp": 37.9
       },
       {
        "mes": "2026-08",
@@ -3347,32 +3408,32 @@
       },
       {
        "mes": "2026-10",
-       "oe": 0.99,
-       "obs": 37,
-       "esp": 37.3
+       "oe": 1.06,
+       "obs": 40,
+       "esp": 37.8
       },
       {
        "mes": "2026-11",
-       "oe": null,
-       "obs": 0,
-       "esp": 0.7
+       "oe": 0.9,
+       "obs": 7,
+       "esp": 7.7
       }
      ],
      "partes": [
       {
        "parte": "2C-2473-000",
        "rechazos": 38,
-       "pct_defecto": 10.4,
-       "moldeadas": 1799,
-       "tasa": 2.1,
+       "pct_defecto": 10.1,
+       "moldeadas": 1856,
+       "tasa": 2.0,
        "tasa_prev": 0.7,
        "desarrollo": true
       },
       {
        "parte": "42091301",
        "rechazos": 35,
-       "pct_defecto": 9.5,
-       "moldeadas": 5112,
+       "pct_defecto": 9.3,
+       "moldeadas": 5134,
        "tasa": 0.7,
        "tasa_prev": 2.0,
        "desarrollo": false
@@ -3380,8 +3441,8 @@
       {
        "parte": "344286- RC",
        "rechazos": 12,
-       "pct_defecto": 3.3,
-       "moldeadas": 460,
+       "pct_defecto": 3.2,
+       "moldeadas": 465,
        "tasa": 2.6,
        "tasa_prev": 2.7,
        "desarrollo": false
@@ -3389,7 +3450,7 @@
       {
        "parte": "617260- RC",
        "rechazos": 12,
-       "pct_defecto": 3.3,
+       "pct_defecto": 3.2,
        "moldeadas": 488,
        "tasa": 2.5,
        "tasa_prev": 2.7,
@@ -3398,7 +3459,7 @@
       {
        "parte": "F5-10",
        "rechazos": 11,
-       "pct_defecto": 3.0,
+       "pct_defecto": 2.9,
        "moldeadas": 303,
        "tasa": 3.6,
        "tasa_prev": 3.2,
@@ -3406,7 +3467,7 @@
       }
      ],
      "piso": {
-      "rechazos": 851,
+      "rechazos": 860,
       "pct_causa_generica": 96,
       "responsable": [
        {
@@ -3429,7 +3490,7 @@
        },
        {
         "valor": "AF2",
-        "pct": 17
+        "pct": 16
        },
        {
         "valor": "AF1",
@@ -3456,10 +3517,10 @@
       ]
      },
      "temp_pieza": {
-      "n": 640,
-      "pct_bajo_min": 10.5,
-      "pct_sobre_max": 41.4,
-      "sobre_min": 15.4
+      "n": 804,
+      "pct_bajo_min": 9.2,
+      "pct_sobre_max": 47.3,
+      "sobre_min": 16.8
      }
     }
    ],
@@ -3469,27 +3530,27 @@
      "senal": "temp_bajo_min",
      "etiqueta": "Temperatura promedio abajo del mínimo de la parte",
      "fuente": "temperatura",
-     "coladas": 568,
-     "oe": 1.04,
-     "obs": 30,
-     "esp": 28.9
+     "coladas": 591,
+     "oe": 1.1,
+     "obs": 33,
+     "esp": 30.0
     },
     {
      "defecto": "Fierro frío",
      "senal": "horno_excede_50",
      "etiqueta": "Tiempo en horno excede su límite por más de 50 %",
      "fuente": "horno",
-     "coladas": 690,
-     "oe": 1.39,
+     "coladas": 700,
+     "oe": 1.38,
      "obs": 67,
-     "esp": 48.2
+     "esp": 48.5
     },
     {
      "defecto": "Fierro frío",
      "senal": "ita_cementite_50",
      "etiqueta": "ITACA Cementite < 50 (riesgo de carburo)",
      "fuente": "itaca",
-     "coladas": 429,
+     "coladas": 431,
      "oe": 1.24,
      "obs": 27,
      "esp": 21.8
@@ -3499,7 +3560,7 @@
      "senal": "ita_cementite_50",
      "etiqueta": "ITACA Cementite < 50 (riesgo de carburo)",
      "fuente": "itaca",
-     "coladas": 429,
+     "coladas": 431,
      "oe": 1.42,
      "obs": 31,
      "esp": 21.8
@@ -3509,10 +3570,10 @@
      "senal": "temp_bajo_min",
      "etiqueta": "Temperatura promedio abajo del mínimo de la parte",
      "fuente": "temperatura",
-     "coladas": 568,
-     "oe": 0.99,
-     "obs": 17,
-     "esp": 17.2
+     "coladas": 591,
+     "oe": 1.0,
+     "obs": 18,
+     "esp": 18.0
     }
    ],
    "arena": null
@@ -3540,77 +3601,77 @@
       },
       {
        "anio": "2026",
-       "rechazos": 345,
-       "piezas": 39975,
-       "tasa": 0.86
+       "rechazos": 356,
+       "piezas": 40762,
+       "tasa": 0.87
       }
      ],
      "mensual": [
       {
        "mes": "2025-01",
-       "oe": 1.02,
+       "oe": 1.01,
        "obs": 43,
-       "esp": 42.3
+       "esp": 42.6
       },
       {
        "mes": "2025-02",
-       "oe": 0.97,
+       "oe": 0.96,
        "obs": 54,
-       "esp": 55.8
+       "esp": 56.4
       },
       {
        "mes": "2025-03",
-       "oe": 0.73,
+       "oe": 0.72,
        "obs": 44,
-       "esp": 60.4
+       "esp": 60.7
       },
       {
        "mes": "2025-04",
        "oe": 0.88,
        "obs": 57,
-       "esp": 64.5
+       "esp": 65.1
       },
       {
        "mes": "2025-05",
-       "oe": 0.73,
+       "oe": 0.72,
        "obs": 27,
-       "esp": 37.2
+       "esp": 37.5
       },
       {
        "mes": "2025-06",
-       "oe": 0.98,
+       "oe": 0.97,
        "obs": 26,
-       "esp": 26.6
+       "esp": 26.7
       },
       {
        "mes": "2025-07",
-       "oe": 0.95,
+       "oe": 0.94,
        "obs": 35,
-       "esp": 36.7
+       "esp": 37.1
       },
       {
        "mes": "2025-08",
-       "oe": 0.76,
+       "oe": 0.75,
        "obs": 26,
-       "esp": 34.1
+       "esp": 34.7
       },
       {
        "mes": "2025-09",
        "oe": 1.66,
        "obs": 52,
-       "esp": 31.2
+       "esp": 31.3
       },
       {
        "mes": "2025-10",
-       "oe": 1.39,
+       "oe": 1.38,
        "obs": 49,
-       "esp": 35.2
+       "esp": 35.5
       },
       {
        "mes": "2025-11",
-       "oe": 1.01,
+       "oe": 1.0,
        "obs": 25,
-       "esp": 24.8
+       "esp": 24.9
       },
       {
        "mes": "2025-12",
@@ -3628,13 +3689,13 @@
        "mes": "2026-02",
        "oe": 1.33,
        "obs": 46,
-       "esp": 34.5
+       "esp": 34.6
       },
       {
        "mes": "2026-03",
-       "oe": 1.1,
+       "oe": 1.09,
        "obs": 40,
-       "esp": 36.4
+       "esp": 36.6
       },
       {
        "mes": "2026-04",
@@ -3650,65 +3711,65 @@
       },
       {
        "mes": "2026-06",
-       "oe": 1.56,
+       "oe": 1.57,
        "obs": 51,
-       "esp": 32.6
+       "esp": 32.5
       },
       {
        "mes": "2026-07",
        "oe": 0.9,
        "obs": 29,
-       "esp": 32.2
+       "esp": 32.1
       },
       {
        "mes": "2026-08",
-       "oe": 0.66,
+       "oe": 0.65,
        "obs": 22,
-       "esp": 33.3
+       "esp": 33.8
       },
       {
        "mes": "2026-09",
-       "oe": 1.02,
+       "oe": 1.03,
        "obs": 27,
-       "esp": 26.5
+       "esp": 26.3
       },
       {
        "mes": "2026-10",
-       "oe": 0.89,
-       "obs": 29,
-       "esp": 32.5
+       "oe": 1.15,
+       "obs": 37,
+       "esp": 32.3
       },
       {
        "mes": "2026-11",
-       "oe": null,
-       "obs": 0,
-       "esp": 0.5
+       "oe": 0.19,
+       "obs": 1,
+       "esp": 5.3
       }
      ],
      "partes": [
       {
        "parte": "C-AD625LG",
-       "rechazos": 24,
-       "pct_defecto": 7.0,
-       "moldeadas": 597,
-       "tasa": 4.0,
+       "rechazos": 26,
+       "pct_defecto": 7.3,
+       "moldeadas": 603,
+       "tasa": 4.3,
        "tasa_prev": 5.1,
        "desarrollo": true
       },
       {
        "parte": "395725- RC",
-       "rechazos": 21,
-       "pct_defecto": 6.1,
-       "moldeadas": 441,
-       "tasa": 4.8,
+       "rechazos": 24,
+       "pct_defecto": 6.7,
+       "moldeadas": 456,
+       "tasa": 5.3,
        "tasa_prev": 3.3,
        "desarrollo": false
       },
       {
        "parte": "C-AD626LG",
        "rechazos": 20,
-       "pct_defecto": 5.8,
-       "moldeadas": 859,
+       "pct_defecto": 5.6,
+       "moldeadas": 879,
        "tasa": 2.3,
        "tasa_prev": 9.5,
        "desarrollo": false
@@ -3716,37 +3777,37 @@
       {
        "parte": "089429001W",
        "rechazos": 18,
-       "pct_defecto": 5.2,
-       "moldeadas": 207,
-       "tasa": 8.7,
+       "pct_defecto": 5.1,
+       "moldeadas": 213,
+       "tasa": 8.5,
        "tasa_prev": 0.0,
        "desarrollo": false
       },
       {
        "parte": "2076246- RC",
-       "rechazos": 15,
-       "pct_defecto": 4.3,
-       "moldeadas": 606,
-       "tasa": 2.5,
+       "rechazos": 18,
+       "pct_defecto": 5.1,
+       "moldeadas": 626,
+       "tasa": 2.9,
        "tasa_prev": 2.3,
        "desarrollo": true
       }
      ],
      "piso": {
-      "rechazos": 810,
-      "pct_causa_generica": 60,
+      "rechazos": 821,
+      "pct_causa_generica": 61,
       "responsable": [
        {
         "valor": "FAARENAS",
-        "pct": 34
+        "pct": 33
        },
        {
         "valor": "FAAF3",
-        "pct": 18
+        "pct": 19
        },
        {
         "valor": "FATERMINADO",
-        "pct": 16
+        "pct": 17
        }
       ],
       "area": [
@@ -3783,10 +3844,10 @@
       ]
      },
      "temp_pieza": {
-      "n": 462,
-      "pct_bajo_min": 19.3,
-      "pct_sobre_max": 30.1,
-      "sobre_min": 8.5
+      "n": 535,
+      "pct_bajo_min": 17.2,
+      "pct_sobre_max": 33.3,
+      "sobre_min": 9.5
      }
     }
    ],
@@ -3796,20 +3857,20 @@
      "senal": "temp_bajo_min",
      "etiqueta": "Temperatura promedio abajo del mínimo de la parte",
      "fuente": "temperatura",
-     "coladas": 568,
-     "oe": 0.7,
+     "coladas": 591,
+     "oe": 0.69,
      "obs": 15,
-     "esp": 21.4
+     "esp": 21.8
     },
     {
      "defecto": "Familia dimensional / maquinado",
      "senal": "carga_fuera",
      "etiqueta": "Carga metálica con algún material fuera de tolerancia",
      "fuente": "carga",
-     "coladas": 4165,
-     "oe": 0.89,
-     "obs": 185,
-     "esp": 208.7
+     "coladas": 4229,
+     "oe": 0.91,
+     "obs": 193,
+     "esp": 212.5
     }
    ],
    "arena": null
