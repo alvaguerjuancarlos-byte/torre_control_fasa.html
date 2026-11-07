@@ -4011,7 +4011,10 @@ def produccion_tonelaje_mensual(anios: str = Query(default="2024,2025")):
     # 2026-10-28: desde INICIO_RECHAZO_PISO (jul-2026) el rechazo sí existe (vaciado + rechazo de
     # piso, core.RECHAZO_PZAS_SQL), pero betamega_03 sigue sin las coladas. Esos meses toman el
     # metal de _coladas_kg_mensual y parten los kilos con la fracción de piezas rechazadas del
-    # mes (solo rechazo interno) -- aproximación mensual, no colada por colada como antes de julio.
+    # mes -- aproximación mensual, no colada por colada como antes de julio.
+    # 2026-11-06: la fracción de rechazo ya incluye el externo (b01, ver core.CORTE_B01); solo
+    # rechazo interno = desde CORTE_B01. betamega_03 trae otra vez las coladas, pero su encabezado
+    # de kilos sigue en 2026-08-17, así que el tonelaje sigue saliendo de _coladas_kg_mensual.
     for y in lista_anios:
         y_ini, y_fin = f"{y}-01-01 00:00:00", f"{y}-12-31 23:59:59"
         nc = set(meses_rechazo_no_confiables(y_ini, y_fin))
@@ -4036,8 +4039,8 @@ def produccion_tonelaje_mensual(anios: str = Query(default="2024,2025")):
             ok, rech = _partir(v["kg"])
             meses[mk] = {
                 "anio": int(mk[:4]), "mes": int(mk[5:7]),
-                "fuente": "coladas" if frac is None else "coladas+rechazo_piso",
-                "solo_rechazo_interno": frac is not None,
+                "fuente": "coladas" if frac is None else "coladas+rechazo",
+                "solo_rechazo_interno": frac is not None and mk >= RECHAZO_SOLO_INTERNO_DESDE,
                 "coladas": v["coladas"], "kg_brutos": round(v["kg"]),
                 "total_piezas": n_pz or None, "piezas_ok": (n_pz - n_rec) if frac is not None else None,
                 "piezas_rech": n_rec if frac is not None else None,

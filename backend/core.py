@@ -331,23 +331,57 @@ def evaluar_carril(
 UMBRAL_PIEZAS_MES_CONFIABLE = 200
 
 
-# Rechazo por pieza, una sola fuente para todo el backend (2026-10-28). betamega_01 dejó de
-# marcar bRechazo el 9-jul-2026 (ticketcorrida detenida) y además solo ve ~1 % de los tickets
-# desde julio. El 27-oct IT copió a ia_fasa.rechazo el registro de rechazo de piso, vivo:
-# validado ticket por ticket contra b01 en ene-jun 2026, es EXACTAMENTE el rechazo interno
-# (IntExt='Int') de b01 (557/557 en ene, 0 sobrantes). Así que:
-#   - FHrVaciado < INICIO_RECHAZO_PISO: b01 tal cual (Int + Ext).
-#   - desde INICIO_RECHAZO_PISO: piezas vaciadas (ticketsconvaciadodirecto, completa) +
-#     ia_fasa.rechazo por idticket. Sin rechazo EXTERNO (devoluciones de cliente, ~1-6 pp
-#     en 2026): no hay fuente viva para él -- RECHAZO_SOLO_INTERNO_DESDE lo dice en la UI.
-# Forma de la tabla: cada fila trae `pz` (1 = pieza producida) y `bRechazo`; la parte nueva
-# viene en dos ramas (piezas con pz=1 y rechazos con pz=0, bRechazo=1) porque MariaDB 10.5
+# Rechazo por pieza, una sola fuente para todo el backend.
+# 2026-10-28: betamega_01 dejó de marcar bRechazo el 9-jul-2026 (ticketcorrida detenida) y el
+# 27-oct IT copió a ia_fasa.rechazo el registro de rechazo de piso, vivo -- validado ticket por
+# ticket: es EXACTAMENTE el rechazo interno (IntExt='Int') de b01. Desde jul-2026 se usó piso.
+# 2026-11-06: IT rellenó b01 de jul a oct-2026 con rechazo interno Y externo (devoluciones de
+# cliente). Su interno coincide 100 % con piso mes por mes (ene-oct 2026) y trae julio completo
+# (4,444 piezas; el vaciado solo tiene 394), así que vuelve a ser la fuente de TODOS los meses.
+# Respaldo automático: CORTE_B01 (calculado al arrancar el servidor) es el primer mes desde
+# jul-2026 en que b01 trae < 80 % del rechazo interno de piso (meses con >= 100 rechazos de
+# piso); si b01 se vuelve a detener, desde ese mes se usa piso como antes (piezas vaciadas +
+# ia_fasa.rechazo, sin externo -- RECHAZO_SOLO_INTERNO_DESDE lo dice en la UI). Sin corte,
+# CORTE_B01 = '2100-01-01' y las ramas de piso no traen filas.
+# Forma de la tabla: cada fila trae `pz` (1 = pieza producida) y `bRechazo`; la rama de piso
+# viene en dos partes (piezas con pz=1 y rechazos con pz=0, bRechazo=1) porque MariaDB 10.5
 # sin hash join tarda ~90 s en LEFT JOIN vdir -> rechazo (sin índice) y 0.2 s si se maneja
 # desde rechazo hacia vdir (indexado). Por eso SIEMPRE se cuenta con SUM(pz), nunca COUNT(*),
-# y por ticket se agrupa (MAX(bRechazo)). Defecto: catálogo por idDefecto con el nombre que
-# usa b01 (57 = 'MICROSETRUCTURA' en b01; MIN() del catálogo da el resto igual, 97 %).
+# y por ticket se agrupa (MAX(bRechazo)). Defecto de piso: catálogo por idDefecto con el nombre
+# que usa b01 (57 = 'MICROSETRUCTURA' en b01; MIN() del catálogo da el resto igual, 97 %).
+B01_MIN_PCT_PISO = 0.80
+B01_MIN_RECHAZOS_MES = 100
+
+
+def _corte_b01() -> str:
+    """Primer día del primer mes (desde jul-2026) con b01 detenido; '2100-01-01' si está al día.
+    Si la BD no responde al arrancar, se queda con el criterio anterior (piso desde jul-2026)."""
+    try:
+        b01 = {r["m"]: int(r["n"] or 0) for r in run("""
+            SELECT DATE_FORMAT(FechaRechazo, '%Y-%m') AS m, COUNT(*) AS n
+            FROM betamega_01_rechazosbyidticket
+            WHERE bRechazo = 1 AND IntExt = 'Int' AND FechaRechazo >= '2026-07-01'
+            GROUP BY m""")}
+        piso = {r["m"]: int(r["n"] or 0) for r in run("""
+            SELECT DATE_FORMAT(fecha, '%Y-%m') AS m, COUNT(DISTINCT idticket) AS n
+            FROM rechazo WHERE fecha >= '2026-07-01' GROUP BY m""")}
+    except Exception:
+        return "2026-07-01"
+    for m in sorted(piso):
+        if piso[m] >= B01_MIN_RECHAZOS_MES and b01.get(m, 0) < B01_MIN_PCT_PISO * piso[m]:
+            return f"{m}-01"
+    return "2100-01-01"
+
+
+CORTE_B01 = _corte_b01()
+RECHAZO_SOLO_INTERNO_DESDE = CORTE_B01[:7]
+
+# Piezas por colada (Ejecutivo, PIEZAS_PROCESO_SQL) desde jul-2026 siguen saliendo del vaciado:
+# betamega_03 ya trae las piezas de jul-oct-2026 con colada (salvo julio: 477 de 4,445), pero el
+# encabezado de colada que da los kilos se quedó en 2026-08-17 (tonelaje de sep = 12 t). Lo que
+# cambia el 2026-11-06 es solo el rechazo: b01 ligado por idTicketVaciado (100 % de los rechazos
+# de ago-oct se ligan así), interno y externo, hasta CORTE_B01.
 INICIO_RECHAZO_PISO = "2026-07-01"
-RECHAZO_SOLO_INTERNO_DESDE = "2026-07"
 
 # Hueco del registro de vaciado: ticketsconvaciadodirecto no tiene NI UNA pieza del 23-jun al
 # 28-jul-2026 (394 en todo julio vs 4,364 moldeadas). betamega_aleks_idtickethistorial sí trae
@@ -371,31 +405,37 @@ _HUECO_SQL = f"""(
                           WHERE v.idTicket = a.IdTicket)
         GROUP BY a.IdTicket)"""
 
-_RECHAZO_DESDE_SQL = f"r.fecha >= DATE_SUB('{INICIO_RECHAZO_PISO}', INTERVAL 1 MONTH)"
+_RECHAZO_DESDE_SQL = f"r.fecha >= DATE_SUB('{CORTE_B01}', INTERVAL 1 MONTH)"
 
 RECHAZO_PZAS_SQL = f"""(
     SELECT idTicket, No_Parte, FHrVaciado, 1 AS pz, bRechazo, FechaRechazo, IntExt, nomDefecto
-    FROM betamega_01_rechazosbyidticket WHERE FHrVaciado < '{INICIO_RECHAZO_PISO}'
+    FROM betamega_01_rechazosbyidticket WHERE FHrVaciado < '{CORTE_B01}'
     UNION ALL
     SELECT idTicket, TRIM(no_parte), FHrVaciado, 1, 0, NULL, 'Ok', NULL
-    FROM betamega_00_ticketsconvaciadodirecto WHERE FHrVaciado >= '{INICIO_RECHAZO_PISO}'
+    FROM betamega_00_ticketsconvaciadodirecto WHERE FHrVaciado >= '{CORTE_B01}'
     UNION ALL
     SELECT v.idTicket, TRIM(v.no_parte), v.FHrVaciado, 0, 1, r.fecha, 'Int', {_DEFECTO_PISO_SQL}
     FROM rechazo r STRAIGHT_JOIN betamega_00_ticketsconvaciadodirecto v ON v.idTicket = r.idticket
-    WHERE {_RECHAZO_DESDE_SQL} AND v.FHrVaciado >= '{INICIO_RECHAZO_PISO}'
+    WHERE {_RECHAZO_DESDE_SQL} AND v.FHrVaciado >= '{CORTE_B01}'
     UNION ALL
     SELECT idTicket, no_parte, FHrVaciado, 1, 0, NULL, 'Ok', NULL FROM {_HUECO_SQL} h
+    WHERE h.FHrVaciado >= '{CORTE_B01}'
     UNION ALL
     SELECT h.idTicket, h.no_parte, h.FHrVaciado, 0, 1, r.fecha, 'Int', {_DEFECTO_PISO_SQL}
     FROM rechazo r STRAIGHT_JOIN {_HUECO_SQL} h ON h.idTicket = r.idticket
-    WHERE {_RECHAZO_DESDE_SQL}
+    WHERE {_RECHAZO_DESDE_SQL} AND h.FHrVaciado >= '{CORTE_B01}'
 )"""
 
 # Misma idea con las columnas de colada que usa Ejecutivo (resumen anual, pronóstico, scatter,
 # tonelaje): betamega_03 antes de INICIO_RECHAZO_PISO; después, vaciado (Colada/Horno de
-# ticketsconvaciadodirecto, sin tiempos de horno: quedan NULL) + rechazo de piso; las piezas del
-# HUECO_VACIADO cuentan su colada por IdColada (Horno = 'aleks'). Mismas reglas: SUM(pz) para
-# piezas, nunca COUNT(*).
+# ticketsconvaciadodirecto, sin tiempos de horno: quedan NULL) + aleks en el hueco (colada por
+# IdColada, Horno = 'aleks'), con el rechazo de b01 por idTicketVaciado hasta CORTE_B01 y el de
+# piso desde CORTE_B01. Mismas reglas: SUM(pz) para piezas, nunca COUNT(*).
+_B01_RECH_SQL = f"""(SELECT COALESCE(idTicketVaciado, idTicket) AS idTv, nomDefecto
+        FROM betamega_01_rechazosbyidticket
+        WHERE bRechazo = 1 AND FHrVaciado >= '{INICIO_RECHAZO_PISO}'
+          AND FHrVaciado < '{CORTE_B01}')"""
+
 PIEZAS_PROCESO_SQL = f"""(
     SELECT idTicket, No_Parte, FHrVaciado, 1 AS pz, bRechazo, nomDefecto, Colada, Horno,
            MinutosTiempoHorno, FechaInicial, FechaLiberado
@@ -404,18 +444,26 @@ PIEZAS_PROCESO_SQL = f"""(
     SELECT idTicket, TRIM(no_parte), FHrVaciado, 1, 0, NULL, Colada, Horno, NULL, NULL, NULL
     FROM betamega_00_ticketsconvaciadodirecto WHERE FHrVaciado >= '{INICIO_RECHAZO_PISO}'
     UNION ALL
+    SELECT v.idTicket, TRIM(v.no_parte), v.FHrVaciado, 0, 1, b.nomDefecto,
+           v.Colada, v.Horno, NULL, NULL, NULL
+    FROM {_B01_RECH_SQL} b STRAIGHT_JOIN betamega_00_ticketsconvaciadodirecto v ON v.idTicket = b.idTv
+    UNION ALL
     SELECT v.idTicket, TRIM(v.no_parte), v.FHrVaciado, 0, 1, {_DEFECTO_PISO_SQL},
            v.Colada, v.Horno, NULL, NULL, NULL
     FROM rechazo r STRAIGHT_JOIN betamega_00_ticketsconvaciadodirecto v ON v.idTicket = r.idticket
-    WHERE {_RECHAZO_DESDE_SQL} AND v.FHrVaciado >= '{INICIO_RECHAZO_PISO}'
+    WHERE {_RECHAZO_DESDE_SQL} AND v.FHrVaciado >= '{CORTE_B01}'
     UNION ALL
     SELECT idTicket, no_parte, FHrVaciado, 1, 0, NULL, IdColada, 'aleks', NULL, NULL, NULL
     FROM {_HUECO_SQL} h
     UNION ALL
+    SELECT h.idTicket, h.no_parte, h.FHrVaciado, 0, 1, b.nomDefecto,
+           h.IdColada, 'aleks', NULL, NULL, NULL
+    FROM {_B01_RECH_SQL} b STRAIGHT_JOIN {_HUECO_SQL} h ON h.idTicket = b.idTv
+    UNION ALL
     SELECT h.idTicket, h.no_parte, h.FHrVaciado, 0, 1, {_DEFECTO_PISO_SQL},
            h.IdColada, 'aleks', NULL, NULL, NULL
     FROM rechazo r STRAIGHT_JOIN {_HUECO_SQL} h ON h.idTicket = r.idticket
-    WHERE {_RECHAZO_DESDE_SQL}
+    WHERE {_RECHAZO_DESDE_SQL} AND h.FHrVaciado >= '{CORTE_B01}'
 )"""
 
 # Mes con piezas vaciadas registradas muy por debajo de las moldeadas (aleks): el denominador
