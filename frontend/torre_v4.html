@@ -2594,6 +2594,7 @@ async function renderFlujoRastreo(){
     d=await r.json()
   }catch(e){ box.innerHTML='<div style="color:red;font-size:12px">Error al cargar el flujo ('+e.message+').</div>'; return }
   if(_flModo==='parte') return
+  _frData=d
   const I=d.indicadores, nf=v=>Number(v||0).toLocaleString('es-MX')
   if(!I.coladas){ box.innerHTML='<div class="empty-msg">Sin coladas en la ventana</div>'; return }
 
@@ -2652,6 +2653,35 @@ async function renderFlujoRastreo(){
     + `<div class="ret-leyenda" style="margin-top:6px">El hueco no se cierra con los días: no es trabajo en proceso, es rastro perdido. La fuente es <i>betamega_00_ticketsconvaciadodirecto</i>; si los vaciados indirectos viven en otra tabla, IT debe integrarla.</div></div>`
     + `</div>`
     + `<div style="margin-top:16px"><div class="rc-sub">Coladas por horno · ${d.linea_tiempo.desde.slice(5,16)} a ${d.linea_tiempo.hasta.slice(5,16)}</div>${linea}</div>`
+    + `<div style="margin-top:16px"><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px">`
+    + `<div class="rc-sub" style="margin:0">Lista de coladas · clic para ver sus puntos de control y sus piezas</div>`
+    + `<div style="margin-left:auto;display:flex;gap:6px;align-items:center;font-size:12px">`
+    + `<select id="fr-f-estado" onchange="renderListaColadas()"><option value="">Todas</option><option value="fuerte">⚑ Señal fuerte</option><option value="ROJO">Rojas</option><option value="AMBAR">Ámbar</option><option value="VERDE">Limpias</option></select>`
+    + `<select id="fr-f-horno" onchange="renderListaColadas()"><option value="">Todos los hornos</option>${hornos.map(h=>`<option value="${h}">Horno ${h}</option>`).join('')}</select>`
+    + `<input id="fr-f-buscar" oninput="renderListaColadas()" placeholder="Colada o No. parte" style="width:150px;padding:3px 6px">`
+    + `</div></div><div id="fr-lista"></div></div>`
+  renderListaColadas()
+}
+
+// Lista de coladas (2026-11-08): la vista colada por colada que daba el kanban, filtrable; clic
+// abre el detalle de siempre (7 PCs + piezas por No. Parte).
+let _frData=null
+function renderListaColadas(){
+  const box=document.getElementById('fr-lista'); if(!box||!_frData) return
+  const fe=document.getElementById('fr-f-estado').value, fh=document.getElementById('fr-f-horno').value
+  const q=(document.getElementById('fr-f-buscar').value||'').trim().toLowerCase()
+  const lista=_frData.linea_tiempo.coladas.slice().reverse().filter(c=>
+      (!fe || (fe==='fuerte'?c.senal==='fuerte':c.gravedad===fe)) && (!fh || String(c.horno)===fh)
+      && (!q || String(c.colada).includes(q) || c.partes.some(p=>p.toLowerCase().includes(q))))
+  const max=60
+  box.innerHTML=lista.length ? `<table class="rc-tabla"><thead><tr><th style="text-align:left">Colada</th><th style="text-align:left">Inicio</th><th style="text-align:left">Clase</th><th style="text-align:left">Estado</th><th>Piezas</th><th style="text-align:left">Partes</th></tr></thead><tbody>`
+    + lista.slice(0,max).map(c=>`<tr class="rc-fila" onclick="abrirDetalleFlujo(${c.id_colada});document.getElementById('fl-detalle').scrollIntoView({behavior:'smooth'})">`
+      +`<td style="white-space:nowrap"><span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:${FR_COL[c.gravedad]};margin-right:6px"></span><b>${c.colada}</b> · H${c.horno}${c.senal==='fuerte'?' <span style="color:#B91C1C;font-weight:700" title="Señal fuerte de Beta">⚑</span>':''}</td>`
+      +`<td style="white-space:nowrap;color:var(--color-text-secondary)">${String(c.inicio).slice(5,16).replace('-','/')}</td><td>${c.clase||'—'}</td>`
+      +`<td>${c.rojos.length?`<span style="color:#B91C1C">${c.rojos.join(' + ')} en rojo</span>`:''}${c.rojos.length&&c.ambar.length?' · ':''}${c.ambar.length?`<span style="color:#B45309">${c.ambar.join(' + ')} en ámbar</span>`:''}${!c.rojos.length&&!c.ambar.length?`<span style="color:var(--color-text-tertiary)">${c.gravedad==='VERDE'?'limpia':'sin dato de producto'}</span>`:''}</td>`
+      +`<td style="text-align:right">${c.piezas}</td><td style="color:var(--color-text-tertiary)">${c.partes.join(', ')}</td></tr>`).join('')
+    + `</tbody></table>` + (lista.length>max?`<div class="ret-leyenda">Se muestran ${max} de ${lista.length} coladas, las más recientes; usa los filtros o busca una colada o parte.</div>`:'')
+    : '<div class="empty-msg">Ninguna colada con ese filtro.</div>'
 }
 
 // Ventana/Referencia únicas para toda la pestaña Control del Proceso (JC, 2026-09-29) --
