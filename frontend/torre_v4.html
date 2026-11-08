@@ -2681,11 +2681,13 @@ async function abrirDrillPC(pc, mantener){
 function rcProtocoloHtml(lista){
   if(!lista.length) return ''
   return '<div class="rc-proto">' + lista.map(p=>
-      `<div><div class="rc-proto-tit">${p.codigo} · protocolo provisional${p.pc==='PC-3'?(p.responsable==='Calidad'?' · hierro nodular':' · hierro gris'):''}</div>`
+      `<div><div class="rc-proto-tit">${p.codigo} · protocolo provisional${lista.length>1?(p.clave.endsWith('nodular')?' · hierro nodular':' · hierro gris'):''}</div>`
       +(p.ambar?`<div><span class="pc-chip pc-AMBAR">ÁMBAR</span> ${p.ambar}</div>`:'')
       +`<div><span class="pc-chip pc-ROJO">ROJO</span> ${p.rojo}</div>`
-      +`<div class="rc-proto-meta">${p.responsable}${p.tiempo?' · '+p.tiempo:''}${p.liberar?' · liberar: '+p.liberar:''}</div></div>`).join('')
-    + '<div class="rc-proto-meta" style="grid-column:1/-1">Provisional mientras Calidad valida las reglas. Cada acción se anota en la bitácora del turno: colada, PC, qué se hizo y resultado.</div></div>'
+      +`<div class="rc-proto-meta">${p.responsable}${p.tiempo?' · '+p.tiempo:''}${p.liberar?' · liberar: '+p.liberar:''}</div>`
+      +((p.plan_control||[]).length?`<div class="rc-proto-meta">Plan de Control: ${p.plan_control.map(v=>`<span title="${(v.estandar||'').replace(/"/g,'&quot;')} · ventana: ${v.ventana||'—'}">${v.id} ${v.variable||''}</span>`).join(' · ')}</div>`:'')
+      +`</div>`).join('')
+    + '<div class="rc-proto-meta" style="grid-column:1/-1">Provisional mientras Calidad valida las reglas. Responsables y estándares del Plan de Control de CSC (pasa el cursor sobre una variable para ver su estándar). Cada acción se anota en la bitácora del turno: colada, PC, qué se hizo y resultado.</div></div>'
 }
 function cerrarDrillPC(){
   _rcDrillPC=null
@@ -3119,7 +3121,7 @@ function renderCarril(c){
   const pp=(_protoCat||{})[c.id_pc]
   const protoAcc=pp&&(c.estado==='ROJO'?pp.rojo:c.estado==='AMBAR'?pp.ambar:null)
   const protoHtml=protoAcc
-    ?`<div class="carril-protocolo">▲ ${pp.codigo}: <span style="font-weight:400">${protoAcc} · ${pp.responsable}${pp.tiempo?' · '+pp.tiempo:''}${c.id_pc==='PC-3'&&(_protoCat||{})['PC-3 nodular']?' · si es nodular: '+_protoCat['PC-3 nodular'].rojo:''}</span></div>`
+    ?`<div class="carril-protocolo">▲ ${pp.codigo}: <span style="font-weight:400">${protoAcc} · ${pp.responsable}${pp.tiempo?' · '+pp.tiempo:''}${(_protoCat||{})[c.id_pc+' nodular']&&c.estado==='ROJO'?' · si es nodular: '+_protoCat[c.id_pc+' nodular'].rojo:''}</span></div>`
     :(c.protocolo?`<div class="carril-protocolo">▲ Activar ${c.protocolo}</div>`:'')
 
   return `<div class="carril-row ${est}">
@@ -3191,7 +3193,7 @@ function renderAlertas(data){
       <div class="al-row-body">
         <div class="al-row-title">Colada ${a.u_colada} · H${a.horno}${tag}</div>
         <div class="al-row-meta">${fmtDt(a.inicio_fusion)}${a.pct_rechazo!=null?' · '+a.pct_rechazo+'% rechazo':''}${def}</div>
-        ${a.accion?`<div class="al-accion">▸ <b>${a.accion.codigo}</b> ${a.accion.accion} <span>${a.accion.responsable}${a.accion.tiempo?' · '+a.accion.tiempo:''}${a.accion.liberar?' · liberar: '+a.accion.liberar:''}</span></div>`:''}
+        ${a.accion?`<div class="al-accion">▸ <b>${a.accion.codigo}</b> ${a.accion.accion} <span>${a.accion.responsable}${a.accion.tiempo?' · '+a.accion.tiempo:''}${a.accion.liberar?' · liberar: '+a.accion.liberar:''}${(a.accion.variables||[]).length?' · '+a.accion.variables.join(', '):''}</span></div>`:''}
       </div>
     </div>`
   }).join('')
