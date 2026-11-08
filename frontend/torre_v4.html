@@ -2555,6 +2555,7 @@ async function cargarResumenControl(){
     + mc('Con ámbar', nf(G.coladas.AMBAR), 'warning', pct(G.coladas.AMBAR,U.coladas)+' · '+nf(G.piezas.AMBAR)+' piezas')
     + mc('Con rojo', nf(G.coladas.ROJO), 'danger', pct(G.coladas.ROJO,U.coladas)+' de las coladas')
     + mc('Piezas expuestas', nf(G.piezas.ROJO), 'danger', pct(G.piezas.ROJO,U.piezas)+' de las piezas · coladas en rojo')
+    + (d.senal_fuerte ? mc('⚑ Señal fuerte · Beta', nf(d.senal_fuerte.coladas)+' coladas', 'danger', nf(d.senal_fuerte.piezas)+' piezas · la parte ya rechaza por ese defecto') : '')
     + (G.coladas.GRIS ? mc('Sin dato de producto', nf(G.coladas.GRIS), 'secondary', 'ningún PC-1 a PC-4 evaluable') : '')
 
   // Matriz: una fila por PC, barra apilada de coladas por estado; producto arriba, registro abajo
@@ -2584,14 +2585,22 @@ async function cargarResumenControl(){
     + `</tbody></table>`
 
   if(d.atender.length){
-    document.getElementById('rc-atender').innerHTML='<div style="font-size:12px;font-weight:600;margin-bottom:6px">Atender primero</div><div style="display:flex;gap:8px;flex-wrap:wrap">'
-      + d.atender.map(a=>`<div onclick="abrirDetalleFlujo(${a.id_colada});document.getElementById('fl-detalle').scrollIntoView({behavior:'smooth'})" style="cursor:pointer;padding:6px 10px;border-radius:8px;border:1px solid #FCA5A5;border-left:4px solid #EF4444;background:#FEF2F2;font-size:11px">`
-        +`<b>Colada ${a.u_colada} · H${a.horno}</b> · ${a.piezas} pz<div style="color:#B91C1C">${a.rojos.join(' + ')} en rojo</div><div style="color:var(--color-text-tertiary)">${a.skus.join(', ')}</div></div>`).join('')
+    // Orden de Agente Beta: señal fuerte (rojo de hoy + la parte ya rechaza por ese defecto) primero
+    document.getElementById('rc-atender').innerHTML='<div style="font-size:12px;font-weight:600;margin-bottom:6px">Atender primero <span style="font-weight:400;color:var(--color-text-tertiary)">· orden de Agente Beta: primero las coladas en rojo cuya parte ya rechaza por el defecto que ese PC provoca</span></div><div style="display:flex;gap:8px;flex-wrap:wrap">'
+      + d.atender.map(a=>{
+          const f=a.senal==='fuerte'
+          const razon=(a.partes_riesgo||[]).slice(0,2).map(p=>`${p.no_parte} rechaza ${p.pct}% por ${p.defecto.toLowerCase()}`).join(' · ')
+          return `<div onclick="abrirDetalleFlujo(${a.id_colada});document.getElementById('fl-detalle').scrollIntoView({behavior:'smooth'})" style="cursor:pointer;max-width:330px;padding:6px 10px;border-radius:8px;border:1px solid ${f?'#FCA5A5':'#FCD34D'};border-left:4px solid ${f?'#B91C1C':'#F59E0B'};background:${f?'#FEF2F2':'#FFFBEB'};font-size:11px">`
+            +`<div>${f?'<b style="color:#B91C1C">⚑ SEÑAL FUERTE</b> · ':''}<b>Colada ${a.u_colada} · H${a.horno}</b> · ${a.piezas} pz${a.clase?' · '+a.clase:''}</div>`
+            +`<div style="color:#B91C1C">${a.rojos.join(' + ')} en rojo${a.ambar.length?' · '+a.ambar.join(' + ')+' en ámbar':''}</div>`
+            +(razon?`<div style="color:var(--color-text-secondary)">${razon}</div>`:`<div style="color:var(--color-text-tertiary)">${a.skus.join(', ')}</div>`)
+            +`</div>`}).join('')
       + '</div>'
   }
   document.getElementById('rc-nota').innerHTML=
     '<b>Cómo se lee:</b> la colada toma el peor estado de PC-1 a PC-4 (riesgo de producto); PC-5 a PC-7 llegan días después del vaciado (desmoldeo, rechazo y cierre) y se cuentan aparte. '
     + '«Piezas expuestas» = piezas de coladas en rojo. «Cobertura» = coladas en que el PC se pudo evaluar. '
+    + '<b>Señal fuerte (Agente Beta):</b> colada en rojo con una parte que ya rechaza ≥ 3 % por el defecto ligado a ese PC (temperatura → fierro frío, no lleno; ITACA y química → sopladura, porosidad, rechupe, microestructura…); la liga defecto–PC es propuesta, pendiente de Calidad. '
     + '<b>Calibración propuesta el 8-nov-2026, pendiente de Calidad:</b> PC-1 cuenta un material fuera arriba de 2× la tolerancia de báscula y rojo arriba del 5 % de su receta; '
     + 'PC-4 da 5 °C de margen sobre el máximo de la parte y es grave si el vaciado va frío o más de 15 °C arriba (rojo si más de un tercio de los tickets son graves). '
     + 'Clic en un punto de control para ver qué lo saca de verde y dónde.'
@@ -2666,7 +2675,7 @@ async function abrirDrillPC(pc, mantener){
       +`<td style="text-align:right;font-weight:600">${k.evaluables?Math.round((k.AMBAR+k.ROJO)/k.evaluables*100):0}%</td></tr>`).join('') + '</tbody></table>'
 
   const lista=d.coladas.map((c,i)=>`<tr class="rc-fila${i>=12?' rc-extra':''}" onclick="abrirDetalleFlujo(${c.id_colada});document.getElementById('fl-detalle').scrollIntoView({behavior:'smooth'})" style="${i>=12?'display:none':''}">`
-      +`<td style="white-space:nowrap"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${RC_COL[c.estado]};margin-right:6px"></span><b>${c.u_colada}</b> · H${c.horno}</td>`
+      +`<td style="white-space:nowrap"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${RC_COL[c.estado]};margin-right:6px"></span><b>${c.u_colada}</b> · H${c.horno}${c.senal==='fuerte'?` <span title="Señal fuerte (Beta): ${(c.partes_riesgo||[]).map(p=>p.no_parte+' rechaza '+p.pct+'% por '+p.defecto.toLowerCase()).join('; ')}" style="color:#B91C1C;font-weight:700">⚑</span>`:''}</td>`
       +`<td style="color:var(--color-text-secondary);white-space:nowrap">${String(c.inicio_fusion).slice(5,16).replace('-','/')}</td><td>${c.clase||'—'}</td>`
       +`<td>${c.causas.map(x=>rcCausaTxt(pc,x)).join(' · ')||'<span style="color:var(--color-text-tertiary)">—</span>'}</td>`
       +`<td style="text-align:right">${c.piezas}</td><td style="color:var(--color-text-tertiary)">${c.skus.join(', ')}</td></tr>`).join('')

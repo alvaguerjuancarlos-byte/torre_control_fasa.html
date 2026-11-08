@@ -9,6 +9,8 @@ tres preguntas sobre el universo de la ventana:
      piezas expuestas (piezas de coladas en ROJO de producto).
   2. ¿Dónde?         por PC, coladas y piezas en VERDE / ÁMBAR / ROJO / GRIS, más el motivo
      de gris más común (para que el gris no se esconda).
+  2b. Señal fuerte  (Agente Beta automático) coladas en rojo de producto cuyas partes ya
+     rechazaban históricamente; ordena "atender primero". Ver senales_beta().
   3. Retornos        incumplimiento del Plan de Control (≤ 30 % de la carga), aparte: no
      colorea la colada (ver core.PC1_RETORNOS_MAX_PCT).
 
@@ -31,6 +33,7 @@ from fastapi import APIRouter, Query
 
 from backend.core import CARRILES, PC1_RETORNOS_MAX_PCT, _evaluar_coladas_ventana
 from backend.protocolos import catalogo as _catalogo_protocolos
+from backend.routers.beta import _riesgo_lote_partes
 
 router = APIRouter()
 
@@ -41,6 +44,59 @@ _ORDEN = {"ROJO": 3, "AMBAR": 2, "VERDE": 1, "GRIS": 0}
 
 def _peor(estados: list) -> str:
     return max(estados, key=lambda e: _ORDEN.get(e, 0)) if estados else "GRIS"
+
+
+# Señal fuerte (2026-11-08, Agente Beta automático): una colada fuera de control HOY en una parte
+# que YA rechaza por el defecto que ese PC provoca es lo primero que hay que atender -- la idea de
+# /api/beta/criticas (PC-6 rojo ∩ riesgo alto), pero con PC-1 a PC-4, que se conocen al momento y
+# no ~11 días después. Historia de la parte = compuerta 1 de Beta (gamamega_01_riesgodefectoparte,
+# 2023+2025): defecto dominante y % de rechazo. Sin LLM: reglas y datos, instantáneo y gratis.
+#
+# Por qué no basta FlagCriticidadDefectoParte: marca concentración de un defecto (z), no rechazo
+# alto -- 60 de 66 partes de la semana al 8-nov lo traían (hasta con 0.4 % de rechazo) y 52 de 61
+# coladas rojas salían "fuertes". Con defecto ligado al PC + rechazo ≥ 3 % quedan 19 de 61.
+#   fuerte = PC de producto en ROJO + una parte cuyo defecto dominante está ligado a ese PC
+#            (DEFECTOS_POR_PC) y que rechaza ≥ SENAL_PCT_MIN % históricamente
+#   media  = ROJO sin esa coincidencia, o ÁMBAR con ella
+#   baja   = ÁMBAR sin ella
+# DEFECTOS_POR_PC es criterio metalúrgico PROPUESTO (temperatura -> fierro frío / no lleno;
+# ITACA -> sopladura, porosidad, rechupe, microestructura...), pendiente de validar con Calidad.
+_SENAL_ORDEN = {"fuerte": 0, "media": 1, "baja": 2}
+SENAL_PCT_MIN = 3.0
+DEFECTOS_POR_PC = {
+    "PC-1": {"SOPLADURA", "CARBON LUSTROSO"},
+    "PC-2": {"MICROSETRUCTURA", "PROP  MEC Y QUIMICA", "FISURADO", "QUEBRADO", "SOPLADURA",
+             "POROSIDAD", "CARBON LUSTROSO"},
+    "PC-3": {"SOPLADURA", "POROSIDAD", "RECHUPE", "DEPRESION", "MICROSETRUCTURA",
+             "PROP  MEC Y QUIMICA", "FISURADO", "QUEBRADO"},
+    "PC-4": {"FIERRO FRIO", "GOTA DE FIERRO FRIO", "NO LLENO", "PENETRADO"},
+}
+
+
+def senales_beta(coladas: list, grav: dict) -> dict:
+    """{id_colada: {senal, partes_riesgo[{no_parte, piezas, defecto, pct}], piezas_riesgo}} para
+    las coladas en ÁMBAR/ROJO de producto. Una sola consulta para todas las partes."""
+    fuera = [c for c in coladas if grav.get(c["id_colada"]) in ("ROJO", "AMBAR")]
+    partes = sorted({s["sku"] for c in fuera for s in (c.get("skus") or []) if s.get("sku")})
+    try:
+        riesgo = _riesgo_lote_partes(partes)
+    except Exception:  # sin la tabla de criticidad: el resumen sigue, solo sin señal
+        riesgo = {}
+    out = {}
+    for c in fuera:
+        g = grav[c["id_colada"]]
+        pcs = [p for p in DEFECTOS_POR_PC if c["estados"].get(p) == g]  # los PCs que dan la gravedad
+        altas = []
+        for s_ in (c.get("skus") or []):
+            h = riesgo.get(s_["sku"]) or {}
+            ligados = [p for p in pcs if h.get("defecto_dominante") in DEFECTOS_POR_PC[p]]
+            if ligados and h.get("pct_rchz_total", 0) * 100 >= SENAL_PCT_MIN:
+                altas.append({"no_parte": s_["sku"], "piezas": s_["total"], "defecto": h["defecto_dominante"],
+                              "pct": round(h["pct_rchz_total"] * 100, 1), "pc": ligados})
+        senal = "fuerte" if g == "ROJO" and altas else "media" if g == "ROJO" or altas else "baja"
+        out[c["id_colada"]] = {"senal": senal, "partes_riesgo": altas,
+                               "piezas_riesgo": sum(a["piezas"] for a in altas)}
+    return out
 
 
 @router.get("/v3/gestion/resumen-control")
@@ -87,8 +143,13 @@ def resumen_control(referencia: Optional[str] = Query(default=None), horas: int 
         })
 
     ret = [c["pct_retornos"] for c in coladas if c.get("pct_retornos") is not None]
-    peores = sorted((c for c in coladas if grav[c["id_colada"]] == "ROJO"),
-                    key=lambda c: (-sum(c["estados"][p] == "ROJO" for p in PCS_PRODUCTO), -(c["piezas"] or 0)))
+    sen = senales_beta(coladas, grav)
+    # "Atender primero" por señal de Beta: fuerte antes que media, y dentro, más piezas de partes
+    # que ya rechazaban; después más PCs en rojo y más piezas.
+    peores = sorted((c for c in coladas if c["id_colada"] in sen and sen[c["id_colada"]]["senal"] != "baja"),
+                    key=lambda c: (_SENAL_ORDEN[sen[c["id_colada"]]["senal"]], -sen[c["id_colada"]]["piezas_riesgo"],
+                                   -sum(c["estados"][p] == "ROJO" for p in PCS_PRODUCTO), -(c["piezas"] or 0)))
+    fuertes = [c for c in coladas if sen.get(c["id_colada"], {}).get("senal") == "fuerte"]
     return {
         "referencia": referencia, "horas": horas,
         "universo": {"coladas": len(coladas), "piezas": sum(c["piezas"] or 0 for c in coladas)},
@@ -104,11 +165,19 @@ def resumen_control(referencia: Optional[str] = Query(default=None), horas: int 
             "coladas_sobre_limite": sum(1 for x in ret if x > PC1_RETORNOS_MAX_PCT),
             "mediana_pct": sorted(ret)[len(ret) // 2] if ret else None,
         },
+        "senal_fuerte": {
+            "coladas": len(fuertes),
+            "piezas": sum(c["piezas"] or 0 for c in fuertes),
+            "piezas_partes_riesgo": sum(sen[c["id_colada"]]["piezas_riesgo"] for c in fuertes),
+            "regla": f"colada en rojo (PC-1 a PC-4) con una parte que ya rechaza ≥ {SENAL_PCT_MIN:g} % por el defecto ligado a ese PC (Agente Beta)",
+        },
         "atender": [
             {"id_colada": c["id_colada"], "u_colada": c["u_colada"], "horno": c["horno"],
-             "inicio_fusion": c["inicio_fusion"], "piezas": c["piezas"],
+             "inicio_fusion": c["inicio_fusion"], "piezas": c["piezas"], "clase": c.get("clase"),
              "rojos": [p for p in PCS_PRODUCTO if c["estados"][p] == "ROJO"],
-             "skus": [s["sku"] for s in (c.get("skus") or [])][:3]}
+             "ambar": [p for p in PCS_PRODUCTO if c["estados"][p] == "AMBAR"],
+             "skus": [s["sku"] for s in (c.get("skus") or [])][:3],
+             **sen[c["id_colada"]]}
             for c in peores[:5]
         ],
     }
@@ -160,12 +229,17 @@ def resumen_control_pc(id_pc: str, referencia: Optional[str] = Query(default=Non
             p["rojo"] += e == "ROJO"
             p["piezas"] += c["piezas"] or 0
         fuera.append({
+            "_c": c,
             "id_colada": c["id_colada"], "u_colada": c["u_colada"], "horno": c["horno"],
             "inicio_fusion": c["inicio_fusion"], "clase": c.get("clase"), "estado": e,
             "piezas": c["piezas"], "causas": causas,
             "skus": [s["sku"] for s in (c.get("skus") or [])][:3],
         })
-    fuera.sort(key=lambda x: (x["estado"] != "ROJO", -(x["piezas"] or 0)))
+    gpc = {x["id_colada"]: _peor([x["_c"]["estados"][p] for p in PCS_PRODUCTO]) for x in fuera}
+    sen = senales_beta([x.pop("_c") for x in fuera], gpc)
+    for x in fuera:
+        x.update(sen.get(x["id_colada"]) or {"senal": None, "partes_riesgo": [], "piezas_riesgo": 0})
+    fuera.sort(key=lambda x: (x["estado"] != "ROJO", _SENAL_ORDEN.get(x["senal"], 3), -(x["piezas"] or 0)))
     return {
         "referencia": referencia, "horas": horas, "id_pc": id_pc,
         "pareto": sorted(pareto.values(), key=lambda p: (-p["coladas"], -p["rojo"])),
