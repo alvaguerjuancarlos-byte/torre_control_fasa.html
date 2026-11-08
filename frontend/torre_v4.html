@@ -163,6 +163,8 @@ main{padding:16px 20px;max-width:1100px;margin:0 auto}
 .rc-proto-meta{color:var(--color-text-tertiary);font-size:11px;margin-top:2px}
 .al-accion{font-size:11.5px;margin-top:3px;color:var(--color-text-primary)}
 .al-accion span{color:var(--color-text-tertiary)}
+.bt-ask{font-size:11px;padding:3px 10px;border:1px solid #C7D2FE;border-radius:6px;background:#EEF2FF;color:#3730A3;cursor:pointer;font-weight:600}
+.bt-ask:hover{background:#E0E7FF}
 .rc-drill-grid{display:grid;grid-template-columns:minmax(260px,1fr) minmax(360px,1.5fr) minmax(280px,1fr);gap:18px}
 @media (max-width:1200px){.rc-drill-grid{grid-template-columns:1fr}}
 #rc-drill{border-top:1px solid var(--color-border-tertiary,#E5E7EB);padding-top:12px}
@@ -2632,7 +2634,8 @@ async function abrirDrillPC(pc, mantener){
   const nf=v=>Number(v||0).toLocaleString('es-MX')
   const cab=`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">`
     +`<div style="font-size:13px;font-weight:600">${pc} · ${d.coladas.length} coladas fuera de verde</div>`
-    +`<button onclick="cerrarDrillPC()" style="border:none;background:none;font-size:16px;cursor:pointer;color:var(--color-text-tertiary)" title="Cerrar">×</button></div>`
+    +`<div style="display:flex;gap:8px;align-items:center"><button class="bt-ask" onclick="preguntarABeta(rcPreguntaPC('${pc}'))">🤖 Pregúntale a Beta</button>`
+    +`<button onclick="cerrarDrillPC()" style="border:none;background:none;font-size:16px;cursor:pointer;color:var(--color-text-tertiary)" title="Cerrar">×</button></div></div>`
   const proto=rcProtocoloHtml(d.protocolos||[])
   if(!d.coladas.length){ box.innerHTML=cab+proto+'<div class="empty-msg">Todas las coladas evaluables de '+pc+' están en verde en esta ventana.</div>'; return }
 
@@ -2688,6 +2691,23 @@ function rcProtocoloHtml(lista){
       +((p.plan_control||[]).length?`<div class="rc-proto-meta">Plan de Control: ${p.plan_control.map(v=>`<span title="${(v.estandar||'').replace(/"/g,'&quot;')} · ventana: ${v.ventana||'—'}">${v.id} ${v.variable||''}</span>`).join(' · ')}</div>`:'')
       +`</div>`).join('')
     + '<div class="rc-proto-meta" style="grid-column:1/-1">Provisional mientras Calidad valida las reglas. Responsables y estándares del Plan de Control de CSC (pasa el cursor sobre una variable para ver su estándar). Cada acción se anota en la bitácora del turno: colada, PC, qué se hizo y resultado.</div></div>'
+}
+// "Pregúntale a Beta" (2026-11-08): cambia a la pestaña del Agente Beta y le manda la pregunta
+// con el contexto (PC o colada); Beta tiene herramientas sobre el resumen, el desglose y la colada.
+function rcVentanaTxt(){
+  const h=+document.getElementById('cp-sel-horas').value
+  return h>=168 ? 'los últimos '+(h/24)+' días' : 'las últimas '+h+' horas'
+}
+function rcPreguntaPC(pc){
+  return `¿Por qué está fallando ${pc} en ${rcVentanaTxt()}? Dime la causa principal, si es un horno o una clase de hierro, qué hago según el protocolo y cuáles de las partes más afectadas ya tenían historia de rechazo.`
+}
+function preguntarABeta(texto){
+  switchTab('beta')
+  setTimeout(()=>{
+    if(window.initBetaPanel) window.initBetaPanel()
+    BETA_CHAT.preguntar(texto)
+    const log=document.getElementById('bt-chat-log'); if(log) log.scrollIntoView({behavior:'smooth', block:'start'})
+  }, 300)
 }
 function cerrarDrillPC(){
   _rcDrillPC=null
@@ -2958,6 +2978,7 @@ function renderFlujoDetalle(col, carriles, piezas, diag){
     +(col.pct_rechazo!=null
       ?'<span style="font-size:12px;background:'+pctBg+';color:'+pctC+';padding:2px 8px;border-radius:4px;font-weight:600">'+pct+'% rechazo</span>'
       :'<span style="font-size:12px;background:#F3F4F6;color:#6b7280;padding:2px 8px;border-radius:4px;font-weight:600" title="Ver motivo en PC-6">rechazo sin dato confiable</span>')
+    +'<button class="bt-ask" onclick="preguntarABeta(\'¿Por qué la colada '+col.u_colada+' del horno '+col.horno+' salió fuera de control, qué hago según el protocolo y sus partes ya tenían historia de rechazo?\')">🤖 Pregúntale a Beta</button>'
     +'<button onclick="abrirDetalleFlujo('+col.id_colada+')" style="font-size:11px;padding:2px 8px;border:0.5px solid var(--color-border-secondary);border-radius:4px;background:transparent;cursor:pointer;color:var(--color-text-secondary)">✕</button>'
     +'</div></div>'
 
@@ -6428,7 +6449,7 @@ function crearChatAgente(cfg){
     input.focus()
   }
 
-  return {init: init}
+  return {init: init, preguntar: preguntar}
 }
 
 const ALFA_CHAT = crearChatAgente({
@@ -6451,6 +6472,8 @@ const BETA_CHAT = crearChatAgente({
     '¿Qué parte empeoró más el mes pasado contra su promedio histórico?',
     '¿Cuál es el defecto que más se repite en las partes críticas?',
     '¿Está disponible la compuerta de química hoy?',
+    '¿Cómo está el control del proceso esta semana?',
+    '¿Por qué está fallando ITACA (PC-3) en el hierro nodular?',
   ],
 })
 

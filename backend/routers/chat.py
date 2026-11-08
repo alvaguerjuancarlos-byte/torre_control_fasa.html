@@ -7,6 +7,7 @@ AGENTE ALFA/BETA — chat conversacional (tool-use), 2026-08-05
 # Regla dura del system prompt: solo puede afirmar lo que vino de un tool result.
 
 import json
+from datetime import datetime
 from typing import Optional
 import anthropic
 from anthropic import beta_tool
@@ -17,6 +18,9 @@ from backend.routers.alfa import (
     alfa_evaluar, alfa_cuello_botella, alfa_clientes, alfa_partes_cliente, programa_mensual,
 )
 from backend.routers.beta import beta_evaluar, beta_riesgo_alto, tendencia_rechazo_mensual
+from backend.routers.control_resumen import resumen_control as _resumen_control, resumen_control_pc as _resumen_control_pc
+from backend.core import _evaluar_coladas_ventana
+from backend.protocolos import protocolo as _protocolo
 
 router = APIRouter(tags=["chat"])
 
@@ -173,12 +177,107 @@ def plan_produccion_mes(mes: str) -> str:
         return json.dumps({"error": e.detail})
 
 
+# ── Control del Proceso (2026-11-08): Beta ve el Resumen de control, el desglose por PC y cada
+# colada con su protocolo provisional -- mismas funciones y caché que la pestaña, así lo que dice
+# el chat y lo que se ve en pantalla nunca se contradicen. Ventana con tope de 14 días: cada
+# evaluación recorre todas las coladas (~25/día) y la caché es por ventana.
+_CONTROL_MAX_HORAS = 336
+
+
+def _horas_control(horas: int) -> int:
+    return max(8, min(int(horas or 48), _CONTROL_MAX_HORAS))
+
+
+@beta_tool
+def resumen_control_proceso(horas: int = 48) -> str:
+    """Resumen de Control del Proceso de las últimas `horas`: coladas y piezas analizadas,
+    cuántas coladas limpias / en ámbar / en rojo, piezas expuestas (piezas de coladas en rojo),
+    y por punto de control (PC-1 carga, PC-2 química, PC-3 ITACA, PC-4 temperatura de vaciado;
+    PC-5 desmoldeo, PC-6 rechazo, PC-7 cierre) cuántas coladas en cada estado y su cobertura.
+    Úsala para "¿cómo estamos?", "¿qué punto de control falla más?" o como primer paso antes de
+    desglosar. La gravedad de la colada es el peor estado de PC-1 a PC-4; PC-5 a PC-7 llegan
+    días después y se cuentan aparte. "cobertura_pct" bajo = el PC casi no se pudo evaluar (dato
+    faltante), NO que esté bien: dilo. "atender" = las 5 coladas más graves.
+    TOPE: 336 horas (14 días); horizontes mayores se recortan, acláralo.
+
+    Args:
+        horas: ventana hacia atrás desde ahora (48 por defecto; 168 = 7 días).
+    """
+    d = _resumen_control(referencia=None, horas=_horas_control(horas))
+    for p in d.get("pcs", []):
+        p.pop("regla", None)
+    return json.dumps(d, default=str)
+
+
+@beta_tool
+def desglose_punto_control(id_pc: str, horas: int = 48) -> str:
+    """Desglose de UN punto de control (PC-1 a PC-7) en las últimas `horas`: qué lo saca de
+    verde (Pareto de causas: material fuera en PC-1; elemento alto/bajo con valor y spec en
+    PC-2; alerta ITACA con puntaje en PC-3 -- Porosity, MacroShrinkage, Cementite,
+    Nodularization, InverseChill; frío / >15 °C / 6-15 °C en PC-4; defecto por parte en PC-6),
+    dónde (horno x día y % fuera por clase de hierro), las coladas fuera de verde con su causa
+    (máx. 20, peor primero) y el protocolo provisional del PC. Úsala para "¿por qué falla
+    PC-3?", "¿es un horno o es todo?", "¿qué clase de hierro falla?".
+    Clases nodulares = forma de grado ASTM A536 (65-45-12, 100-70-03...); grises = 30, 30C...
+    TOPE: 336 horas (14 días).
+
+    Args:
+        id_pc: "PC-1" a "PC-7".
+        horas: ventana hacia atrás desde ahora (48 por defecto; 168 = 7 días).
+    """
+    d = _resumen_control_pc(id_pc=id_pc, referencia=None, horas=_horas_control(horas))
+    d["total_coladas_fuera"] = len(d.get("coladas", []))
+    d["coladas"] = d.get("coladas", [])[:20]
+    return json.dumps(d, default=str)
+
+
+@beta_tool
+def detalle_colada_control(colada: int, horno: Optional[int] = None, horas: int = 168) -> str:
+    """Una colada con sus 7 puntos de control: estado de cada PC, qué lo sacó de verde (causas),
+    clase de hierro, piezas, partes, % retornos en la carga y el PROTOCOLO PROVISIONAL de cada PC
+    en ámbar/rojo (acción, responsable según el Plan de Control de CSC, tiempo objetivo,
+    criterio para liberar y variables del Plan de Control). Úsala para "¿por qué salió roja la
+    colada 161?" o "¿qué hago con la colada 207?". Cruza después sus partes con
+    riesgo_calidad_parte para decir si la parte ya tenía historia de rechazo.
+    El número de colada se recicla y cada horno lleva su numeración: si el usuario no dice el
+    horno y hay varias, devuelve todas las coincidencias -- pregunta cuál o descríbelas todas.
+
+    Args:
+        colada: número de colada como se ve en pantalla (ej. 161).
+        horno: número de horno (1, 2 o 4) si se conoce.
+        horas: ventana donde buscarla (168 = 7 días por defecto; tope 336).
+    """
+    ref = datetime.now().strftime("%Y-%m-%dT%H:%M")
+    coladas = _evaluar_coladas_ventana(ref, _horas_control(horas))
+    hits = [c for c in coladas if str(c.get("u_colada")) == str(colada)
+            and (horno is None or str(c.get("horno")) == str(horno))]
+    if not hits:
+        return json.dumps({"encontradas": 0, "motivo": f"no hay colada {colada}"
+                           + (f" del horno {horno}" if horno else "")
+                           + f" en las últimas {_horas_control(horas)} horas"})
+    out = []
+    for c in hits:
+        protocolos = {}
+        for pc, est in c["estados"].items():
+            p = _protocolo(pc, est, c.get("clase"))
+            if p:
+                protocolos[pc] = p
+        out.append({
+            "id_colada": c["id_colada"], "colada": c["u_colada"], "horno": c["horno"],
+            "inicio_fusion": c["inicio_fusion"], "etapa": c.get("etapa"), "clase": c.get("clase"),
+            "piezas": c["piezas"], "partes": c.get("skus"), "pct_retornos": c.get("pct_retornos"),
+            "estados": c["estados"], "causas": c.get("causas"),
+            "motivos_sin_dato": c.get("motivos_gris"), "protocolos_provisionales": protocolos,
+        })
+    return json.dumps({"encontradas": len(out), "coladas": out}, default=str)
+
+
 # Tools compartidas por Alfa y Beta -- ambos agentes conversacionales pueden cruzar
 # flujo/ritmo y calidad/criticidad cuando la pregunta lo amerita, sin duplicar definiciones.
 _TORRE_CHAT_TOOLS = [
     evaluar_parte, cuello_de_botella, listar_clientes_con_actividad,
     partes_de_cliente, riesgo_calidad_parte, partes_riesgo_alto, plan_produccion_mes,
-    tendencia_mensual_rechazo,
+    tendencia_mensual_rechazo, resumen_control_proceso, desglose_punto_control, detalle_colada_control,
 ]
 
 _REGLAS_GROUNDING = """
@@ -209,8 +308,20 @@ las herramientas de calidad (Agente Beta) -- úsalas si la pregunta cruza a ries
 """ + _REGLAS_GROUNDING
 
 _BETA_CHAT_SYSTEM = """Eres el asistente del Agente Beta de la Torre de Control FASA (fundición).
-Respondes preguntas sobre criticidad histórica de rechazo y química real de las últimas coladas
-de una parte, usando SOLO datos reales obtenidos con las herramientas disponibles.
+Respondes preguntas sobre criticidad histórica de rechazo, química real de las últimas coladas
+de una parte y Control del Proceso (los 7 puntos de control por colada, su desglose y sus
+protocolos de acción), usando SOLO datos reales obtenidos con las herramientas disponibles.
+
+Control del Proceso -- cómo jalar el hilo: resumen_control_proceso (¿cómo estamos?) ->
+desglose_punto_control (¿qué falla dentro del PC y dónde?) -> detalle_colada_control (¿qué pasó
+en esta colada y qué hago?). Cuando una colada o un PC salga en rojo, cruza sus partes con
+riesgo_calidad_parte: un rojo de hoy en una parte que ya rechazaba es la señal fuerte.
+Protocolos: SOLO recomienda las acciones que vienen en el protocolo provisional de la
+herramienta, con su responsable y su tiempo; di siempre que son PROVISIONALES (aprobados el
+8-nov-2026 mientras Calidad valida las reglas) y nunca inventes una acción, cantidad o
+temperatura que no venga de una herramienta. Las calibraciones de PC-1 y PC-4 y los umbrales de
+ITACA para hierro nodular están pendientes de validar por Calidad: si el rojo es de nodular en
+PC-3, dilo.
 También tienes acceso a las herramientas de flujo (Agente Alfa) -- úsalas si la pregunta cruza
 a ritmo de producción, cuello de botella o entrega.
 """ + _REGLAS_GROUNDING
