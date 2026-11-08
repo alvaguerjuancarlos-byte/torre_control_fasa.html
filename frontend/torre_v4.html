@@ -176,6 +176,11 @@ main{padding:16px 20px;max-width:1100px;margin:0 auto}
 #bp-chat-log{flex:1;max-height:none;overflow-y:auto}
 .bp-input{display:flex;gap:6px;margin-top:8px}
 .bp-input input{flex:1;padding:8px 10px;border:1px solid var(--color-border-secondary,#D1D5DB);border-radius:8px;font-size:13px}
+.rc-lectura{margin-top:10px;background:#F5F3FF;border:1px solid #DDD6FE;border-radius:10px;padding:10px 12px}
+.rc-lectura-tit{font-size:12px;font-weight:700;color:#4C1D95;margin-bottom:4px}
+.rc-lectura-fila{display:grid;grid-template-columns:110px 1fr;gap:8px;font-size:13px;line-height:1.45;margin:3px 0}
+.rc-lectura-fila span{font-weight:700;color:#5B21B6;font-size:12px;padding-top:1px}
+.rc-lectura-pie{font-size:11px;color:var(--color-text-tertiary);margin-top:6px}
 .bt-ask{font-size:11px;padding:3px 10px;border:1px solid #C7D2FE;border-radius:6px;background:#EEF2FF;color:#3730A3;cursor:pointer;font-weight:600}
 .bt-ask:hover{background:#E0E7FF}
 .rc-drill-grid{display:grid;grid-template-columns:minmax(260px,1fr) minmax(360px,1.5fr) minmax(280px,1fr);gap:18px}
@@ -355,11 +360,16 @@ main{padding:16px 20px;max-width:1100px;margin:0 auto}
        piezas, cuántas fuera de control, en qué PC y con qué gravedad. /v3/gestion/resumen-control -->
   <div id="rc-card" style="margin-top:12px;background:var(--color-background-primary,#fff);border:1px solid var(--color-border-tertiary,#E5E7EB);border-radius:12px;padding:14px 16px">
     <div style="font-size:14px;font-weight:600;color:var(--color-text-primary)">Resumen de control · <span id="rc-ventana" style="font-weight:400;color:var(--color-text-tertiary)"></span></div>
+    <div id="rc-lectura" class="rc-lectura" style="display:none"></div>
     <div id="rc-kpis" class="kpi-grid" style="margin-top:10px"><div class="loading-msg">Cargando…</div></div>
     <div id="rc-matriz" style="margin-top:14px"></div>
     <div id="rc-drill" style="display:none;margin-top:12px"></div>
     <div id="rc-atender" style="margin-top:12px"></div>
     <div id="rc-nota" class="ret-leyenda" style="margin-top:10px"></div>
+    <div id="rc-valida" style="margin-top:12px;border-top:1px solid var(--color-border-tertiary,#E5E7EB);padding-top:10px">
+      <button class="bt-ask" onclick="cargarValidacion(this)">✓ ¿El semáforo acierta? · validar contra el rechazo real</button>
+      <div id="rc-valida-body"></div>
+    </div>
   </div>
 
   <!-- ── Panel lateral de Agente Beta (2026-11-08): chat de Beta dentro de Control del Proceso,
@@ -2563,6 +2573,7 @@ const RC_COL={VERDE:'#1D9E75',AMBAR:'#F59E0B',ROJO:'#EF4444',GRIS:'#D1D5DB'}
 async function cargarResumenControl(){
   const horas=document.getElementById('cp-sel-horas').value
   const ref=document.getElementById('cp-inp-ref').value
+  cargarLecturaTurno(false)
   const kpis=document.getElementById('rc-kpis')
   kpis.innerHTML='<div class="loading-msg">Cargando…</div>'
   ;['rc-matriz','rc-atender','rc-nota'].forEach(id=>document.getElementById(id).innerHTML='')
@@ -2638,6 +2649,55 @@ async function cargarResumenControl(){
     + 'PC-4 da 5 °C de margen sobre el máximo de la parte y es grave si el vaciado va frío o más de 15 °C arriba (rojo si más de un tercio de los tickets son graves). '
     + 'Clic en un punto de control para ver qué lo saca de verde y dónde.'
   if(_drillAbierto) abrirDrillPC(_drillAbierto, true)  // al recargar la ventana se queda abierto el mismo PC
+}
+
+// ── Lectura del turno (2026-11-08): tres frases de Agente Beta sobre el resumen, generadas con
+// los datos del resumen y del PC con más rojos; el servidor las guarda 30 min por ventana.
+async function cargarLecturaTurno(forzar){
+  const box=document.getElementById('rc-lectura')
+  const horas=document.getElementById('cp-sel-horas').value
+  const ref=document.getElementById('cp-inp-ref').value
+  box.style.display=''
+  box.innerHTML='<div class="rc-lectura-tit">🤖 Lectura del turno · Agente Beta</div><div class="loading-msg" style="font-size:12px">Beta está leyendo el resumen…</div>'
+  let d
+  try{
+    const r=await fetch(`/v3/gestion/resumen-control/lectura?referencia=${encodeURIComponent(ref)}&horas=${horas}${forzar?'&forzar=true':''}`)
+    if(!r.ok) throw new Error('HTTP '+r.status)
+    d=await r.json()
+  }catch(e){ box.style.display='none'; return }
+  if(!d.disponible){ box.innerHTML=`<div class="rc-lectura-tit">🤖 Lectura del turno · Agente Beta</div><div style="font-size:12px;color:var(--color-text-tertiary)">${d.motivo||'No disponible.'}</div>`; return }
+  const F=d.frases
+  const fila=(t,x)=>x?`<div class="rc-lectura-fila"><span>${t}</span><div>${x}</div></div>`:''
+  box.innerHTML=`<div class="rc-lectura-tit">🤖 Lectura del turno · Agente Beta</div>`
+    + fila('Qué pasó',F.que_paso) + fila('Por qué importa',F.por_que_importa) + fila('Qué atender',F.que_atender)
+    + `<div class="rc-lectura-pie">Generada ${String(d.generada).slice(11)} con los datos de este resumen · se renueva cada 30 min · <a href="#" onclick="cargarLecturaTurno(true);return false">actualizar ahora</a> · <a href="#" onclick="abrirPanelBeta();return false">preguntarle a Beta</a></div>`
+}
+
+// ── ¿El semáforo acierta? (2026-11-08): coladas de hace 12 a 54 días con su rechazo ya
+// registrado; rechazo real contra el esperado por la mezcla de partes (lift), por PC y estado.
+async function cargarValidacion(btn){
+  const body=document.getElementById('rc-valida-body')
+  if(btn) btn.disabled=true
+  body.innerHTML='<div class="loading-msg" style="font-size:12px">Revisando 6 semanas de coladas contra su rechazo real (≈10 s)…</div>'
+  let d
+  try{
+    const r=await fetch('/v3/gestion/resumen-control/validacion?semanas=6&desde_dias=12')
+    if(!r.ok) throw new Error('HTTP '+r.status+(r.status===404?' · reinicia el servidor':''))
+    d=await r.json()
+  }catch(e){ body.innerHTML='<div style="color:red;font-size:12px">Error al validar ('+e.message+').</div>'; if(btn) btn.disabled=false; return }
+  if(btn) btn.style.display='none'
+  const L=v=>v==null?'—':'×'+v.toFixed(2)
+  const colL=v=>v==null?'var(--color-text-tertiary)':v>=1.15?'#B91C1C':v<=0.95?'#047857':'var(--color-text-primary)'
+  const cel=(g)=>g&&g.coladas?`<td style="text-align:right">${g.coladas}</td><td style="text-align:right">${g.rechazo_real_pct}% <span style="color:var(--color-text-tertiary)">vs ${g.rechazo_esperado_pct}%</span></td><td style="text-align:right;font-weight:700;color:${colL(g.lift)}">${L(g.lift)}</td>`:'<td colspan="3" style="text-align:center;color:var(--color-text-tertiary)">sin coladas</td>'
+  const filas=d.pcs.map(p=>`<tr><td><b>${p.id_pc}</b></td>${cel(p.estados.ROJO)}<td style="text-align:right;color:${colL(p.estados.VERDE.lift)}">${L(p.estados.VERDE.lift)}</td>`
+      +`<td style="text-align:right" title="Defectos: ${(p.defectos_ligados.defectos||[]).join(', ')}"><b style="color:${colL(p.defectos_ligados.ROJO.lift)}">${L(p.defectos_ligados.ROJO.lift)}</b> <span style="color:var(--color-text-tertiary)">vs ${L(p.defectos_ligados.VERDE.lift)}</span></td>`
+      +`<td style="font-size:11.5px">${p.veredicto}</td></tr>`).join('')
+  const S=d.senal_fuerte
+  body.innerHTML=`<div style="font-size:13px;font-weight:600">✓ ¿El semáforo acierta? <span style="font-weight:400;color:var(--color-text-tertiary)">· validación contra el rechazo real</span></div>`
+    + `<div style="font-size:12px;color:var(--color-text-secondary);margin:4px 0 8px">${d.ventana.coladas_evaluadas} coladas del ${d.ventana.desde} al ${d.ventana.hasta} (${d.ventana.nota}). <b>×1.00</b> = rechazaron lo esperado por sus partes; arriba de ×1.15 el rojo sí anticipa rechazo.</div>`
+    + `<table class="rc-tabla"><thead><tr><th style="text-align:left">PC</th><th>Coladas en rojo</th><th>Rechazo real vs esperado</th><th>Rojo</th><th>Verde</th><th title="Solo los rechazos por los defectos que ese PC provoca">Sus defectos: rojo vs verde</th><th style="text-align:left">Veredicto</th></tr></thead><tbody>${filas}</tbody></table>`
+    + `<div style="font-size:12px;margin-top:8px"><b>Señal fuerte de Beta:</b> ${S.fuerte.coladas} coladas rechazaron ${S.fuerte.rechazo_real_pct}% contra ${S.fuerte.rechazo_esperado_pct}% esperado (<b style="color:${colL(S.fuerte.lift)}">${L(S.fuerte.lift)}</b>); rojas sin señal ${L(S.rojo_sin_senal.lift)}; limpias ${L(S.limpias.lift)}.</div>`
+    + `<div class="ret-leyenda" style="margin-top:6px">${d.metodo}. «Sus defectos» = solo rechazos por los defectos ligados a ese PC (temperatura → fierro frío, no lleno; ITACA y química → sopladura, porosidad, rechupe…), porque el rechazo total trae defectos de moldeo que ningún PC de fusión anticipa. Rojo/verde a la fecha de hoy con las calibraciones del 8-nov.</div>`
 }
 
 // ── Desglose de un PC (2026-11-08): qué lo saca de verde (Pareto), dónde (horno × día, clase)

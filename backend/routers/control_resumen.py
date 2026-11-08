@@ -26,7 +26,7 @@ tablero y la matriz de abajo nunca se contradicen.
 """
 import re
 from collections import Counter
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional
 
 from fastapi import APIRouter, Query
@@ -263,3 +263,172 @@ def resumen_control_pc(id_pc: str, referencia: Optional[str] = Query(default=Non
 def protocolos_provisionales():
     """Catálogo de protocolos provisionales por PC (backend/protocolos.py) para el detalle de colada."""
     return _catalogo_protocolos()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Lectura del turno (2026-11-08): tres frases de Agente Beta arriba del resumen
+# ══════════════════════════════════════════════════════════════════════════════
+# Una sola llamada al modelo (sin tools) con los datos ya calculados del resumen y del desglose
+# del PC que más rojos da -- el modelo solo redacta, no busca datos, y no puede citar un número
+# que no venga en el JSON. Caché por ventana en bloques de 30 min: aunque varias personas abran
+# la pestaña, el costo es ~una llamada cada media hora por ventana usada.
+_LECTURA_CACHE: dict = {}
+_LECTURA_TTL_SEG = 1800
+
+_LECTURA_SYSTEM = """Eres el Agente Beta de la Torre de Control FASA (fundición de hierro gris y nodular).
+Escribes la LECTURA DEL TURNO para el jefe de turno: exactamente tres frases en español, cada una
+de máximo 35 palabras, directas, como se le habla a un supervisor de piso:
+  1. "que_paso": cómo está el control del proceso en la ventana (con sus números).
+  2. "por_que_importa": dónde está el problema (punto de control, causa, clase u horno) y por qué
+     importa (piezas expuestas, partes que ya rechazan).
+  3. "que_atender": qué atender primero (las coladas de "atender" con señal fuerte, con su número
+     de colada -- el campo "colada" -- y horno) y la acción del protocolo provisional si viene en
+     los datos.
+Reglas duras: usa SOLO números, coladas, partes y causas que vengan literalmente en el JSON; no
+inventes acciones ni cantidades; si mencionas una acción, di que el protocolo es provisional. Si
+el rojo dominante es de hierro nodular en PC-3, di que sus umbrales están pendientes de Calidad.
+Responde SOLO un objeto JSON con las claves que_paso, por_que_importa, que_atender."""
+
+
+@router.get("/v3/gestion/resumen-control/lectura")
+def lectura_turno(referencia: Optional[str] = Query(default=None), horas: int = Query(default=48),
+                  forzar: bool = Query(default=False)):
+    """Lectura del turno de Agente Beta (3 frases) sobre el Resumen de control de la ventana."""
+    import json
+    import time as _t
+    ahora = datetime.now()
+    clave = (horas, int(_t.time() // _LECTURA_TTL_SEG))
+    if not forzar and clave in _LECTURA_CACHE:
+        return _LECTURA_CACHE[clave]
+    res = resumen_control(referencia=referencia, horas=horas)
+    if not res["universo"]["coladas"]:
+        return {"disponible": False, "motivo": "sin coladas en la ventana"}
+    for p in res["pcs"]:
+        p.pop("regla", None)
+    top = max((p for p in res["pcs"] if p["grupo"] == "producto"), key=lambda p: p["coladas"]["ROJO"])
+    det = resumen_control_pc(id_pc=top["id_pc"], referencia=referencia, horas=horas)
+    datos = {
+        "ventana_horas": horas, "corte": res["referencia"],
+        "universo": res["universo"], "gravedad": res["gravedad"], "pcs": res["pcs"],
+        "senal_fuerte": res.get("senal_fuerte"), "retornos": res["retornos"],
+        # sin id_colada: el modelo citaba el id interno (86821) en vez del número que ve el turno
+        "atender": [{("colada" if k == "u_colada" else k): v for k, v in a.items() if k != "id_colada"}
+                    for a in res["atender"]],
+        "pc_con_mas_rojos": {"id_pc": top["id_pc"], "pareto": det["pareto"][:5],
+                             "clases": det["patron"]["clases"][:5],
+                             "hornos": {h: {"evaluables": sum(c["evaluables"] for c in v.values()),
+                                            "rojo": sum(c["ROJO"] for c in v.values())}
+                                        for h, v in det["patron"]["hornos"].items()},
+                             "protocolos": [{k: p[k] for k in ("clave", "rojo", "responsable", "tiempo")}
+                                            for p in det.get("protocolos", [])]},
+    }
+    try:
+        import anthropic
+        msg = anthropic.Anthropic().messages.create(
+            model="claude-opus-5", max_tokens=1500, system=_LECTURA_SYSTEM,
+            output_config={"effort": "low"},
+            messages=[{"role": "user", "content": json.dumps(datos, ensure_ascii=False, default=str)}])
+        texto = next(b.text for b in msg.content if b.type == "text").strip()
+        texto = texto[texto.find("{"): texto.rfind("}") + 1]
+        frases = json.loads(texto)
+    except Exception as e:  # sin API, sin crédito o respuesta no JSON: el tablero sigue sin la lectura
+        return {"disponible": False, "motivo": f"no se pudo generar la lectura ({type(e).__name__})"}
+    out = {"disponible": True, "generada": ahora.strftime("%Y-%m-%d %H:%M"), "horas": horas,
+           "frases": {k: frases.get(k) for k in ("que_paso", "por_que_importa", "que_atender")}}
+    for k in [k for k in _LECTURA_CACHE if k[1] != clave[1]]:
+        _LECTURA_CACHE.pop(k, None)
+    _LECTURA_CACHE[clave] = out
+    return out
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Validación del semáforo (2026-11-08): ¿las coladas en rojo rechazaron más?
+# ══════════════════════════════════════════════════════════════════════════════
+# El rechazo se captura ~11 días después del vaciado, así que se evalúan las coladas de hace
+# `desde_dias` a `desde_dias + semanas*7` días (default 12 a 26). Para cada PC se compara el
+# rechazo REAL de sus coladas en ROJO / ÁMBAR / VERDE contra el ESPERADO por la mezcla de partes
+# (tasa de cada parte en todas las coladas de la ventana): lift = real / esperado. Así no se
+# confunde "este PC predice rechazo" con "las coladas rojas eran de partes difíciles" -- la misma
+# prueba que se usó el 8-nov para calibrar PC-4 y descartar los retornos. Solo coladas con PC-6
+# evaluable (rechazo registrado en >= 50 % de sus piezas). Caché de 1 h.
+_VALIDACION_CACHE: dict = {}
+
+
+@router.get("/v3/gestion/resumen-control/validacion")
+def validacion_semaforo(semanas: int = Query(default=2, ge=1, le=6), desde_dias: int = Query(default=12, ge=7, le=60)):
+    import time as _t
+    clave = (semanas, desde_dias, int(_t.time() // 3600))
+    if clave in _VALIDACION_CACHE:
+        return _VALIDACION_CACHE[clave]
+    ref_dt = datetime.now() - timedelta(days=desde_dias)
+    ref = ref_dt.strftime("%Y-%m-%dT%H:%M")
+    coladas = [c for c in _evaluar_coladas_ventana(ref, semanas * 7 * 24)
+               if c["estados"].get("PC-6") != "GRIS" and c.get("skus")]
+    tot, rec = {}, {}
+    for c in coladas:
+        for s_ in c["skus"]:
+            tot[s_["sku"]] = tot.get(s_["sku"], 0) + (s_.get("total") or 0)
+            rec[s_["sku"]] = rec.get(s_["sku"], 0) + (s_.get("rechazos") or 0)
+    tasa = {k: rec[k] / tot[k] for k in tot if tot[k]}
+    # rechazo por (parte, defecto), de las causas de PC-6 (top 5 combinaciones por colada)
+    dfx: dict = {}
+    for c in coladas:
+        for x in (c.get("causas") or {}).get("PC-6", []):
+            dfx[(x["parte"], x["causa"])] = dfx.get((x["parte"], x["causa"]), 0) + x["piezas"]
+
+    def grupo_defectos(cs, defectos):
+        """Lo mismo que grupo() pero contando solo los rechazos por los defectos ligados al PC
+        (DEFECTOS_POR_PC): prueba más justa, el rechazo total trae defectos de moldeo que ningún PC
+        de fusión puede predecir."""
+        tasa_d = {k: sum(v for (pp, d), v in dfx.items() if pp == k and d in defectos) / tot[k] for k in tot if tot[k]}
+        piezas = sum(s_["total"] or 0 for c in cs for s_ in c["skus"])
+        real = sum(x["piezas"] for c in cs for x in (c.get("causas") or {}).get("PC-6", []) if x["causa"] in defectos)
+        esp = sum((s_["total"] or 0) * tasa_d.get(s_["sku"], 0) for c in cs for s_ in c["skus"])
+        return {"rechazo_real_pct": round(real / piezas * 100, 2) if piezas else None,
+                "rechazo_esperado_pct": round(esp / piezas * 100, 2) if piezas else None,
+                "lift": round(real / esp, 2) if esp else None}
+
+    def grupo(cs):
+        piezas = sum(s_["total"] or 0 for c in cs for s_ in c["skus"])
+        real = sum(s_.get("rechazos") or 0 for c in cs for s_ in c["skus"])
+        esp = sum((s_["total"] or 0) * tasa.get(s_["sku"], 0) for c in cs for s_ in c["skus"])
+        return {"coladas": len(cs), "piezas": piezas,
+                "rechazo_real_pct": round(real / piezas * 100, 1) if piezas else None,
+                "rechazo_esperado_pct": round(esp / piezas * 100, 1) if piezas else None,
+                "lift": round(real / esp, 2) if esp else None,
+                "muestra_suficiente": len(cs) >= 5 and piezas >= 30}
+
+    pcs = []
+    for p in PCS_PRODUCTO:
+        g = {e: grupo([c for c in coladas if c["estados"][p] == e]) for e in ("ROJO", "AMBAR", "VERDE")}
+        r, v = g["ROJO"], g["VERDE"]
+        if not (r["muestra_suficiente"] and v["muestra_suficiente"]) or r["lift"] is None or v["lift"] is None:
+            veredicto = "sin muestra suficiente"
+        elif r["lift"] >= 1.15 and r["lift"] - v["lift"] >= 0.15:
+            veredicto = "predice rechazo"
+        elif r["lift"] <= 1.05:
+            veredicto = "no separa: el rojo no rechazó más que lo esperado por sus partes"
+        else:
+            veredicto = "señal débil"
+        ligados = {e: grupo_defectos([c for c in coladas if c["estados"][p] == e], DEFECTOS_POR_PC[p])
+                   for e in ("ROJO", "VERDE")}
+        pcs.append({"id_pc": p, "estados": g, "veredicto": veredicto,
+                    "defectos_ligados": {"defectos": sorted(DEFECTOS_POR_PC[p]), **ligados}})
+
+    grav = {c["id_colada"]: _peor([c["estados"][p] for p in PCS_PRODUCTO]) for c in coladas}
+    sen = senales_beta(coladas, grav)
+    ids_fuertes = {cid for cid, x in sen.items() if x["senal"] == "fuerte"}
+    out = {
+        "ventana": {"desde": (ref_dt - timedelta(weeks=semanas)).strftime("%Y-%m-%d"),
+                    "hasta": ref_dt.strftime("%Y-%m-%d"), "coladas_evaluadas": len(coladas),
+                    "nota": f"coladas de hace {desde_dias} a {desde_dias + semanas * 7} días, con su rechazo ya registrado"},
+        "pcs": pcs,
+        "senal_fuerte": {
+            "fuerte": grupo([c for c in coladas if c["id_colada"] in ids_fuertes]),
+            "rojo_sin_senal": grupo([c for c in coladas if grav[c["id_colada"]] == "ROJO" and c["id_colada"] not in ids_fuertes]),
+            "limpias": grupo([c for c in coladas if grav[c["id_colada"]] == "VERDE"])},
+        "metodo": "lift = rechazo real / rechazo esperado por la mezcla de partes (tasa de cada parte en la misma ventana)",
+    }
+    _VALIDACION_CACHE.clear()
+    _VALIDACION_CACHE[clave] = out
+    return out
