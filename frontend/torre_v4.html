@@ -1079,10 +1079,13 @@ function renderMainCharts() {
 }
 
 function svgProduccion(historico, pronostico) {
-  const VW=720, VH=155, PL=52, PR=12, PT=8, PB=30
+  // Sin empalmes (JC 2026-11-08): las leyendas van en una franja propia arriba del área de barras
+  // (PT=22) y la escala incluye el estimado de los meses históricos, que a veces rebasa la barra
+  // real -- antes la línea punteada se salía por arriba y cruzaba título y leyendas.
+  const VW=720, VH=169, PL=52, PR=12, PT=22, PB=30
   const BW=VW-PL-PR, BH=VH-PT-PB
   const all = [...historico, ...pronostico]
-  const maxN = Math.max(...all.map(h => h.n_piezas || h.n_piezas_real || h.n_piezas_est || 0))
+  const maxN = Math.max(...all.flatMap(h => [h.n_piezas, h.n_piezas_real, h.n_piezas_est]).filter(v => v > 0)) * 1.08
   const N = historico.length + pronostico.length
   const slotW = BW / N
   const barW  = slotW * 0.68
@@ -1148,7 +1151,9 @@ function svgProduccion(historico, pronostico) {
       bars += `<text x="${x+barW/2}" y="${Math.max(PT+10, topYP-14)}" text-anchor="middle" font-size="9" fill="#1D4ED8" font-weight="600">${p.n_piezas_real.toLocaleString('es-MX')}</text>`
       bars += `<text x="${x+barW/2}" y="${Math.max(PT+21, topYP-4)}" text-anchor="middle" font-size="8" fill="#3B82F6" opacity=".8">est:${p.n_piezas_est.toLocaleString('es-MX')}</text>`
     } else {
-      bars += `<text x="${x+barW/2}" y="${yE-3}" text-anchor="middle" font-size="9" fill="#3B82F6" font-weight="600">${p.n_piezas_est.toLocaleString('es-MX')}</text>`
+      // Dentro de la barra punteada si cabe: arriba la cruza la línea del estimado que llega a ese punto
+      const yTxt = bhE > 22 ? yE + 13 : yE - 5
+      bars += `<text x="${x+barW/2}" y="${yTxt}" text-anchor="middle" font-size="9" fill="#1D4ED8" font-weight="600">${p.n_piezas_est.toLocaleString('es-MX')}</text>`
     }
   })
 
@@ -1161,8 +1166,8 @@ function svgProduccion(historico, pronostico) {
     xlbls += `<text x="${x}" y="${VH-4}" text-anchor="middle" font-size="9" fill="${isFC ? '#3B82F6' : '#6B7280'}" font-weight="${isFC ? '600' : '400'}">${lbl}</text>`
   })
 
-  // Legend inside SVG (top-right)
-  const ly = PT + 1, lh = 8
+  // Leyenda en la franja superior (fuera del área de barras)
+  const ly = 3, lh = 8
   const lx1 = VW-PR-(hasAnyReal ? 210 : 140), lx2 = lx1+68, lx3 = lx2+72
   let legend = `<rect x="${lx1}" y="${ly}" width="${lh}" height="${lh}" rx="1" fill="#93C5FD"/>`
     + `<text x="${lx1+11}" y="${ly+7}" font-size="9" fill="#6B7280">Real hist.</text>`
@@ -1186,7 +1191,7 @@ function svgProduccion(historico, pronostico) {
 }
 
 function svgRechazo(historico, pronostico) {
-  const VW=720, VH=120, PL=36, PR=12, PT=8, PB=24
+  const VW=720, VH=134, PL=36, PR=12, PT=22, PB=24  // PT: franja propia para la leyenda
   const BW=VW-PL-PR, BH=VH-PT-PB
   const allRates = [...historico.map(h=>h.rate), ...historico.map(h=>h.rate_est), ...pronostico.flatMap(p=>[p.rate_est, p.rate_real])].filter(v=>v>0)
   const maxR = allRates.length ? Math.max(...allRates) * 1.15 : 20
@@ -1226,7 +1231,12 @@ function svgRechazo(historico, pronostico) {
   if (sinDato.length) {
     const x0 = X(sinDato[0]) - slotW / 2, x1 = X(sinDato[sinDato.length - 1]) + slotW / 2
     svg += `<rect x="${x0.toFixed(1)}" y="${PT}" width="${(x1 - x0).toFixed(1)}" height="${BH}" fill="none" stroke="#D1D5DB" stroke-dasharray="3,3"/>`
-    svg += `<text x="${((x0 + x1) / 2).toFixed(1)}" y="${(PT + BH / 2 + 3).toFixed(1)}" text-anchor="middle" font-size="9" fill="#9CA3AF">rechazo sin dato confiable</text>`
+    // Abajo del recuadro (la línea del estimado pasa por la parte media) y en dos renglones si el
+    // recuadro es de un solo mes -- antes el texto se salía del recuadro y se encimaba con la línea.
+    const xm = ((x0 + x1) / 2).toFixed(1)
+    svg += (x1 - x0) >= 120
+      ? `<text x="${xm}" y="${(PT + BH - 6).toFixed(1)}" text-anchor="middle" font-size="9" fill="#9CA3AF">rechazo sin dato confiable</text>`
+      : `<text x="${xm}" y="${(PT + BH - 15).toFixed(1)}" text-anchor="middle" font-size="8" fill="#9CA3AF">rechazo sin<tspan x="${xm}" dy="9">dato confiable</tspan></text>`
   }
 
   const gap = (slotW - barW) / 2
@@ -1264,7 +1274,8 @@ function svgRechazo(historico, pronostico) {
         svg += `<text x="${xbar+barW/2}" y="${Math.max(PT+10, topYR-14)}" text-anchor="middle" font-size="9" fill="#B91C1C" font-weight="700">${p.rate_real}%</text>`
         svg += `<text x="${xbar+barW/2}" y="${Math.max(PT+21, topYR-4)}" text-anchor="middle" font-size="8" fill="#F97316" opacity=".8">est:${p.rate_est}%</text>`
       } else {
-        svg += `<text x="${xbar+barW/2}" y="${ybar-3}" text-anchor="middle" font-size="9" fill="#C2410C" font-weight="600">${p.rate_est}%</text>`
+        const yTxt = bh > 22 ? ybar + 13 : ybar - 5  // dentro de la barra si cabe (la línea llega arriba)
+        svg += `<text x="${xbar+barW/2}" y="${yTxt}" text-anchor="middle" font-size="9" fill="#C2410C" font-weight="600">${p.rate_est}%</text>`
       }
     })
   }
@@ -1278,8 +1289,8 @@ function svgRechazo(historico, pronostico) {
     }
   })
 
-  // Legend
-  const ll = PT + 1, llh = 8
+  // Leyenda en la franja superior (fuera del área de la gráfica)
+  const ll = 3, llh = 8
   const lx1 = VW-PR-(hasAnyRealR ? 210 : 140), lx2 = lx1+68, lx3R = lx2+72
   svg += `<line x1="${lx1}" y1="${ll+4}" x2="${lx1+12}" y2="${ll+4}" stroke="#EF4444" stroke-width="1.8"/>`
     + `<text x="${lx1+15}" y="${ll+7}" font-size="9" fill="#6B7280">Real hist.</text>`
