@@ -96,6 +96,23 @@ def partes_de_cliente(cliente: str, dias: int = 14) -> str:
     return json.dumps(alfa_partes_cliente(cliente=cliente, dias=dias), default=str)
 
 
+def _pct_a_porcentaje(obj):
+    """PrcRchzTotal viene como fracción (0.12 = 12 %) y el campo se llama pct_rchz_total: el modelo
+    lo leía como "0.12 %" (visto el 8-nov con C-AD626LG). Al chat se le entrega ya en porcentaje,
+    con nombre explícito; el endpoint /api/beta/* no cambia (el frontend sigue usando la fracción)."""
+    if isinstance(obj, dict):
+        out = {}
+        for k, v in obj.items():
+            if k == "pct_rchz_total" and isinstance(v, (int, float)):
+                out["rechazo_historico_porcentaje"] = round(v * 100, 2)
+            else:
+                out[k] = _pct_a_porcentaje(v)
+        return out
+    if isinstance(obj, list):
+        return [_pct_a_porcentaje(x) for x in obj]
+    return obj
+
+
 @beta_tool
 def riesgo_calidad_parte(no_parte: str) -> str:
     """Criticidad histórica de rechazo y química real de las últimas coladas de una parte
@@ -113,7 +130,7 @@ def riesgo_calidad_parte(no_parte: str) -> str:
     Args:
         no_parte: Número de parte exacto.
     """
-    return json.dumps(beta_evaluar(no_parte=no_parte), default=str)
+    return json.dumps(_pct_a_porcentaje(beta_evaluar(no_parte=no_parte)), default=str)
 
 
 @beta_tool
@@ -136,7 +153,7 @@ def partes_riesgo_alto(limit: int = 20, dias: Optional[int] = None) -> str:
         limit: máximo de partes a devolver.
         dias: si se da, acota la lista a partes con actividad real en esos días.
     """
-    return json.dumps(beta_riesgo_alto(limit=limit, dias=dias), default=str)
+    return json.dumps(_pct_a_porcentaje(beta_riesgo_alto(limit=limit, dias=dias)), default=str)
 
 
 @beta_tool
