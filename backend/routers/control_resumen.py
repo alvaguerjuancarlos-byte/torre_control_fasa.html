@@ -30,6 +30,7 @@ from typing import Optional
 from fastapi import APIRouter, Query
 
 from backend.core import CARRILES, PC1_RETORNOS_MAX_PCT, _evaluar_coladas_ventana
+from backend.protocolos import catalogo as _catalogo_protocolos
 
 router = APIRouter()
 
@@ -174,4 +175,12 @@ def resumen_control_pc(id_pc: str, referencia: Optional[str] = Query(default=Non
             "clases": sorted(({"clase": k, **v} for k, v in clases.items()), key=lambda x: -(x["AMBAR"] + x["ROJO"])),
         },
         "coladas": fuera,
+        # protocolo provisional del PC (PC-3 trae también la variante nodular)
+        "protocolos": [p for p in _catalogo_protocolos()["protocolos"].values() if p["pc"] == id_pc],
     }
+
+
+@router.get("/v3/gestion/protocolos-provisionales")
+def protocolos_provisionales():
+    """Catálogo de protocolos provisionales por PC (backend/protocolos.py) para el detalle de colada."""
+    return _catalogo_protocolos()

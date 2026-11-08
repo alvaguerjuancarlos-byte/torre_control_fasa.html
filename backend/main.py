@@ -73,6 +73,7 @@ from backend.routers import arenas as _arenas_router_module
 from backend.routers import pronostico_semanal as _pronostico_semanal_router_module
 from backend.routers import causa_raiz as _causa_raiz_router_module
 from backend.routers import control_resumen as _control_resumen_router_module
+from backend.protocolos import protocolo as _protocolo_provisional
 app.include_router(_beta_router_module.router)
 app.include_router(_alfa_router_module.router)
 app.include_router(_chat_router_module.router)
@@ -3246,8 +3247,9 @@ def v3_carriles_colada(id_colada: int):
                 ev["detalle"] = {
                     **e["carga"],
                     "materiales": e["comps_carga"],
-                    "nota": "Ferroaleaciones: Corex no tiene tolerancia definida (0); se usa "
-                            "0.5 % o 0.01 kg hasta que Calidad la defina.",
+                    "nota": "Tolerancia = 2 × máx(0.5 % de la receta, resolución de báscula 1 kg / 0.01 kg); "
+                            "rojo si un material se pasa más del 5 % de su receta (propuesta del 8-nov, "
+                            "pendiente de Calidad). Ferroaleaciones: Corex no tiene tolerancia definida (0).",
                 }
         elif c.id_pc == "PC-2":
             ev["detalle"] = {
@@ -3377,6 +3379,9 @@ def v3_gestion_alertas(
                     "pct_cierre":    col.get("pct_cierre"),
                     "defecto_top":   None,
                     "no_parte_top":  None,
+                    "clase":         col.get("clase"),
+                    # protocolo provisional (2026-11-08, backend/protocolos.py): qué hacer, quién, en cuánto
+                    "accion":        _protocolo_provisional(pc_id, estado, col.get("clase")),
                 })
 
     if not alertas:

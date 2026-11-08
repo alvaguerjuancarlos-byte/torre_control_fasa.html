@@ -157,6 +157,12 @@ main{padding:16px 20px;max-width:1100px;margin:0 auto}
 .rc-fila{cursor:pointer}
 .rc-fila:hover td{background:#F9FAFB}
 .rc-sel td{background:#EFF6FF}
+.rc-proto{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:10px 18px;background:#F8FAFC;border:1px solid #E2E8F0;border-radius:8px;padding:10px 12px;margin-bottom:14px;font-size:12px;line-height:1.5}
+.rc-proto .pc-chip{font-size:9.5px;padding:0 5px;margin-right:4px}
+.rc-proto-tit{font-weight:700;margin-bottom:2px}
+.rc-proto-meta{color:var(--color-text-tertiary);font-size:11px;margin-top:2px}
+.al-accion{font-size:11.5px;margin-top:3px;color:var(--color-text-primary)}
+.al-accion span{color:var(--color-text-tertiary)}
 .rc-drill-grid{display:grid;grid-template-columns:minmax(260px,1fr) minmax(360px,1.5fr) minmax(280px,1fr);gap:18px}
 @media (max-width:1200px){.rc-drill-grid{grid-template-columns:1fr}}
 #rc-drill{border-top:1px solid var(--color-border-tertiary,#E5E7EB);padding-top:12px}
@@ -2506,7 +2512,9 @@ function renderFlujo(){
 // Ventana/Referencia únicas para toda la pestaña Control del Proceso (JC, 2026-09-29) --
 // dispara los dos fetches independientes (coladas para Flujo, alertas+protocolos+Beta
 // para Alertas) desde el único botón "Cargar" compartido.
+let _protoCat=null
 function cargarControlProceso(){
+  if(!_protoCat) fetch('/v3/gestion/protocolos-provisionales').then(r=>r.ok?r.json():null).then(d=>{ if(d) _protoCat=d.protocolos }).catch(()=>{})
   cargarResumenControl()
   cargarFlujo()
   cargarAlertas()
@@ -2625,7 +2633,8 @@ async function abrirDrillPC(pc, mantener){
   const cab=`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">`
     +`<div style="font-size:13px;font-weight:600">${pc} · ${d.coladas.length} coladas fuera de verde</div>`
     +`<button onclick="cerrarDrillPC()" style="border:none;background:none;font-size:16px;cursor:pointer;color:var(--color-text-tertiary)" title="Cerrar">×</button></div>`
-  if(!d.coladas.length){ box.innerHTML=cab+'<div class="empty-msg">Todas las coladas evaluables de '+pc+' están en verde en esta ventana.</div>'; return }
+  const proto=rcProtocoloHtml(d.protocolos||[])
+  if(!d.coladas.length){ box.innerHTML=cab+proto+'<div class="empty-msg">Todas las coladas evaluables de '+pc+' están en verde en esta ventana.</div>'; return }
 
   // ¿Qué lo saca de verde? Pareto: barra roja (coladas en ROJO) + ámbar (el resto)
   const maxP=Math.max(1,...d.pareto.map(p=>p.coladas))
@@ -2660,13 +2669,23 @@ async function abrirDrillPC(pc, mantener){
       +`<td style="text-align:right">${c.piezas}</td><td style="color:var(--color-text-tertiary)">${c.skus.join(', ')}</td></tr>`).join('')
   const mas=d.coladas.length>12?`<button onclick="rcVerTodas(this)" class="btn-load" style="margin-top:6px">Ver las ${d.coladas.length} coladas</button>`:''
 
-  box.innerHTML=cab
+  box.innerHTML=cab+proto
     + `<div class="rc-drill-grid">`
     + `<div><div class="rc-sub">¿Qué lo saca de verde?</div>${pareto}</div>`
     + `<div><div class="rc-sub">¿Dónde? Horno × día · coladas fuera / evaluables</div><div style="overflow-x:auto">${heat}</div></div>`
     + `<div><div class="rc-sub">Por clase de hierro</div>${clases}</div></div>`
     + `<div style="margin-top:14px"><div class="rc-sub">Coladas fuera de verde · clic para ver su detalle</div>`
     + `<table class="rc-tabla"><thead><tr><th style="text-align:left">Colada</th><th style="text-align:left">Inicio</th><th style="text-align:left">Clase</th><th style="text-align:left">Causa</th><th>Piezas</th><th style="text-align:left">Partes</th></tr></thead><tbody>${lista}</tbody></table>${mas}</div>`
+}
+// Protocolo provisional del PC (backend/protocolos.py, 8-nov-2026): qué hacer en ámbar y en rojo
+function rcProtocoloHtml(lista){
+  if(!lista.length) return ''
+  return '<div class="rc-proto">' + lista.map(p=>
+      `<div><div class="rc-proto-tit">${p.codigo} · protocolo provisional${p.pc==='PC-3'?(p.responsable==='Calidad'?' · hierro nodular':' · hierro gris'):''}</div>`
+      +(p.ambar?`<div><span class="pc-chip pc-AMBAR">ÁMBAR</span> ${p.ambar}</div>`:'')
+      +`<div><span class="pc-chip pc-ROJO">ROJO</span> ${p.rojo}</div>`
+      +`<div class="rc-proto-meta">${p.responsable}${p.tiempo?' · '+p.tiempo:''}${p.liberar?' · liberar: '+p.liberar:''}</div></div>`).join('')
+    + '<div class="rc-proto-meta" style="grid-column:1/-1">Provisional mientras Calidad valida las reglas. Cada acción se anota en la bitácora del turno: colada, PC, qué se hizo y resultado.</div></div>'
 }
 function cerrarDrillPC(){
   _rcDrillPC=null
@@ -3096,7 +3115,12 @@ function renderCarril(c){
   const motivoHtml=c.motivo_gris
     ?`<div class="carril-motivo">${c.motivo_gris}</div>`
     :`<div class="carril-motivo">${c.fuente}</div>`
-  const protoHtml=c.protocolo?`<div class="carril-protocolo">▲ Activar ${c.protocolo}</div>`:''
+  // 2026-11-08: con el catálogo provisional dice qué hacer, no solo el código (PC-3 nodular: ver catálogo)
+  const pp=(_protoCat||{})[c.id_pc]
+  const protoAcc=pp&&(c.estado==='ROJO'?pp.rojo:c.estado==='AMBAR'?pp.ambar:null)
+  const protoHtml=protoAcc
+    ?`<div class="carril-protocolo">▲ ${pp.codigo}: <span style="font-weight:400">${protoAcc} · ${pp.responsable}${pp.tiempo?' · '+pp.tiempo:''}${c.id_pc==='PC-3'&&(_protoCat||{})['PC-3 nodular']?' · si es nodular: '+_protoCat['PC-3 nodular'].rojo:''}</span></div>`
+    :(c.protocolo?`<div class="carril-protocolo">▲ Activar ${c.protocolo}</div>`:'')
 
   return `<div class="carril-row ${est}">
     <div class="carril-id ${est}">${c.id_pc}</div>
@@ -3167,6 +3191,7 @@ function renderAlertas(data){
       <div class="al-row-body">
         <div class="al-row-title">Colada ${a.u_colada} · H${a.horno}${tag}</div>
         <div class="al-row-meta">${fmtDt(a.inicio_fusion)}${a.pct_rechazo!=null?' · '+a.pct_rechazo+'% rechazo':''}${def}</div>
+        ${a.accion?`<div class="al-accion">▸ <b>${a.accion.codigo}</b> ${a.accion.accion} <span>${a.accion.responsable}${a.accion.tiempo?' · '+a.accion.tiempo:''}${a.accion.liberar?' · liberar: '+a.accion.liberar:''}</span></div>`:''}
       </div>
     </div>`
   }).join('')
