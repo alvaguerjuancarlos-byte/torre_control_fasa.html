@@ -2515,8 +2515,12 @@ async function cargarResumenControl(){
   let d
   try{
     const res=await fetch(`/v3/gestion/resumen-control?referencia=${encodeURIComponent(ref)}&horas=${horas}`)
+    // 404 = el servidor se levantó antes de este endpoint: avisar en vez de quedarse en "Cargando…"
+    if(res.status===404){ kpis.innerHTML='<div style="color:#B45309;font-size:12px">El servidor corre una versión anterior: reinícialo con arrancar.bat para ver el resumen.</div>'; return }
+    if(!res.ok) throw new Error('HTTP '+res.status)
     d=await res.json()
-  }catch(e){ kpis.innerHTML='<div style="color:red;font-size:12px">Error al cargar el resumen.</div>'; return }
+    if(!d || !d.universo) throw new Error('respuesta sin universo')
+  }catch(e){ kpis.innerHTML='<div style="color:red;font-size:12px">Error al cargar el resumen ('+e.message+').</div>'; return }
   const U=d.universo, G=d.gravedad
   const nf=v=>Number(v||0).toLocaleString('es-MX')
   const pct=(a,b)=>b?Math.round(a/b*100)+'%':'—'
