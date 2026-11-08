@@ -348,6 +348,9 @@ class ChatRequest(BaseModel):
     pregunta: str
     historial: list = []  # [{"rol": "user"|"assistant", "texto": "..."}], opcional
     periodo: Optional[str] = None  # clave de HORIZONTES ("mes"/"trimestre"/"semestre"/"anio")
+    # Panel lateral de Beta en Control del Proceso (2026-11-08): lo que el usuario está viendo
+    # (resumen, un PC o una colada, y la ventana) para que "esta colada" / "este PC" se entienda.
+    contexto: Optional[str] = None
 
 
 def _system_con_horizonte(system: str, periodo: Optional[str]) -> str:
@@ -378,6 +381,12 @@ seleccionado."""
 def _correr_chat(system: str, req: ChatRequest) -> dict:
     client = anthropic.Anthropic()
     system = _system_con_horizonte(system, req.periodo)
+    if req.contexto:
+        system += ("\n\n"
+                   f"El usuario te pregunta desde el panel de Control del Proceso y en pantalla está "
+                   f"viendo: {req.contexto}. Interpreta \"esta colada\", \"este PC\", \"aquí\" con ese "
+                   f"contexto y usa esa ventana en el parámetro `horas` de las herramientas de control, "
+                   f"salvo que la pregunta pida otra cosa.")
 
     messages = [{"role": t["rol"], "content": t["texto"]} for t in req.historial]
     messages.append({"role": "user", "content": req.pregunta})

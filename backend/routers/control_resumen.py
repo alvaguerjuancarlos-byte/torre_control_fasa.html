@@ -61,6 +61,11 @@ def _peor(estados: list) -> str:
 #   baja   = ÁMBAR sin ella
 # DEFECTOS_POR_PC es criterio metalúrgico PROPUESTO (temperatura -> fierro frío / no lleno;
 # ITACA -> sopladura, porosidad, rechupe, microestructura...), pendiente de validar con Calidad.
+# NOTA PARA CALIDAD (8-nov, JC: se queda hasta que Calidad decida): química -> SOPLADURA es la liga
+# más dudosa; la sopladura suele venir del molde o del inoculante más que de la composición
+# (lo señaló el propio Agente Beta al analizar la colada 161). Hoy hace que C-AD626LG (12 % por
+# sopladura) salga como señal fuerte cada vez que su química sale roja. Pregunta 7 del doc de
+# protocolos.
 _SENAL_ORDEN = {"fuerte": 0, "media": 1, "baja": 2}
 SENAL_PCT_MIN = 3.0
 DEFECTOS_POR_PC = {

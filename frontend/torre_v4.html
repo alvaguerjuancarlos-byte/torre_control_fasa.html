@@ -163,6 +163,19 @@ main{padding:16px 20px;max-width:1100px;margin:0 auto}
 .rc-proto-meta{color:var(--color-text-tertiary);font-size:11px;margin-top:2px}
 .al-accion{font-size:11.5px;margin-top:3px;color:var(--color-text-primary)}
 .al-accion span{color:var(--color-text-tertiary)}
+#bp-toggle{position:fixed;right:18px;bottom:18px;z-index:60;padding:10px 16px;border-radius:24px;border:none;background:#3730A3;color:#fff;font-weight:600;font-size:13px;box-shadow:0 6px 18px rgba(55,48,163,.35);cursor:pointer}
+#bp-toggle:hover{background:#312E81}
+#bp-panel{position:fixed;top:0;right:0;height:100vh;width:min(440px,100vw);z-index:70;background:var(--color-background-primary,#fff);border-left:1px solid var(--color-border-tertiary,#E5E7EB);box-shadow:-10px 0 30px rgba(0,0,0,.12);display:flex;flex-direction:column;padding:14px 14px 12px;transform:translateX(105%);transition:transform .25s ease}
+#bp-panel.abierto{transform:none}
+.bp-head{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:8px}
+.bp-ctx{font-size:11.5px;color:#3730A3;background:#EEF2FF;border-radius:6px;padding:2px 8px;margin-top:4px;display:inline-block}
+.bp-x{border:none;background:none;font-size:20px;line-height:1;cursor:pointer;color:var(--color-text-tertiary)}
+.bp-chips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px}
+.bp-chips button{font-size:11.5px;padding:4px 10px;border-radius:14px;border:1px solid #C7D2FE;background:#fff;color:#3730A3;cursor:pointer;text-align:left}
+.bp-chips button:hover{background:#EEF2FF}
+#bp-chat-log{flex:1;max-height:none;overflow-y:auto}
+.bp-input{display:flex;gap:6px;margin-top:8px}
+.bp-input input{flex:1;padding:8px 10px;border:1px solid var(--color-border-secondary,#D1D5DB);border-radius:8px;font-size:13px}
 .bt-ask{font-size:11px;padding:3px 10px;border:1px solid #C7D2FE;border-radius:6px;background:#EEF2FF;color:#3730A3;cursor:pointer;font-weight:600}
 .bt-ask:hover{background:#E0E7FF}
 .rc-drill-grid{display:grid;grid-template-columns:minmax(260px,1fr) minmax(360px,1.5fr) minmax(280px,1fr);gap:18px}
@@ -348,6 +361,26 @@ main{padding:16px 20px;max-width:1100px;margin:0 auto}
     <div id="rc-atender" style="margin-top:12px"></div>
     <div id="rc-nota" class="ret-leyenda" style="margin-top:10px"></div>
   </div>
+
+  <!-- ── Panel lateral de Agente Beta (2026-11-08): chat de Beta dentro de Control del Proceso,
+       sabe qué estás viendo (resumen, un PC o una colada) y sugiere preguntas para eso. -->
+  <button id="bp-toggle" onclick="abrirPanelBeta()" title="Agente Beta: pregúntale sobre lo que estás viendo">🤖 Pregúntale a Beta</button>
+  <aside id="bp-panel" aria-hidden="true">
+    <div class="bp-head">
+      <div><div style="font-weight:700;font-size:14px">🤖 Agente Beta</div>
+        <div id="bp-ctx" class="bp-ctx">Viendo: resumen de control</div></div>
+      <div style="display:flex;gap:6px;align-items:center">
+        <button id="bp-chat-reset" class="af-chat-reset-btn" title="Empezar conversación nueva">Nueva</button>
+        <button onclick="cerrarPanelBeta()" class="bp-x" title="Cerrar">×</button>
+      </div>
+    </div>
+    <div id="bp-chips" class="bp-chips"></div>
+    <div id="bp-chat-log" class="af-chat-log"><div class="af-chat-hint">Pregúntale sobre lo que estás viendo: el resumen, un punto de control o una colada. Responde solo con datos de la Torre y recomienda únicamente acciones de los protocolos provisionales.</div></div>
+    <div class="bp-input">
+      <input id="bp-chat-input" type="text" placeholder="Ej. ¿qué atiendo primero y por qué?" />
+      <button id="bp-chat-btn" class="btn-load">Enviar</button>
+    </div>
+  </aside>
 
   <!-- ── Alertas y Protocolos: franja Andon, siempre visible arriba del flujo ── -->
   <div style="font-size:14px;font-weight:600;color:var(--color-text-primary);margin:20px 0 8px">🔔 Alertas y Protocolos</div>
@@ -2628,6 +2661,7 @@ async function abrirDrillPC(pc, mantener){
   const box=document.getElementById('rc-drill')
   if(_rcDrillPC===pc && box.style.display!=='none' && !mantener){ cerrarDrillPC(); return }
   _rcDrillPC=pc
+  setBetaCtx({tipo:'pc', pc})
   document.querySelectorAll('#rc-matriz .rc-fila').forEach(tr=>tr.classList.toggle('rc-sel', tr.dataset.pc===pc))
   box.style.display=''
   box.innerHTML='<div class="loading-msg">Cargando desglose de '+pc+'…</div>'
@@ -2710,16 +2744,62 @@ function rcVentanaTxt(){
 function rcPreguntaPC(pc){
   return `¿Por qué está fallando ${pc} en ${rcVentanaTxt()}? Dime la causa principal, si es un horno o una clase de hierro, qué hago según el protocolo y cuáles de las partes más afectadas ya tenían historia de rechazo.`
 }
+let _betaCtx={tipo:'resumen'}, _bpIniciado=false, BETA_PANEL=null
+function bpVentana(){ return rcVentanaTxt() }
+function bpContextoTxt(){
+  const h=document.getElementById('cp-sel-horas').value
+  const base=`ventana de ${bpVentana()} (horas=${h})`
+  if(_betaCtx.tipo==='pc') return `el desglose de ${_betaCtx.pc} en el Resumen de control, ${base}`
+  if(_betaCtx.tipo==='colada') return `el detalle de la colada ${_betaCtx.colada} del horno ${_betaCtx.horno}${_betaCtx.clase?' (clase '+_betaCtx.clase+')':''}, ${base}`
+  return `el Resumen de control (todas las coladas), ${base}`
+}
+function bpPreguntasSugeridas(){
+  if(_betaCtx.tipo==='pc'){ const pc=_betaCtx.pc; return [
+    `¿Por qué está fallando ${pc}?`,
+    `¿Es un horno, un día o una clase de hierro?`,
+    `¿Qué hago según el protocolo de ${pc}?`,
+    `¿Cuáles de las partes afectadas ya rechazaban?`] }
+  if(_betaCtx.tipo==='colada'){ const c=`la colada ${_betaCtx.colada} del horno ${_betaCtx.horno}`; return [
+    `¿Por qué salió fuera ${c}?`,
+    `¿Qué hago con ${c} según el protocolo?`,
+    `¿Sus partes ya tenían historia de rechazo?`,
+    `¿Retengo las piezas o las libero?`] }
+  return ['¿Qué atiendo primero y por qué?',
+    '¿Qué punto de control falla más en esta ventana?',
+    '¿Es problema de un horno o de todos?',
+    '¿Qué partes aparecen más en la señal fuerte?']
+}
+function setBetaCtx(ctx){
+  _betaCtx=ctx
+  const el=document.getElementById('bp-ctx'); if(!el) return
+  el.textContent='Viendo: '+(ctx.tipo==='pc'?'desglose de '+ctx.pc:ctx.tipo==='colada'?`colada ${ctx.colada} · horno ${ctx.horno}`:'resumen de control')+' · '+bpVentana()
+  document.getElementById('bp-chips').innerHTML=bpPreguntasSugeridas().map((q,i)=>`<button type="button" data-i="${i}">${q}</button>`).join('')
+  document.querySelectorAll('#bp-chips button').forEach(b=>b.onclick=()=>BETA_PANEL&&BETA_PANEL.preguntar(bpPreguntasSugeridas()[+b.dataset.i]))
+}
+function abrirPanelBeta(){
+  if(!_bpIniciado){
+    BETA_PANEL=crearChatAgente({logId:'bp-chat-log', inputId:'bp-chat-input', btnId:'bp-chat-btn',
+      endpoint:'/api/beta/chat', resetId:'bp-chat-reset', getContexto: bpContextoTxt})
+    BETA_PANEL.init(); _bpIniciado=true
+  }
+  setBetaCtx(_betaCtx)
+  document.getElementById('bp-panel').classList.add('abierto')
+  document.getElementById('bp-panel').setAttribute('aria-hidden','false')
+  document.getElementById('bp-toggle').style.display='none'
+  setTimeout(()=>document.getElementById('bp-chat-input').focus(),250)
+}
+function cerrarPanelBeta(){
+  document.getElementById('bp-panel').classList.remove('abierto')
+  document.getElementById('bp-panel').setAttribute('aria-hidden','true')
+  document.getElementById('bp-toggle').style.display=''
+}
 function preguntarABeta(texto){
-  switchTab('beta')
-  setTimeout(()=>{
-    if(window.initBetaPanel) window.initBetaPanel()
-    BETA_CHAT.preguntar(texto)
-    const log=document.getElementById('bt-chat-log'); if(log) log.scrollIntoView({behavior:'smooth', block:'start'})
-  }, 300)
+  abrirPanelBeta()
+  setTimeout(()=>BETA_PANEL.preguntar(texto), 50)
 }
 function cerrarDrillPC(){
   _rcDrillPC=null
+  setBetaCtx({tipo:'resumen'})
   document.getElementById('rc-drill').style.display='none'
   document.querySelectorAll('#rc-matriz .rc-fila').forEach(tr=>tr.classList.remove('rc-sel'))
 }
@@ -2972,6 +3052,7 @@ async function abrirDetalleFlujo(idColada){
 }
 
 function renderFlujoDetalle(col, carriles, piezas, diag){
+  setBetaCtx({tipo:'colada', colada:col.u_colada, horno:col.horno})
   const hc=HC_MAT[col.horno]||'#9a9890'
   const pct=col.pct_rechazo||0
   const pctC=pct>=15?'#A32D2D':pct>=7?'#854F0B':'#0F6E56'
@@ -6424,7 +6505,8 @@ function crearChatAgente(cfg){
       const r = await fetch(cfg.endpoint, {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({pregunta: pregunta, historial: historial, periodo: cfg.getPeriodo ? cfg.getPeriodo() : null}),
+        body: JSON.stringify({pregunta: pregunta, historial: historial, periodo: cfg.getPeriodo ? cfg.getPeriodo() : null,
+                              contexto: cfg.getContexto ? cfg.getContexto() : null}),
       })
       if (r.ok) resp = await r.json()
     } catch (e) { resp = null }
