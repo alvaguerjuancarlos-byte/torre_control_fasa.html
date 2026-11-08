@@ -150,6 +150,7 @@ main{padding:16px 20px;max-width:1100px;margin:0 auto}
   letter-spacing:.04em;margin:10px 0 6px}
 .kpi-grupo:first-child{margin-top:0}
 .kpi-notas{font-size:10.5px;color:var(--color-text-tertiary);margin-top:8px;line-height:1.5}
+.ret-leyenda{font-size:10px;color:var(--color-text-tertiary);margin-top:4px;line-height:1.45}
 .bar2{height:8px;background:var(--color-background-secondary);border-radius:4px;overflow:hidden}
 .crow{display:grid;grid-template-columns:1.7fr 0.7fr 1fr 1fr;align-items:center;
   gap:8px;padding:6px 10px;border-radius:var(--border-radius-md);font-size:13px}
@@ -2186,6 +2187,20 @@ function renderTonelaje(){
   sub.textContent = 'Peso real de colada (c_Kilos) repartido por pieza · ' + tonEtiquetaPeriodo() + ' · ' + meses.length + ' meses'
     + (mSin.length ? ' · ' + sinTxt + ': metal cargado de coladas/cargas, rechazo sin dato confiable' : '')
 
+  // Leyenda de la franja de % retornos, en letra chica justo debajo de la gráfica (JC 2026-11-08):
+  // de dónde sale el porcentaje y qué materiales cuenta. La lista viene del endpoint, no fija aquí.
+  function leyendaRetornos(d, lim){
+    const e = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;')
+    const inc = (d.incluye||[]).map(e).join(' · ') || 'materiales "RETORNO…"'
+    const exc = (d.excluye||[]).map(e).join(' · ')
+    return '<div class="ret-leyenda"><b>% retornos en carga</b> = kg de retornos ÷ kg totales cargados al horno '
+      + '(metálicos + ferroaleaciones), sumado por mes. Fuente: <i>betamega_00_cargasmetalicas</i> (kg reales por material y colada); '
+      + 'el mes es el inicio de la colada (<i>coladaprocesodemoras</i>; si falta, el primer moldeo). '
+      + '<b>Incluye</b>: ' + inc + '. '
+      + (exc ? '<b>No incluye</b>: ' + exc + ' (definición provisional, pendiente de confirmar con Calidad). ' : '')
+      + 'Límite del Plan de Control Nivel 1 (PC-1): ≤ ' + lim + '%.</div>'
+  }
+
   // Look & feel (JC 2026-10-25, "las etiquetas se ven raras"): un solo estilo de tarjeta (sin el
   // ámbar punteado "nuevo"), rejilla de ancho parejo en dos grupos, toneladas sin decimales y las
   // aclaraciones UNA vez al pie con asterisco en vez de repetidas en cada tarjeta.
@@ -2217,6 +2232,7 @@ function renderTonelaje(){
     + (notas.length ? '<div class="kpi-notas">' + notas.join('<br>') + '</div>' : '')
 
   chartEl.innerHTML = svgTonelaje(meses, nocPorMes, retPorMes, retLim)
+    + (retVals.length ? leyendaRetornos(_retornosData, retLim) : '')
 
   // kg OK/rechazo y su % solo con meses confiables (kg_conf); "s/h" = coladas que solo vienen de
   // cargasmetalicas (hueco de demoras 18-ago al 29-sep-2026), sin horno conocido.

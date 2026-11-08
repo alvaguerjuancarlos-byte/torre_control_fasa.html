@@ -4134,6 +4134,17 @@ def produccion_retornos_mensual(anios: str = Query(default="2023,2024,2025,2026"
     """.format(key), {}):
         fecha.setdefault(r["IdColada"], r["f"])
 
+    # Materiales que entran y que quedan fuera de la definición, para la leyenda bajo la gráfica
+    # (2026-11-08): retornos = "RETORNO…"; las rebabas de retorno no cuentan (definición provisional).
+    materiales = run("""
+        SELECT UPPER(TRIM(Descripcion)) AS d, SUM(KgsReal) AS kg
+        FROM betamega_00_cargasmetalicas
+        WHERE UPPER(TRIM(Descripcion)) LIKE 'RETORNO%' OR UPPER(TRIM(Descripcion)) LIKE 'REBABA%RETORNO%'
+        GROUP BY d ORDER BY kg DESC
+    """, {})
+    incluye = [m["d"] for m in materiales if m["d"].startswith("RETORNO")]
+    excluye = [m["d"] for m in materiales if m["d"].startswith("REBABA")]
+
     agg: dict = {}
     for c in cargas:
         f = fecha.get(c["IdColada"])
@@ -4146,6 +4157,8 @@ def produccion_retornos_mensual(anios: str = Query(default="2023,2024,2025,2026"
     out = {
         "limite_pct": 30,
         "definicion": "provisional: materiales 'RETORNO*' / kg reales de carga (sin rebaba cribada)",
+        "incluye": incluye,
+        "excluye": excluye,
         "meses": {
             mk: {
                 "coladas":  a["coladas"],
