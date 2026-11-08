@@ -924,6 +924,7 @@ def temperatura_por_coladas(ids: list) -> Dict[int, dict]:
                    AND vt_TemperaturaVaciado > m_tmax + 5 AND vt_TemperaturaVaciado <= m_tmax + 15) AS n_leve,
                SUM(vt_TemperaturaVaciado BETWEEN 1100 AND 1600
                    AND (vt_TemperaturaVaciado < m_tmin OR vt_TemperaturaVaciado > m_tmax + 15)) AS n_grave,
+               SUM(vt_TemperaturaVaciado BETWEEN 1100 AND 1600 AND vt_TemperaturaVaciado < m_tmin) AS n_frio,
                ROUND(AVG(CASE WHEN vt_TemperaturaVaciado BETWEEN 1100 AND 1600
                          THEN vt_TemperaturaVaciado END)) AS temp_avg,
                MIN(m_tmin) AS tmin, MAX(m_tmax) AS tmax,
@@ -1232,6 +1233,40 @@ def datos_pcs_coladas(coladas: list) -> dict:
     }
 
 
+def causas_pcs(e: dict) -> dict:
+    """Qué hizo salir a cada PC de VERDE, en forma compacta (2026-11-08): alimenta el desglose por
+    PC del Resumen de control y, después, a Agente Beta. Sale de lo que evaluar_pcs_colada() ya
+    calculó -- no consulta la BD. Cada causa es {"causa": etiqueta corta para agrupar, ...detalle}."""
+    out: Dict[str, list] = {}
+    out["PC-1"] = [{"causa": c["descripcion"] or c["clave"], "dif_kg": c["dif_kg"], "grave": c.get("grave", False)}
+                   for c in e["comps_carga"] if not c["en_tolerancia"]]
+    q, qe = e["quim"], e["quim_elem"]
+    pc2 = []
+    for elem, pref in _QUIM_ELEMS:
+        if qe.get(elem) != "FAIL":
+            continue
+        valor, centro, tol = q.get(elem), q.get(f"{pref}_F"), float(q.get(f"{pref}_Fl") or 0)
+        alto = valor is not None and centro is not None and float(valor) > float(centro) + tol
+        pc2.append({"causa": f"{elem} {'alto' if alto else 'bajo'}", "valor": valor,
+                    "spec": f"≤ {centro}" if not tol else f"{float(centro) - tol:g}–{float(centro) + tol:g}"})
+    out["PC-2"] = pc2
+    it = e["itaca"] or {}
+    out["PC-3"] = sorted(({"causa": k, "score": v, "grave": v < 50} for k, v in (it.get("alertas") or {}).items() if v < 70),
+                         key=lambda x: x["score"])
+    t = e["temp"] or {}
+    pc4 = []
+    if int(t.get("n_frio") or 0):
+        pc4.append({"causa": "vaciado frío", "tickets": int(t["n_frio"]), "grave": True})
+    cal = int(t.get("n_grave") or 0) - int(t.get("n_frio") or 0)
+    if cal > 0:
+        pc4.append({"causa": "> 15 °C arriba", "tickets": cal, "grave": True})
+    if int(t.get("n_leve") or 0):
+        pc4.append({"causa": "6–15 °C arriba", "tickets": int(t["n_leve"]), "grave": False})
+    out["PC-4"] = pc4
+    out["PC-6"] = [{"causa": d, "parte": p, "piezas": n} for (d, p), n in e["resumen"]["combos_defecto"][:5]]
+    return out
+
+
 def evaluar_pcs_colada(col: dict, datos: dict, no_conf: set) -> dict:
     """Los 7 PCs de una colada. Compartida por la lista (_evaluar_coladas_ventana) y el detalle
     (/v3/gestion/colada/{id}/carriles) para que los dos den el mismo color."""
@@ -1383,6 +1418,10 @@ def _evaluar_coladas_ventana_bd(referencia: str, horas: int) -> list:
             "pct_carga_ok":  e["carga"]["pct_ok"],
             "pct_retornos":  e["carga"]["pct_retornos"],
             "motivos_gris":  {k: v["motivo_gris"] for k, v in evs.items() if v["estado"] == "GRIS"},
+            "causas":        causas_pcs(e),
+            # clase: la del análisis químico; si no hay análisis, la dominante de las piezas
+            "clase":         e["quim"].get("clase") or ((_clases().get(clase_dominante(datos["piezas"].get(col["id_colada"], [])))
+                                                         or {}).get("Clave") or "").strip() or None,
             "estados":       estados,
             "etapa":         e["etapa"],
             "tiene_alerta":  any(v in ("ROJO", "AMBAR") for v in estados.values()),

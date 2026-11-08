@@ -111,3 +111,67 @@ def resumen_control(referencia: Optional[str] = Query(default=None), horas: int 
             for c in peores[:5]
         ],
     }
+
+
+@router.get("/v3/gestion/resumen-control/pc/{id_pc}")
+def resumen_control_pc(id_pc: str, referencia: Optional[str] = Query(default=None), horas: int = Query(default=48)):
+    """
+    Desglose de un PC (2026-11-08), lo que se abre al dar clic en su renglón del resumen:
+
+      - pareto:  qué lo saca de VERDE (core.causas_pcs: material, elemento alto/bajo, alerta
+                 ITACA, frío/caliente, defecto), en cuántas coladas y piezas, cuántas en ROJO;
+      - patron:  horno x día (coladas evaluables, ámbar, rojo) y por clase de hierro, para ver si
+                 el problema es un horno, un día o todo;
+      - coladas: las coladas en ÁMBAR/ROJO de ese PC con su causa, peor primero.
+
+    Mismas coladas y caché que el resumen. PCs sin causas desglosables (PC-5, PC-7) devuelven el
+    patrón y la lista sin Pareto.
+    """
+    id_pc = id_pc.upper()
+    if referencia is None:
+        referencia = datetime.now().strftime("%Y-%m-%dT%H:%M")
+    coladas = _evaluar_coladas_ventana(referencia, horas)
+
+    pareto: dict = {}
+    hornos: dict = {}
+    clases: dict = {}
+    dias = set()
+    fuera = []
+    for c in coladas:
+        e = c["estados"].get(id_pc, "GRIS")
+        if e == "GRIS":
+            continue
+        dia = str(c["inicio_fusion"])[:10]
+        dias.add(dia)
+        h = hornos.setdefault(str(c["horno"] or "?"), {})
+        cel = h.setdefault(dia, {"evaluables": 0, "AMBAR": 0, "ROJO": 0})
+        cel["evaluables"] += 1
+        k = clases.setdefault(c.get("clase") or "sin clase", {"evaluables": 0, "AMBAR": 0, "ROJO": 0})
+        k["evaluables"] += 1
+        if e == "VERDE":
+            continue
+        cel[e] += 1
+        k[e] += 1
+        causas = (c.get("causas") or {}).get(id_pc) or []
+        for etiqueta in {x["causa"] for x in causas}:
+            p = pareto.setdefault(etiqueta, {"causa": etiqueta, "coladas": 0, "rojo": 0, "piezas": 0})
+            p["coladas"] += 1
+            p["rojo"] += e == "ROJO"
+            p["piezas"] += c["piezas"] or 0
+        fuera.append({
+            "id_colada": c["id_colada"], "u_colada": c["u_colada"], "horno": c["horno"],
+            "inicio_fusion": c["inicio_fusion"], "clase": c.get("clase"), "estado": e,
+            "piezas": c["piezas"], "causas": causas,
+            "skus": [s["sku"] for s in (c.get("skus") or [])][:3],
+        })
+    fuera.sort(key=lambda x: (x["estado"] != "ROJO", -(x["piezas"] or 0)))
+    return {
+        "referencia": referencia, "horas": horas, "id_pc": id_pc,
+        "pareto": sorted(pareto.values(), key=lambda p: (-p["coladas"], -p["rojo"])),
+        "patron": {
+            "dias": sorted(dias),
+            "hornos": {h: v for h, v in sorted(hornos.items())},
+            "clases": sorted(({"clase": k, **v} for k, v in clases.items()), key=lambda x: -(x["AMBAR"] + x["ROJO"])),
+        },
+        "coladas": fuera,
+    }

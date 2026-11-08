@@ -154,6 +154,16 @@ main{padding:16px 20px;max-width:1100px;margin:0 auto}
 .rc-tabla{width:100%;border-collapse:collapse;font-size:12px}
 .rc-tabla th{font-size:10.5px;font-weight:600;color:var(--color-text-tertiary);text-align:right;padding:4px 6px;border-bottom:1px solid var(--color-border-tertiary,#E5E7EB)}
 .rc-tabla td{padding:5px 6px;vertical-align:middle}
+.rc-fila{cursor:pointer}
+.rc-fila:hover td{background:#F9FAFB}
+.rc-sel td{background:#EFF6FF}
+.rc-drill-grid{display:grid;grid-template-columns:minmax(260px,1fr) minmax(360px,1.5fr) minmax(280px,1fr);gap:18px}
+@media (max-width:1200px){.rc-drill-grid{grid-template-columns:1fr}}
+#rc-drill{border-top:1px solid var(--color-border-tertiary,#E5E7EB);padding-top:12px}
+.rc-sub{font-size:11px;font-weight:700;color:var(--color-text-tertiary);text-transform:uppercase;letter-spacing:.04em;margin-bottom:6px}
+.rc-heat{border-collapse:separate;border-spacing:2px;font-size:10.5px}
+.rc-heat th{font-weight:500;color:var(--color-text-tertiary);padding:2px 4px;white-space:nowrap}
+.rc-heat td{min-width:30px;height:22px;border-radius:3px;padding:0 3px}
 .bar2{height:8px;background:var(--color-background-secondary);border-radius:4px;overflow:hidden}
 .crow{display:grid;grid-template-columns:1.7fr 0.7fr 1fr 1fr;align-items:center;
   gap:8px;padding:6px 10px;border-radius:var(--border-radius-md);font-size:13px}
@@ -326,6 +336,7 @@ main{padding:16px 20px;max-width:1100px;margin:0 auto}
     <div style="font-size:14px;font-weight:600;color:var(--color-text-primary)">Resumen de control · <span id="rc-ventana" style="font-weight:400;color:var(--color-text-tertiary)"></span></div>
     <div id="rc-kpis" class="kpi-grid" style="margin-top:10px"><div class="loading-msg">Cargando…</div></div>
     <div id="rc-matriz" style="margin-top:14px"></div>
+    <div id="rc-drill" style="display:none;margin-top:12px"></div>
     <div id="rc-atender" style="margin-top:12px"></div>
     <div id="rc-nota" class="ret-leyenda" style="margin-top:10px"></div>
   </div>
@@ -2512,6 +2523,8 @@ async function cargarResumenControl(){
   const kpis=document.getElementById('rc-kpis')
   kpis.innerHTML='<div class="loading-msg">Cargando…</div>'
   ;['rc-matriz','rc-atender','rc-nota'].forEach(id=>document.getElementById(id).innerHTML='')
+  document.getElementById('rc-drill').style.display='none'
+  const _drillAbierto=_rcDrillPC
   let d
   try{
     const res=await fetch(`/v3/gestion/resumen-control?referencia=${encodeURIComponent(ref)}&horas=${horas}`)
@@ -2539,7 +2552,7 @@ async function cargarResumenControl(){
     const c=p.coladas, tot=c.VERDE+c.AMBAR+c.ROJO+c.GRIS
     const seg=['VERDE','AMBAR','ROJO','GRIS'].map(k=>c[k]?`<div title="${k}: ${c[k]} coladas · ${nf(p.piezas[k])} piezas" style="width:${c[k]/tot*100}%;background:${RC_COL[k]};height:100%"></div>`:'').join('')
     const num=(k,col)=>`<td style="text-align:right;color:${col};font-weight:${c[k]?600:400}">${c[k]||'·'}</td>`
-    return `<tr title="${String(p.regla).replace(/"/g,'&quot;')}">`
+    return `<tr class="rc-fila${_rcDrillPC===p.id_pc?' rc-sel':''}" data-pc="${p.id_pc}" onclick="abrirDrillPC('${p.id_pc}')" title="Clic para ver qué lo saca de verde y dónde · ${String(p.regla).replace(/"/g,'&quot;')}">`
       +`<td style="white-space:nowrap"><b>${p.id_pc}</b> <span style="color:var(--color-text-secondary)">${p.señal.split(' — ')[0].split(' (')[0]}</span></td>`
       +`<td style="width:34%"><div style="display:flex;height:10px;border-radius:3px;overflow:hidden;background:#F3F4F6">${seg}</div></td>`
       +num('VERDE','#047857')+num('AMBAR','#B45309')+num('ROJO','#B91C1C')
@@ -2570,7 +2583,95 @@ async function cargarResumenControl(){
     '<b>Cómo se lee:</b> la colada toma el peor estado de PC-1 a PC-4 (riesgo de producto); PC-5 a PC-7 llegan días después del vaciado (desmoldeo, rechazo y cierre) y se cuentan aparte. '
     + '«Piezas expuestas» = piezas de coladas en rojo. «Cobertura» = coladas en que el PC se pudo evaluar. '
     + '<b>Calibración propuesta el 8-nov-2026, pendiente de Calidad:</b> PC-1 cuenta un material fuera arriba de 2× la tolerancia de báscula y rojo arriba del 5 % de su receta; '
-    + 'PC-4 da 5 °C de margen sobre el máximo de la parte y es grave si el vaciado va frío o más de 15 °C arriba (rojo si más de un tercio de los tickets son graves).'
+    + 'PC-4 da 5 °C de margen sobre el máximo de la parte y es grave si el vaciado va frío o más de 15 °C arriba (rojo si más de un tercio de los tickets son graves). '
+    + 'Clic en un punto de control para ver qué lo saca de verde y dónde.'
+  if(_drillAbierto) abrirDrillPC(_drillAbierto, true)  // al recargar la ventana se queda abierto el mismo PC
+}
+
+// ── Desglose de un PC (2026-11-08): qué lo saca de verde (Pareto), dónde (horno × día, clase)
+// y qué coladas. /v3/gestion/resumen-control/pc/{pc}. Base para las herramientas de Beta.
+let _rcDrillPC=null
+const RC_ITACA={Porosity:'Porosidad',MacroShrinkage:'Rechupe macro',Cementite:'Cementita',Nodularization:'Nodularización',InverseChill:'Enfriamiento inverso'}
+const rcCausaLbl=c=>RC_ITACA[c]||c
+function rcCausaTxt(pc,x){
+  if(pc==='PC-1') return `${x.causa} ${x.dif_kg>0?'+':''}${x.dif_kg} kg`
+  if(pc==='PC-2') return `${x.causa} (${x.valor}; spec ${x.spec})`
+  if(pc==='PC-3') return `${rcCausaLbl(x.causa)} ${x.score}`
+  if(pc==='PC-4') return `${x.causa}: ${x.tickets} ticket${x.tickets===1?'':'s'}`
+  if(pc==='PC-6') return `${x.causa} · ${x.parte} (${x.piezas})`
+  return x.causa
+}
+function rcVerTodas(btn){
+  btn.parentElement.querySelectorAll('tr.rc-extra').forEach(t=>t.style.display='')
+  btn.remove()
+}
+async function abrirDrillPC(pc, mantener){
+  const box=document.getElementById('rc-drill')
+  if(_rcDrillPC===pc && box.style.display!=='none' && !mantener){ cerrarDrillPC(); return }
+  _rcDrillPC=pc
+  document.querySelectorAll('#rc-matriz .rc-fila').forEach(tr=>tr.classList.toggle('rc-sel', tr.dataset.pc===pc))
+  box.style.display=''
+  box.innerHTML='<div class="loading-msg">Cargando desglose de '+pc+'…</div>'
+  const horas=document.getElementById('cp-sel-horas').value
+  const ref=document.getElementById('cp-inp-ref').value
+  let d
+  try{
+    const res=await fetch(`/v3/gestion/resumen-control/pc/${pc}?referencia=${encodeURIComponent(ref)}&horas=${horas}`)
+    if(!res.ok) throw new Error('HTTP '+res.status+(res.status===404?' · reinicia el servidor con arrancar.bat':''))
+    d=await res.json()
+  }catch(e){ box.innerHTML='<div style="color:red;font-size:12px">Error al cargar el desglose ('+e.message+').</div>'; return }
+  if(_rcDrillPC!==pc) return
+  const nf=v=>Number(v||0).toLocaleString('es-MX')
+  const cab=`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">`
+    +`<div style="font-size:13px;font-weight:600">${pc} · ${d.coladas.length} coladas fuera de verde</div>`
+    +`<button onclick="cerrarDrillPC()" style="border:none;background:none;font-size:16px;cursor:pointer;color:var(--color-text-tertiary)" title="Cerrar">×</button></div>`
+  if(!d.coladas.length){ box.innerHTML=cab+'<div class="empty-msg">Todas las coladas evaluables de '+pc+' están en verde en esta ventana.</div>'; return }
+
+  // ¿Qué lo saca de verde? Pareto: barra roja (coladas en ROJO) + ámbar (el resto)
+  const maxP=Math.max(1,...d.pareto.map(p=>p.coladas))
+  const pareto=d.pareto.length ? d.pareto.slice(0,8).map(p=>
+      `<div style="display:grid;grid-template-columns:120px 1fr 92px;gap:6px;align-items:center;font-size:11.5px;margin:3px 0">`
+      +`<div title="${p.causa}" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${rcCausaLbl(p.causa)}</div>`
+      +`<div style="display:flex;height:9px;border-radius:2px;overflow:hidden;background:#F3F4F6"><div style="width:${p.rojo/maxP*100}%;background:#EF4444"></div><div style="width:${(p.coladas-p.rojo)/maxP*100}%;background:#F59E0B"></div></div>`
+      +`<div style="text-align:right;color:var(--color-text-secondary)">${p.coladas} col · ${nf(p.piezas)} pz</div></div>`).join('')
+    : '<div style="font-size:11px;color:var(--color-text-tertiary)">Este PC no trae causa desglosable.</div>'
+
+  // ¿Dónde? horno × día: color por % de coladas evaluables fuera de verde
+  const dias=d.patron.dias
+  const celda=c=>{
+    if(!c) return '<td style="background:#FAFAFA"></td>'
+    const f=(c.ROJO+c.AMBAR)/c.evaluables
+    const col=c.ROJO? `rgba(239,68,68,${(0.15+0.75*f).toFixed(2)})` : c.AMBAR? `rgba(245,158,11,${(0.15+0.6*f).toFixed(2)})` : 'rgba(29,158,117,.18)'
+    return `<td title="${c.evaluables} coladas evaluables · ${c.AMBAR} ámbar · ${c.ROJO} rojo" style="background:${col};text-align:center;font-size:10.5px">${c.ROJO||c.AMBAR?(c.ROJO+c.AMBAR)+'/'+c.evaluables:''}</td>`
+  }
+  const heat=`<table class="rc-heat"><thead><tr><th></th>${dias.map(x=>`<th>${x.slice(8,10)}/${x.slice(5,7)}</th>`).join('')}<th title="% de coladas evaluables fuera de verde · r = en rojo">Total</th></tr></thead><tbody>`
+    + Object.entries(d.patron.hornos).map(([h,v])=>{
+        const t=Object.values(v).reduce((a,c)=>({e:a.e+c.evaluables,f:a.f+c.ROJO+c.AMBAR,r:a.r+c.ROJO}),{e:0,f:0,r:0})
+        return `<tr><th style="text-align:left">Horno ${h}</th>${dias.map(x=>celda(v[x])).join('')}<td title="${t.f} de ${t.e} coladas fuera · ${t.r} en rojo" style="text-align:right;font-size:11px;white-space:nowrap;padding-left:6px"><b>${t.e?Math.round(t.f/t.e*100):0}%</b> <span style="color:#B91C1C">${t.r}r</span></td></tr>`
+      }).join('') + '</tbody></table>'
+  const clases='<table class="rc-tabla"><thead><tr><th style="text-align:left">Clase</th><th>Evaluables</th><th>Ámbar</th><th>Rojo</th><th>% fuera</th></tr></thead><tbody>'
+    + d.patron.clases.map(k=>`<tr><td>${k.clase}</td><td style="text-align:right">${k.evaluables}</td><td style="text-align:right;color:#B45309">${k.AMBAR||'·'}</td><td style="text-align:right;color:#B91C1C">${k.ROJO||'·'}</td>`
+      +`<td style="text-align:right;font-weight:600">${k.evaluables?Math.round((k.AMBAR+k.ROJO)/k.evaluables*100):0}%</td></tr>`).join('') + '</tbody></table>'
+
+  const lista=d.coladas.map((c,i)=>`<tr class="rc-fila${i>=12?' rc-extra':''}" onclick="abrirDetalleFlujo(${c.id_colada});document.getElementById('fl-detalle').scrollIntoView({behavior:'smooth'})" style="${i>=12?'display:none':''}">`
+      +`<td style="white-space:nowrap"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${RC_COL[c.estado]};margin-right:6px"></span><b>${c.u_colada}</b> · H${c.horno}</td>`
+      +`<td style="color:var(--color-text-secondary);white-space:nowrap">${String(c.inicio_fusion).slice(5,16).replace('-','/')}</td><td>${c.clase||'—'}</td>`
+      +`<td>${c.causas.map(x=>rcCausaTxt(pc,x)).join(' · ')||'<span style="color:var(--color-text-tertiary)">—</span>'}</td>`
+      +`<td style="text-align:right">${c.piezas}</td><td style="color:var(--color-text-tertiary)">${c.skus.join(', ')}</td></tr>`).join('')
+  const mas=d.coladas.length>12?`<button onclick="rcVerTodas(this)" class="btn-load" style="margin-top:6px">Ver las ${d.coladas.length} coladas</button>`:''
+
+  box.innerHTML=cab
+    + `<div class="rc-drill-grid">`
+    + `<div><div class="rc-sub">¿Qué lo saca de verde?</div>${pareto}</div>`
+    + `<div><div class="rc-sub">¿Dónde? Horno × día · coladas fuera / evaluables</div><div style="overflow-x:auto">${heat}</div></div>`
+    + `<div><div class="rc-sub">Por clase de hierro</div>${clases}</div></div>`
+    + `<div style="margin-top:14px"><div class="rc-sub">Coladas fuera de verde · clic para ver su detalle</div>`
+    + `<table class="rc-tabla"><thead><tr><th style="text-align:left">Colada</th><th style="text-align:left">Inicio</th><th style="text-align:left">Clase</th><th style="text-align:left">Causa</th><th>Piezas</th><th style="text-align:left">Partes</th></tr></thead><tbody>${lista}</tbody></table>${mas}</div>`
+}
+function cerrarDrillPC(){
+  _rcDrillPC=null
+  document.getElementById('rc-drill').style.display='none'
+  document.querySelectorAll('#rc-matriz .rc-fila').forEach(tr=>tr.classList.remove('rc-sel'))
 }
 
 // ── Control de Arenas ──
