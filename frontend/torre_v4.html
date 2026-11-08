@@ -176,6 +176,28 @@ main{padding:16px 20px;max-width:1100px;margin:0 auto}
 #bp-chat-log{flex:1;max-height:none;overflow-y:auto}
 .bp-input{display:flex;gap:6px;margin-top:8px}
 .bp-input input{flex:1;padding:8px 10px;border:1px solid var(--color-border-secondary,#D1D5DB);border-radius:8px;font-size:13px}
+.fr-grid{display:grid;grid-template-columns:minmax(380px,1.3fr) minmax(320px,1fr);gap:22px;margin-top:14px}
+@media (max-width:1100px){.fr-grid{grid-template-columns:1fr}}
+.fr-etapa,.fr-tramo{display:grid;grid-template-columns:110px 1fr 250px;gap:8px;align-items:center;font-size:12px;margin:5px 0}
+.fr-etapa{grid-template-columns:150px 1fr 110px 1fr}
+.fr-et-nom,.fr-tr-nom{font-weight:600;line-height:1.2}
+.fr-et-nom span,.fr-tr-nom span{display:block;font-weight:400;font-size:10px;color:var(--color-text-tertiary)}
+.fr-et-bar{height:10px;background:#F3F4F6;border-radius:3px;overflow:hidden}
+.fr-et-bar div{height:100%}
+.fr-et-pct span{color:var(--color-text-tertiary);font-size:11px}
+.fr-et-src{font-size:10px;color:var(--color-text-tertiary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.fr-leyenda{font-size:11px;color:var(--color-text-tertiary);margin-bottom:6px;display:flex;flex-wrap:wrap;gap:4px 12px;align-items:center}
+.fr-leyenda i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:4px;vertical-align:-1px}
+.fr-fila{display:grid;grid-template-columns:130px 1fr;gap:8px;align-items:center;margin:8px 0}
+.fr-horno{font-size:12px;font-weight:700}
+.fr-horno span{display:block;font-weight:400;font-size:10.5px;color:var(--color-text-tertiary)}
+.fr-pista{position:relative;height:30px;background:#F8FAFC;border:1px solid #E5E7EB;border-radius:4px}
+.fr-bloque{position:absolute;top:4px;height:20px;min-width:4px;border-radius:2px;cursor:pointer;opacity:.9}
+.fr-bloque:hover{opacity:1;outline:2px solid #111;z-index:2}
+.fr-fuerte{outline:2px solid #111;outline-offset:1px;z-index:1}
+.fr-dia{position:absolute;top:-2px;bottom:-2px;border-left:1px dashed #CBD5E1}
+.fr-dia span{position:absolute;top:-15px;left:2px;font-size:9.5px;color:var(--color-text-tertiary)}
+.fr-tiempo{padding-top:12px}
 .rc-lectura{margin-top:10px;background:#F5F3FF;border:1px solid #DDD6FE;border-radius:10px;padding:10px 12px}
 .rc-lectura-tit{font-size:12px;font-weight:700;color:#4C1D95;margin-bottom:4px}
 .rc-lectura-fila{display:grid;grid-template-columns:110px 1fr;gap:8px;font-size:13px;line-height:1.45;margin:3px 0}
@@ -445,13 +467,13 @@ main{padding:16px 20px;max-width:1100px;margin:0 auto}
 
   <!-- ── Flujo del Proceso: mapa por etapa + detalle de colada ── -->
   <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
-    <div style="font-size:14px;font-weight:600;color:var(--color-text-primary)">Flujo del Proceso</div>
+    <div style="font-size:14px;font-weight:600;color:var(--color-text-primary)">Flujo y rastreo</div>
     <div style="margin-left:auto;display:flex;gap:3px;background:#F3F4F6;border-radius:6px;padding:3px">
-      <button id="fl-modo-colada" class="pb active" onclick="flSetModo('colada')" style="font-size:11px;padding:4px 10px;border-radius:4px">Por Colada</button>
+      <button id="fl-modo-colada" class="pb active" onclick="flSetModo('colada')" style="font-size:11px;padding:4px 10px;border-radius:4px">Por horno y rastreo</button>
       <button id="fl-modo-parte" class="pb" onclick="flSetModo('parte')" style="font-size:11px;padding:4px 10px;border-radius:4px">Por No. Parte</button>
     </div>
   </div>
-  <div class="legend">
+  <div class="legend" id="fl-leyenda-pcs" style="display:none">
     <span class="leg-item"><span class="leg-dot" style="background:#1D9E75"></span>VERDE — dentro de ventana</span>
     <span class="leg-item"><span class="leg-dot" style="background:#F59E0B"></span>ÁMBAR — ventana por vencer</span>
     <span class="leg-item"><span class="leg-dot" style="background:#EF4444"></span>ROJO — fuera de ventana · activa protocolo</span>
@@ -2550,8 +2572,86 @@ function flSetModo(modo){
 
 function renderFlujo(){
   const coladas=Object.values(_flColadas)
+  document.getElementById('fl-leyenda-pcs').style.display=_flModo==='parte'?'':'none'
   if(_flModo==='parte') renderFlujoPorParte(coladas)
-  else renderFlujoMatriz(coladas)
+  else renderFlujoRastreo()
+}
+
+// ── Flujo y rastreo (2026-11-08): reemplaza el kanban por etapa, que ponía casi todo en "En
+// vaciado" porque desmoldeo y limpieza solo se registran en ~1 de cada 7 piezas. Indicadores,
+// embudo de rastreo por etapa, línea de tiempo por horno y piezas sin vaciado por antigüedad.
+// /v3/gestion/flujo-rastreo (backend/routers/flujo_rastreo.py).
+const FR_COL={VERDE:'#1D9E75',AMBAR:'#F59E0B',ROJO:'#EF4444',GRIS:'#CBD5E1'}
+async function renderFlujoRastreo(){
+  const box=document.getElementById('fl-matriz')
+  const horas=document.getElementById('cp-sel-horas').value
+  const ref=document.getElementById('cp-inp-ref').value
+  box.innerHTML='<div class="loading-msg">Cargando flujo y rastreo…</div>'
+  let d
+  try{
+    const r=await fetch(`/v3/gestion/flujo-rastreo?referencia=${encodeURIComponent(ref)}&horas=${horas}`)
+    if(!r.ok) throw new Error('HTTP '+r.status+(r.status===404?' · reinicia el servidor con arrancar.bat':''))
+    d=await r.json()
+  }catch(e){ box.innerHTML='<div style="color:red;font-size:12px">Error al cargar el flujo ('+e.message+').</div>'; return }
+  if(_flModo==='parte') return
+  const I=d.indicadores, nf=v=>Number(v||0).toLocaleString('es-MX')
+  if(!I.coladas){ box.innerHTML='<div class="empty-msg">Sin coladas en la ventana</div>'; return }
+
+  const kpis='<div class="kpi-grid">'
+    + mc('Coladas', nf(I.coladas), 'secondary', nf(I.moldeadas)+' piezas moldeadas')
+    + mc('Con vaciado registrado', I.pct_vaciadas+'%', I.pct_vaciadas>=95?'success':'warning', nf(I.vaciadas)+' piezas')
+    + mc('Sin registro de vaciado', nf(I.sin_vaciado), I.sin_vaciado?'danger':'success', 'piezas moldeadas sin rastro de vaciado')
+    + mc('Desmoldeo registrado', I.pct_desmoldeo+'%', 'warning', 'de las piezas · por eso no se puede seguir la etapa')
+    + mc('Limpieza registrada', I.pct_limpieza+'%', 'warning', 'de las piezas')
+    + '</div>'
+
+  // Embudo: % de piezas con registro en cada etapa del proceso
+  const embudo=d.embudo.map(e=>{
+    const p=e.pct||0, col=p>=95?'#1D9E75':p>=60?'#F59E0B':'#EF4444'
+    return `<div class="fr-etapa"><div class="fr-et-nom">${e.etapa}<span>${e.nivel==='colada'?'dato de colada':'por pieza'}</span></div>`
+      +`<div class="fr-et-bar"><div style="width:${p}%;background:${col}"></div></div>`
+      +`<div class="fr-et-pct"><b>${p}%</b> <span>${nf(e.piezas)} pz</span></div>`
+      +`<div class="fr-et-src" title="${e.fuente}">${e.fuente}</div></div>`
+  }).join('')
+
+  // Línea de tiempo por horno: cada colada en su hora de inicio, color por gravedad (PC-1 a PC-4)
+  const T0=new Date(d.linea_tiempo.desde.replace(' ','T')).getTime(), T1=new Date(d.linea_tiempo.hasta.replace(' ','T')).getTime()
+  const span=Math.max(T1-T0,1), x=t=>Math.min(Math.max((new Date(String(t).replace(' ','T')).getTime()-T0)/span*100,0),100)
+  const hornos=[...new Set(d.linea_tiempo.coladas.map(c=>c.horno))].sort((a,b)=>a-b)
+  const dias=[]; for(let t=new Date(T0); t<=T1; t.setHours(24,0,0,0)){ if(t.getTime()>T0) dias.push(new Date(t)) }
+  const marcas=dias.map(t=>`<div class="fr-dia" style="left:${(t.getTime()-T0)/span*100}%"><span>${String(t.getDate()).padStart(2,'0')}/${String(t.getMonth()+1).padStart(2,'0')}</span></div>`).join('')
+  const ancho=Math.max(0.6, Math.min(2.2, 100/Math.max(d.linea_tiempo.coladas.length/Math.max(hornos.length,1),1)*0.8))
+  const filas=hornos.map((h,ih)=>{
+    const cs=d.linea_tiempo.coladas.filter(c=>c.horno===h)
+    const bloques=cs.map(c=>{
+      const tip=`Colada ${c.colada} · H${c.horno} · ${String(c.inicio).slice(5,16)} · ${c.piezas} pz${c.clase?' · '+c.clase:''}`
+        +(c.rojos.length?` · ${c.rojos.join('+')} en rojo`:'')+(c.ambar.length?` · ${c.ambar.join('+')} en ámbar`:'')
+        +(c.senal==='fuerte'?' · ⚑ señal fuerte':'')+(c.partes.length?` · ${c.partes.join(', ')}`:'')
+      return `<div class="fr-bloque${c.senal==='fuerte'?' fr-fuerte':''}" title="${tip}" onclick="abrirDetalleFlujo(${c.id_colada});document.getElementById('fl-detalle').scrollIntoView({behavior:'smooth'})" style="left:${x(c.inicio)}%;width:${ancho}%;background:${FR_COL[c.gravedad]}"></div>`
+    }).join('')
+    const n=cs.length, r=cs.filter(c=>c.gravedad==='ROJO').length
+    const m=ih===0?marcas:marcas.replace(/<span>[^<]*<\/span>/g,'')  // fechas solo sobre el primer horno
+    return `<div class="fr-fila"><div class="fr-horno">Horno ${h}<span>${n} coladas · ${r} rojas</span></div><div class="fr-pista">${m}${bloques}</div></div>`
+  }).join('')
+  const linea=`<div class="fr-leyenda"><span><i style="background:${FR_COL.VERDE}"></i>limpia</span><span><i style="background:${FR_COL.AMBAR}"></i>ámbar</span><span><i style="background:${FR_COL.ROJO}"></i>roja</span><span><i style="background:${FR_COL.GRIS}"></i>sin dato de producto</span><span><i style="background:#fff;border:2px solid #111"></i>señal fuerte de Beta</span> · color = peor estado de PC-1 a PC-4 · clic en una colada para ver su detalle</div>`
+    + `<div class="fr-tiempo">${filas}</div>`
+
+  // Envejecimiento: piezas moldeadas sin registro de vaciado, por antigüedad de su colada (30 días)
+  const E=d.envejecimiento, maxE=Math.max(1,...E.tramos.map(t=>t.sin_vaciado))
+  const envej=E.tramos.map(t=>{
+    const col=t.tipo==='en proceso'?'#94A3B8':t.tipo==='atraso'?'#F59E0B':'#EF4444'
+    return `<div class="fr-tramo"><div class="fr-tr-nom">${t.tramo}<span>${t.tipo}</span></div>`
+      +`<div class="fr-et-bar"><div style="width:${t.sin_vaciado/maxE*100}%;background:${col}"></div></div>`
+      +`<div class="fr-et-pct"><b>${nf(t.sin_vaciado)}</b> <span>de ${nf(t.moldeadas)} pz (${t.pct??0}%) · ${t.coladas} coladas</span></div></div>`
+  }).join('')
+
+  box.innerHTML=kpis
+    + `<div class="fr-grid">`
+    + `<div><div class="rc-sub">¿Dónde se pierde el rastro? · piezas con registro por etapa</div>${embudo}</div>`
+    + `<div><div class="rc-sub">Piezas moldeadas sin registro de vaciado · ${E.ventana}</div>${envej}`
+    + `<div class="ret-leyenda" style="margin-top:6px">El hueco no se cierra con los días: no es trabajo en proceso, es rastro perdido. La fuente es <i>betamega_00_ticketsconvaciadodirecto</i>; si los vaciados indirectos viven en otra tabla, IT debe integrarla.</div></div>`
+    + `</div>`
+    + `<div style="margin-top:16px"><div class="rc-sub">Coladas por horno · ${d.linea_tiempo.desde.slice(5,16)} a ${d.linea_tiempo.hasta.slice(5,16)}</div>${linea}</div>`
 }
 
 // Ventana/Referencia únicas para toda la pestaña Control del Proceso (JC, 2026-09-29) --

@@ -1426,6 +1426,21 @@ def _evaluar_coladas_ventana_bd(referencia: str, horas: int) -> list:
             "etapa":         e["etapa"],
             "tiene_alerta":  any(v in ("ROJO", "AMBAR") for v in estados.values()),
             "skus":          rs["skus"],
+            # Rastreo por etapa (2026-11-08, Flujo y rastreo): cuántas piezas de la colada tienen
+            # registro en cada etapa. Las de colada (carga, química, ITACA) cuentan todas sus piezas
+            # si la colada tiene el dato. Sale de lo ya evaluado: sin consultas extra.
+            "rastreo": {
+                "piezas":      rs["piezas"],
+                "vaciadas":    rs["vaciadas"],
+                "carga":       rs["piezas"] if e["comps_carga"] else 0,
+                "quimica":     rs["piezas"] if e["quim"].get("AnalysisTime") else 0,
+                "itaca":       rs["piezas"] if (e["itaca"] or {}).get("score") is not None else 0,
+                "temperatura": min(int((e["temp"] or {}).get("n_tickets") or 0), rs["piezas"]),
+                "desmoldeo":   rs["n_desm_ruta"],
+                "limpieza":    rs["terminadas"],
+                "resultado":   rs["n_rechazo"],
+            },
+            "ts_ultimo_vaciado": str(rs["ts_ultimo_vaciado"] or ""),
             "latencia_pc4_seg": evs["PC-4"].get("latencia_seg"),
             "latencia_pc6_seg": evs["PC-6"].get("latencia_seg"),
         })
