@@ -72,6 +72,7 @@ from backend.routers import plan_control as _plan_control_router_module
 from backend.routers import arenas as _arenas_router_module
 from backend.routers import pronostico_semanal as _pronostico_semanal_router_module
 from backend.routers import causa_raiz as _causa_raiz_router_module
+from backend.routers import control_resumen as _control_resumen_router_module
 app.include_router(_beta_router_module.router)
 app.include_router(_alfa_router_module.router)
 app.include_router(_chat_router_module.router)
@@ -79,6 +80,7 @@ app.include_router(_costo_calidad_router_module.router)
 app.include_router(_riesgo_plan_router_module.router)
 app.include_router(_plan_control_router_module.router)
 app.include_router(_arenas_router_module.router)
+app.include_router(_control_resumen_router_module.router)
 app.include_router(_pronostico_semanal_router_module.router)
 app.include_router(_causa_raiz_router_module.router)
 

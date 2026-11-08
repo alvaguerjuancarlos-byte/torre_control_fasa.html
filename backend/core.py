@@ -141,8 +141,9 @@ CARRILES: List[CarrilControl] = [
         "ia_fasa.betamega_00_cargasmetalicas (KgsReal vs KgsReceta por material)",
         VentanaControl("completitud", 100.0, 80.0, "pct"),
         "inicio_fusion",
-        "% materiales en tolerancia (|real−receta| ≤ máx(0.5 % receta, resolución de báscula: "
-        "1 kg metálicos / 0.01 kg ferroaleaciones)) ; 100 %→VERDE ; ≥80 %→ÁMBAR ; <80 %→ROJO",
+        "material fuera = |real−receta| > 2 × máx(0.5 % receta, resolución de báscula 1 kg / 0.01 kg) ; "
+        "todos dentro→VERDE ; alguno fuera→ÁMBAR (<80 % dentro→ROJO) ; alguno > 5 % de la receta→ROJO "
+        "(calibración propuesta 2026-11-08, pendiente de Calidad)",
         "P-01", 15, "activo",
     ),
     CarrilControl(
@@ -163,11 +164,13 @@ CARRILES: List[CarrilControl] = [
         "P-03", 10, "activo",
     ),
     CarrilControl(
-        "PC-4", "temperatura de vaciado (% tickets en rango)",
-        "ia_fasa.betamega_06_vaciado.vt_TemperaturaVaciado + bCumplimientoTemperaturaOk",
+        "PC-4", "temperatura de vaciado (% tickets en tolerancia)",
+        "ia_fasa.betamega_06_vaciado.vt_TemperaturaVaciado vs m_tmin/m_tmax de la parte",
         VentanaControl("completitud", 95.0, 80.0, "pct"),
         "inicio_vaciado",
-        "% tickets con bCumplimientoTemperaturaOk = 1 ≥ 95 % → VERDE ; ≥ 80 % → ÁMBAR ; < 80 % → ROJO",
+        "por ticket: en rango o ≤5 °C arriba = OK ; 6–15 °C arriba = leve ; frío o >15 °C arriba = grave ; "
+        "colada: >1/3 graves→ROJO ; algún grave o >1/3 leves→ÁMBAR ; si no→VERDE "
+        "(calibración propuesta 2026-11-08, pendiente de Calidad)",
         "P-04", 5, "activo",
     ),
     CarrilControl(
@@ -243,6 +246,7 @@ def evaluar_carril(
     ts_señal,           # datetime | str | None
     id_colada: int,
     motivo_sin_dato: Optional[str] = None,
+    estado_calculado: Optional[str] = None,
 ) -> dict:
     # Hora LOCAL, no utcnow(): la BD guarda hora de Ciudad de México sin zona (system_time_zone
     # America/Mexico_City) y los ts de detección vienen de ahí. Con utcnow() cada latencia
@@ -273,7 +277,9 @@ def evaluar_carril(
         return _gris("ventana de control no definida por Calidad", valor=señal_valor)
 
     v = carril.ventana_de_control
-    if v.tipo == "porcentaje_max":
+    if estado_calculado:  # PC-1 / PC-4 (2026-11-08): la gravedad no cabe en un solo umbral de %
+        estado = estado_calculado
+    elif v.tipo == "porcentaje_max":
         if señal_valor < v.umbral_verde:
             estado = "VERDE"
         elif v.umbral_ambar is not None and señal_valor < v.umbral_ambar:
@@ -513,6 +519,17 @@ def meses_rechazo_no_confiables(d: str, h: str) -> list:
 # duplicados exactos (colada 84420 x10) -- por eso el DISTINCT.
 PC1_TOL_PCT = 0.005
 PC1_RESOLUCION_KG = {"metalicos": 1.0, "ferroaleaciones": 0.01}
+# Calibración 2026-11-08 (JC, propuesta pendiente de Calidad): con la tolerancia de arriba el 46 %
+# de las coladas de oct-2026 salía ÁMBAR, y el 100 % de esos materiales se pasaba a lo mucho 2× la
+# tolerancia (≈1 % o 1-2 kg) -- ruido de báscula, no un problema. Un material cuenta como fuera
+# solo arriba de 2× la tolerancia, y es grave (ROJO) arriba del 5 % de su receta.
+PC1_MARGEN = 2.0
+PC1_GRAVE_PCT = 0.05
+# Retornos en la carga: el Plan de Control pide ≤ 30 %. Se reporta aparte (no colorea PC-1): en
+# oct-2026 la mediana fue 34.7 % por diseño de receta, y comparando cada parte contra sí misma
+# (mar-sep 2026) las coladas con más retornos no rechazan más (30-35 %: ×1.18, 35-40 %: ×1.09,
+# >40 %: ×0.98).
+PC1_RETORNOS_MAX_PCT = 30.0
 
 
 def _pc1_resolucion(tipo: str) -> float:
@@ -533,13 +550,15 @@ def cargas_por_colada(ids: list) -> Dict[int, list]:
     out: Dict[int, list] = {}
     for r in rows:
         receta, real = float(r["KgsReceta"] or 0), float(r["KgsReal"] or 0)
-        tol = max(PC1_TOL_PCT * receta, _pc1_resolucion(r["Tipo"]))
+        tol = PC1_MARGEN * max(PC1_TOL_PCT * receta, _pc1_resolucion(r["Tipo"]))
+        dif = abs(real - receta)
         out.setdefault(r["IdColada"], []).append({
             "tipo": r["Tipo"], "clave": r["Clave"],
             "descripcion": (r["Descripcion"] or "").strip(),
             "kg_receta": round(receta, 2), "kg_real": round(real, 2),
             "dif_kg": round(real - receta, 2) + 0.0, "tol_kg": round(tol, 2),  # +0.0: evita "-0.0"
-            "en_tolerancia": abs(real - receta) <= tol,
+            "en_tolerancia": dif <= tol,
+            "grave": dif > tol and receta > 0 and dif > PC1_GRAVE_PCT * receta,
         })
     for comps in out.values():
         comps.sort(key=lambda c: (c["en_tolerancia"], -abs(c["dif_kg"])))
@@ -550,9 +569,13 @@ def resumen_carga(comps: list) -> dict:
     """% de materiales en tolerancia + totales de la carga; pct None si la colada no tiene carga registrada."""
     n = len(comps)
     n_ok = sum(1 for c in comps if c["en_tolerancia"])
+    kg = sum(c["kg_real"] for c in comps)
+    kg_ret = sum(c["kg_real"] for c in comps if c["descripcion"].upper().startswith("RETORNO"))
     return {
         "n_materiales": n, "n_ok": n_ok,
+        "n_grave": sum(1 for c in comps if c.get("grave")),
         "pct_ok": round(n_ok / n * 100.0, 1) if n else None,
+        "pct_retornos": round(kg_ret / kg * 100.0, 1) if kg else None,
         "kg_receta": round(sum(c["kg_receta"] for c in comps), 1),
         "kg_real": round(sum(c["kg_real"] for c in comps), 1),
     }
@@ -754,7 +777,7 @@ def _ids_sql(ids) -> str:
     return ",".join(str(int(i)) for i in ids) or "0"
 
 
-def coladas_en_ventana(d: str, h: str, limite: int = 60) -> list:
+def coladas_en_ventana(d: str, h: str, limite: Optional[int] = 60) -> list:
     """Coladas liberadas en [d, h] (o, sin fila en demoras, con primer vaciado en [d, h]), más recientes primero."""
     vac = run("""
         SELECT a.IdColada AS id, MIN(v.FHrVaciado) AS vac_ini, MAX(v.FHrVaciado) AS vac_fin,
@@ -886,9 +909,21 @@ def temperatura_por_coladas(ids: list) -> Dict[int, dict]:
     ids = [int(i) for i in ids if i]
     if not ids:
         return {}
+    # 2026-11-08: gravedad por ticket contra el rango de la parte (m_tmin/m_tmax, ~12 °C). En
+    # ago-nov 2026 el 38 % de los tickets salía 1-5 °C arriba del máximo -- margen de medición --
+    # y pintaba de ROJO casi toda colada. Comparando cada parte contra sí misma (mar-sep 2026), los
+    # vaciados fríos rechazan ×1.15 y los >15 °C arriba ×1.12: esos son los graves. Las lecturas
+    # imposibles (<1100 o >1600 °C) no cuentan.
     return {r["id_colada"]: r for r in run(f"""
         SELECT c_IdColada AS id_colada, COUNT(*) AS n_tickets,
                SUM(bCumplimientoTemperaturaOk) AS n_ok,
+               SUM(vt_TemperaturaVaciado BETWEEN 1100 AND 1600) AS n_validos,
+               SUM(vt_TemperaturaVaciado BETWEEN 1100 AND 1600
+                   AND vt_TemperaturaVaciado >= m_tmin AND vt_TemperaturaVaciado <= m_tmax + 5) AS n_tol,
+               SUM(vt_TemperaturaVaciado BETWEEN 1100 AND 1600
+                   AND vt_TemperaturaVaciado > m_tmax + 5 AND vt_TemperaturaVaciado <= m_tmax + 15) AS n_leve,
+               SUM(vt_TemperaturaVaciado BETWEEN 1100 AND 1600
+                   AND (vt_TemperaturaVaciado < m_tmin OR vt_TemperaturaVaciado > m_tmax + 15)) AS n_grave,
                ROUND(AVG(CASE WHEN vt_TemperaturaVaciado BETWEEN 1100 AND 1600
                          THEN vt_TemperaturaVaciado END)) AS temp_avg,
                MIN(m_tmin) AS tmin, MAX(m_tmax) AS tmax,
@@ -1207,8 +1242,12 @@ def evaluar_pcs_colada(col: dict, datos: dict, no_conf: set) -> dict:
 
     comps = datos["carga"].get(cid, [])
     carga = resumen_carga(comps)
+    e1 = None
+    if carga["pct_ok"] is not None:
+        e1 = ("ROJO" if carga["n_grave"] or carga["pct_ok"] < 80 else
+              "AMBAR" if carga["pct_ok"] < 100 else "VERDE")
     ev1 = evaluar_carril(pc["PC-1"], carga["pct_ok"], col["inicio_fusion"], cid,
-                         "sin carga registrada para esta colada (betamega_00_cargasmetalicas)")
+                         "sin carga registrada para esta colada (betamega_00_cargasmetalicas)", e1)
 
     q = datos["quim"].get(cid, {})
     q_elem = evaluar_quimica(q)
@@ -1224,9 +1263,15 @@ def evaluar_pcs_colada(col: dict, datos: dict, no_conf: set) -> dict:
 
     tr = datos["temp"].get(cid, {})
     n_t = int(tr.get("n_tickets") or 0)
-    pct_temp = _pct(int(tr.get("n_ok") or 0), n_t)
+    n_v = int(tr.get("n_validos") or 0)
+    pct_temp = _pct(int(tr.get("n_tol") or 0), n_v)
     m4 = _motivo_cobertura("temperatura de vaciado", n_t, n, "betamega_06_vaciado")
-    ev4 = evaluar_carril(pc["PC-4"], None if m4 else pct_temp, tr.get("ts_primer_vaci"), cid, m4)
+    e4 = None
+    if not m4 and n_v:
+        g, l = int(tr.get("n_grave") or 0), int(tr.get("n_leve") or 0)
+        e4 = "ROJO" if g * 3 > n_v else "AMBAR" if g or l * 3 > n_v else "VERDE"
+    ev4 = evaluar_carril(pc["PC-4"], None if m4 or not n_v else pct_temp, tr.get("ts_primer_vaci"), cid,
+                         m4 or "sin lecturas de temperatura válidas (1100-1600 °C)", e4)
 
     m5 = _motivo_cobertura("desmoldeo", rs["n_desmoldeo"], n, "betamega_08_ticketrutacritica")
     ev5 = evaluar_carril(pc["PC-5"], None if m5 else rs["pct_cumple_desm"], None, cid,
@@ -1308,7 +1353,9 @@ def _evaluar_coladas_ventana_bd(referencia: str, horas: int) -> list:
     d = (ref_dt - timedelta(hours=horas)).strftime("%Y-%m-%d %H:%M:%S")
     h = ref_dt.strftime("%Y-%m-%d %H:%M:%S")
 
-    coladas = coladas_en_ventana(d, h)
+    # Sin tope (2026-11-08): con el límite de 60 la ventana se cortaba en ~2 días (≈28 coladas/día)
+    # aunque se pidieran 72 h, y el resumen de Control del Proceso necesita el universo completo.
+    coladas = coladas_en_ventana(d, h, limite=None)
     if not coladas:
         return []
     datos = datos_pcs_coladas(coladas)
@@ -1334,6 +1381,8 @@ def _evaluar_coladas_ventana_bd(referencia: str, horas: int) -> list:
             "temp_avg":      int(e["temp"]["temp_avg"]) if e["temp"].get("temp_avg") else None,
             "pct_temp_ok":   evs["PC-4"]["valor"],
             "pct_carga_ok":  e["carga"]["pct_ok"],
+            "pct_retornos":  e["carga"]["pct_retornos"],
+            "motivos_gris":  {k: v["motivo_gris"] for k, v in evs.items() if v["estado"] == "GRIS"},
             "estados":       estados,
             "etapa":         e["etapa"],
             "tiene_alerta":  any(v in ("ROJO", "AMBAR") for v in estados.values()),

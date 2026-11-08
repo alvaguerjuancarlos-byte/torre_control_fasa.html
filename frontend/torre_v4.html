@@ -151,6 +151,9 @@ main{padding:16px 20px;max-width:1100px;margin:0 auto}
 .kpi-grupo:first-child{margin-top:0}
 .kpi-notas{font-size:10.5px;color:var(--color-text-tertiary);margin-top:8px;line-height:1.5}
 .ret-leyenda{font-size:10px;color:var(--color-text-tertiary);margin-top:4px;line-height:1.45}
+.rc-tabla{width:100%;border-collapse:collapse;font-size:12px}
+.rc-tabla th{font-size:10.5px;font-weight:600;color:var(--color-text-tertiary);text-align:right;padding:4px 6px;border-bottom:1px solid var(--color-border-tertiary,#E5E7EB)}
+.rc-tabla td{padding:5px 6px;vertical-align:middle}
 .bar2{height:8px;background:var(--color-background-secondary);border-radius:4px;overflow:hidden}
 .crow{display:grid;grid-template-columns:1.7fr 0.7fr 1fr 1fr;align-items:center;
   gap:8px;padding:6px 10px;border-radius:var(--border-radius-md);font-size:13px}
@@ -309,11 +312,22 @@ main{padding:16px 20px;max-width:1100px;margin:0 auto}
       <option value="24">24 h</option>
       <option value="48" selected>48 h</option>
       <option value="72">72 h</option>
+      <option value="168">7 días</option>
     </select>
     <span class="ctrl-label">Referencia</span>
     <input type="datetime-local" id="cp-inp-ref" value="2025-12-19T08:00"/>
     <button class="btn-load" onclick="cargarControlProceso()">Cargar</button>
     <span id="cp-status" style="font-size:11px;color:var(--muted);margin-left:4px"></span>
+  </div>
+
+  <!-- ── Resumen del universo (JC 2026-11-08, "muchos datos y no me dice nada"): cuántas coladas y
+       piezas, cuántas fuera de control, en qué PC y con qué gravedad. /v3/gestion/resumen-control -->
+  <div id="rc-card" style="margin-top:12px;background:var(--color-background-primary,#fff);border:1px solid var(--color-border-tertiary,#E5E7EB);border-radius:12px;padding:14px 16px">
+    <div style="font-size:14px;font-weight:600;color:var(--color-text-primary)">Resumen de control · <span id="rc-ventana" style="font-weight:400;color:var(--color-text-tertiary)"></span></div>
+    <div id="rc-kpis" class="kpi-grid" style="margin-top:10px"><div class="loading-msg">Cargando…</div></div>
+    <div id="rc-matriz" style="margin-top:14px"></div>
+    <div id="rc-atender" style="margin-top:12px"></div>
+    <div id="rc-nota" class="ret-leyenda" style="margin-top:10px"></div>
   </div>
 
   <!-- ── Alertas y Protocolos: franja Andon, siempre visible arriba del flujo ── -->
@@ -2482,9 +2496,77 @@ function renderFlujo(){
 // dispara los dos fetches independientes (coladas para Flujo, alertas+protocolos+Beta
 // para Alertas) desde el único botón "Cargar" compartido.
 function cargarControlProceso(){
+  cargarResumenControl()
   cargarFlujo()
   cargarAlertas()
   cargarArenas()
+}
+
+// ── Resumen de control (2026-11-08): universo, gravedad por colada y matriz PC × estado ──
+// La gravedad de la colada es el peor estado de los PCs de riesgo de producto (PC-1 a PC-4);
+// los de registro (PC-5 a PC-7) se muestran aparte. Ver backend/routers/control_resumen.py.
+const RC_COL={VERDE:'#1D9E75',AMBAR:'#F59E0B',ROJO:'#EF4444',GRIS:'#D1D5DB'}
+async function cargarResumenControl(){
+  const horas=document.getElementById('cp-sel-horas').value
+  const ref=document.getElementById('cp-inp-ref').value
+  const kpis=document.getElementById('rc-kpis')
+  kpis.innerHTML='<div class="loading-msg">Cargando…</div>'
+  ;['rc-matriz','rc-atender','rc-nota'].forEach(id=>document.getElementById(id).innerHTML='')
+  let d
+  try{
+    const res=await fetch(`/v3/gestion/resumen-control?referencia=${encodeURIComponent(ref)}&horas=${horas}`)
+    d=await res.json()
+  }catch(e){ kpis.innerHTML='<div style="color:red;font-size:12px">Error al cargar el resumen.</div>'; return }
+  const U=d.universo, G=d.gravedad
+  const nf=v=>Number(v||0).toLocaleString('es-MX')
+  const pct=(a,b)=>b?Math.round(a/b*100)+'%':'—'
+  document.getElementById('rc-ventana').textContent=(horas>=168?horas/24+' días':horas+' h')+' hasta '+String(d.referencia).replace('T',' ')
+  if(!U.coladas){ kpis.innerHTML='<div class="empty-msg">Sin coladas en la ventana</div>'; return }
+  kpis.innerHTML=
+      mc('Universo', nf(U.coladas)+' coladas', 'secondary', nf(U.piezas)+' piezas')
+    + mc('Coladas limpias', nf(G.coladas.VERDE), 'success', pct(G.coladas.VERDE,U.coladas)+' · PC-1 a PC-4 en verde')
+    + mc('Con ámbar', nf(G.coladas.AMBAR), 'warning', pct(G.coladas.AMBAR,U.coladas)+' · '+nf(G.piezas.AMBAR)+' piezas')
+    + mc('Con rojo', nf(G.coladas.ROJO), 'danger', pct(G.coladas.ROJO,U.coladas)+' de las coladas')
+    + mc('Piezas expuestas', nf(G.piezas.ROJO), 'danger', pct(G.piezas.ROJO,U.piezas)+' de las piezas · coladas en rojo')
+    + (G.coladas.GRIS ? mc('Sin dato de producto', nf(G.coladas.GRIS), 'secondary', 'ningún PC-1 a PC-4 evaluable') : '')
+
+  // Matriz: una fila por PC, barra apilada de coladas por estado; producto arriba, registro abajo
+  const fila=p=>{
+    const c=p.coladas, tot=c.VERDE+c.AMBAR+c.ROJO+c.GRIS
+    const seg=['VERDE','AMBAR','ROJO','GRIS'].map(k=>c[k]?`<div title="${k}: ${c[k]} coladas · ${nf(p.piezas[k])} piezas" style="width:${c[k]/tot*100}%;background:${RC_COL[k]};height:100%"></div>`:'').join('')
+    const num=(k,col)=>`<td style="text-align:right;color:${col};font-weight:${c[k]?600:400}">${c[k]||'·'}</td>`
+    return `<tr title="${String(p.regla).replace(/"/g,'&quot;')}">`
+      +`<td style="white-space:nowrap"><b>${p.id_pc}</b> <span style="color:var(--color-text-secondary)">${p.señal.split(' — ')[0].split(' (')[0]}</span></td>`
+      +`<td style="width:34%"><div style="display:flex;height:10px;border-radius:3px;overflow:hidden;background:#F3F4F6">${seg}</div></td>`
+      +num('VERDE','#047857')+num('AMBAR','#B45309')+num('ROJO','#B91C1C')
+      +`<td style="text-align:right;color:var(--color-text-tertiary)">${c.GRIS||'·'}</td>`
+      +`<td style="text-align:right;color:#B91C1C">${p.piezas.ROJO?nf(p.piezas.ROJO):'·'}</td>`
+      +`<td style="text-align:right">${p.cobertura_pct!=null?p.cobertura_pct.toFixed(0)+'%':'—'}</td></tr>`
+      +(p.cobertura_pct<50&&p.motivo_gris?`<tr><td></td><td colspan="7" style="font-size:10px;color:var(--color-text-tertiary);padding-top:0">gris más común (${p.motivo_gris_coladas} coladas): ${p.motivo_gris}</td></tr>`:'')
+  }
+  const grupo=(t,g)=>`<tr><td colspan="8" style="font-size:10.5px;font-weight:700;color:var(--color-text-tertiary);text-transform:uppercase;letter-spacing:.04em;padding-top:8px">${t}</td></tr>`
+    + d.pcs.filter(p=>p.grupo===g).map(fila).join('')
+  const R=d.retornos
+  document.getElementById('rc-matriz').innerHTML=
+    `<table class="rc-tabla"><thead><tr><th style="text-align:left">Punto de control</th><th style="text-align:left">Coladas por estado</th>`
+    +`<th>Verde</th><th>Ámbar</th><th>Rojo</th><th>Sin dato</th><th>Piezas en rojo</th><th>Cobertura</th></tr></thead><tbody>`
+    + grupo('Riesgo de producto · definen la gravedad de la colada','producto')
+    + (R.coladas_con_dato ? `<tr title="Plan de Control Nivel 1: retornos ≤ ${R.limite_pct}% de la carga"><td style="white-space:nowrap;padding-left:14px;color:var(--color-text-secondary)">↳ retornos en carga &gt; ${R.limite_pct}%</td>`
+        +`<td colspan="7" style="font-size:11.5px"><b style="color:#B45309">${R.coladas_sobre_limite}</b> de ${R.coladas_con_dato} coladas (mediana ${R.mediana_pct}%) · incumple el Plan de Control; no colorea la colada: no se asocia a más rechazo</td></tr>` : '')
+    + grupo('Después del vaciado · resultado y registro · se cuentan aparte','registro')
+    + `</tbody></table>`
+
+  if(d.atender.length){
+    document.getElementById('rc-atender').innerHTML='<div style="font-size:12px;font-weight:600;margin-bottom:6px">Atender primero</div><div style="display:flex;gap:8px;flex-wrap:wrap">'
+      + d.atender.map(a=>`<div onclick="abrirDetalleFlujo(${a.id_colada});document.getElementById('fl-detalle').scrollIntoView({behavior:'smooth'})" style="cursor:pointer;padding:6px 10px;border-radius:8px;border:1px solid #FCA5A5;border-left:4px solid #EF4444;background:#FEF2F2;font-size:11px">`
+        +`<b>Colada ${a.u_colada} · H${a.horno}</b> · ${a.piezas} pz<div style="color:#B91C1C">${a.rojos.join(' + ')} en rojo</div><div style="color:var(--color-text-tertiary)">${a.skus.join(', ')}</div></div>`).join('')
+      + '</div>'
+  }
+  document.getElementById('rc-nota').innerHTML=
+    '<b>Cómo se lee:</b> la colada toma el peor estado de PC-1 a PC-4 (riesgo de producto); PC-5 a PC-7 llegan días después del vaciado (desmoldeo, rechazo y cierre) y se cuentan aparte. '
+    + '«Piezas expuestas» = piezas de coladas en rojo. «Cobertura» = coladas en que el PC se pudo evaluar. '
+    + '<b>Calibración propuesta el 8-nov-2026, pendiente de Calidad:</b> PC-1 cuenta un material fuera arriba de 2× la tolerancia de báscula y rojo arriba del 5 % de su receta; '
+    + 'PC-4 da 5 °C de margen sobre el máximo de la parte y es grave si el vaciado va frío o más de 15 °C arriba (rojo si más de un tercio de los tickets son graves).'
 }
 
 // ── Control de Arenas ──
