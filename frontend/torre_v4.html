@@ -198,6 +198,28 @@ main{padding:16px 20px;max-width:1100px;margin:0 auto}
 .fr-dia{position:absolute;top:-2px;bottom:-2px;border-left:1px dashed #CBD5E1}
 .fr-dia span{position:absolute;top:-15px;left:2px;font-size:9.5px;color:var(--color-text-tertiary)}
 .fr-tiempo{padding-top:12px}
+.pt-card{background:#fff;border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-lg);padding:14px 16px}
+.pt-grid{display:grid;grid-template-columns:minmax(480px,1.7fr) minmax(300px,1fr);gap:22px;margin-top:14px}
+.pt-grid2{display:grid;grid-template-columns:1fr 1fr;gap:22px;margin-top:14px}
+@media (max-width:1150px){.pt-grid,.pt-grid2{grid-template-columns:1fr}}
+.pt-svg{width:100%;height:auto;display:block}
+.pt-ax{font-size:10px;fill:#94A3B8}
+.pt-q{font-size:10.5px;font-weight:700;letter-spacing:.04em}
+.pt-lbl{font-size:10px;fill:#334155;font-weight:600}
+.pt-ley{font-size:11px;color:var(--color-text-tertiary);display:flex;flex-wrap:wrap;gap:4px 12px;margin-top:4px}
+.pt-ley i{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:4px;vertical-align:-1px}
+.pt-par{display:grid;grid-template-columns:110px 1fr 120px;gap:8px;align-items:center;font-size:11.5px;margin:4px 0;cursor:pointer}
+.pt-par:hover{background:#F8FAFC}
+.pt-par-np{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pt-par-v{text-align:right;font-weight:600}
+.pt-par-v span{font-weight:400;color:var(--color-text-tertiary);font-size:10.5px}
+.pt-mov{display:grid;grid-template-columns:130px 70px 1fr;gap:8px;align-items:center;font-size:12px;padding:4px 0;border-bottom:1px solid #F1F5F9;cursor:pointer}
+.pt-mov:hover{background:#F8FAFC}
+.pt-mov-d{color:var(--color-text-tertiary);font-size:11px}
+.pt-ficha{margin-top:14px;border:1px solid #C7D2FE;background:#F8FAFF;border-radius:10px;padding:10px 14px}
+.pt-ficha-g{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;margin-top:8px}
+.pt-ficha-g span{display:block;font-size:11px;color:var(--color-text-tertiary)}
+.pt-ficha-g b{font-size:14px}
 .rc-lectura{margin-top:10px;background:#F5F3FF;border:1px solid #DDD6FE;border-radius:10px;padding:10px 12px}
 .rc-lectura-tit{font-size:12px;font-weight:700;color:#4C1D95;margin-bottom:4px}
 .rc-lectura-fila{display:grid;grid-template-columns:110px 1fr;gap:8px;font-size:13px;line-height:1.45;margin:3px 0}
@@ -564,10 +586,16 @@ main{padding:16px 20px;max-width:1100px;margin:0 auto}
     <strong>Pred. Tasa Ajustada:</strong> Bayesian Shrinkage — estimador de la tasa real de la parte; jala partes de bajo volumen hacia la media global para evitar ruido estadístico. Muestra % predicho, piezas esperadas y desvío vs tasa real. &nbsp;
     <span style="color:#1D9E75">&#9632;</span> &lt;3pp &nbsp; <span style="color:#D97706">&#9632;</span> 3–8pp &nbsp; <span style="color:#EF4444">&#9632;</span> &gt;8pp desvío vs tasa real.
   </div>
+  <!-- Tablero de riesgo por parte (2026-11-08): la lista de 139 partes era difícil de leer;
+       /v3/calidad/partes-tablero agrega costo, tendencia, producción actual y cuadrante. -->
+  <div id="pt-tablero" class="pt-card"><div class="loading-msg">Cargando tablero de partes (la primera vez ≈40 s)…</div></div>
+  <details id="pt-lista-anterior" style="margin-top:14px">
+    <summary style="cursor:pointer;font-size:12px;color:var(--color-text-secondary)">Ver la lista completa anterior (tasa real vs tasa ajustada, todas las partes)</summary>
   <div id="riesgo-tabla" style="background:#fff;border:0.5px solid var(--color-border-tertiary);
-    border-radius:var(--border-radius-lg);overflow:hidden">
+    border-radius:var(--border-radius-lg);overflow:hidden;margin-top:8px">
     <div style="padding:40px;text-align:center;color:var(--color-text-tertiary);font-size:12px">Cargando…</div>
   </div>
+  </details>
 
   <!-- Simulación de programa -->
   <div style="margin-top:24px;border-top:1px solid var(--color-border-secondary);padding-top:20px">
@@ -3684,6 +3712,122 @@ function simSetMode(mode) {
 }
 let _riesgoGlobalRate = null
 
+// ── Tablero de riesgo por parte (2026-11-08) ─────────────────────────────────────────────
+// Indicadores con costo, matriz de prioridad (volumen x tasa ajustada, tamaño = toneladas
+// rechazadas, color = tendencia vs ventana anterior, relleno = se vació en 14 días), Pareto de
+// costo, partes que empeoran/mejoran y tabla compacta. Clic en una parte = ficha con simular y
+// preguntar a Beta. Backend: backend/routers/calidad_partes.py.
+let _ptData=null, _ptSel=null, _ptFiltro='', _ptTodas=false
+const PT_TEND={empeora:'#DC2626', mejora:'#059669', estable:'#64748B'}
+const PT_CUAD={atacar:'Atacar primero', revisar:'Revisar diseño o proceso', vigilar:'Vigilar', sin_accion:'Sin acción'}
+async function cargarTableroPartes(){
+  const box=document.getElementById('pt-tablero')
+  box.innerHTML='<div class="loading-msg">Cargando tablero de partes (la primera vez ≈40 s)…</div>'
+  try{
+    const r=await fetch(`/v3/calidad/partes-tablero?ventana=${_riesgoVentana}`)
+    if(!r.ok) throw new Error('HTTP '+r.status+(r.status===404?' · reinicia el servidor con arrancar.bat':''))
+    _ptData=await r.json()
+  }catch(e){ box.innerHTML='<div style="color:red;font-size:12px">Error al cargar el tablero ('+e.message+').</div>'; return }
+  _ptSel=null; renderTableroPartes()
+}
+const ptUsd=v=>v==null?'—':'$'+(v>=1e6?(v/1e6).toFixed(2)+' M':v>=1e3?Math.round(v/1e3)+' mil':Math.round(v))
+const ptNf=v=>Number(v||0).toLocaleString('es-MX')
+function renderTableroPartes(){
+  const d=_ptData, T=d.totales, P=d.partes, box=document.getElementById('pt-tablero')
+  const kpis='<div class="kpi-grid">'
+    + mc('Partes analizadas', ptNf(T.partes), 'secondary', ptNf(T.piezas)+' piezas en '+_riesgoVentana+' meses')
+    + mc('Rechazos', ptNf(T.rechazos), 'danger', d.tasa_global+'% de las piezas')
+    + mc('Toneladas rechazadas', ptNf(Math.round(T.ton_rechazadas))+' t', 'danger', 'rechazos × peso de la pieza')
+    + mc('Costo de no calidad', ptUsd(T.costo_usd), 'danger', d.costo_ton_usd?'a $'+ptNf(Math.round(d.costo_ton_usd))+'/t (Finanzas)':'sin costo por tonelada')
+    + mc('80 % del costo', T.partes_80_costo+' partes', 'warning', 'de '+T.partes+' · concentrar ahí el esfuerzo')
+    + mc('Atacar primero', T.atacar+' partes', 'danger', 'volumen alto y tasa sobre la global')
+    + '</div>'
+
+  // Matriz de prioridad: x = piezas (log), y = tasa ajustada
+  const W=760, H=380, L=46, R=14, TP=16, B=36
+  const xs=P.map(p=>Math.log10(Math.max(p.piezas,1))), xmin=Math.floor(Math.min(...xs)*10)/10, xmax=Math.ceil(Math.max(...xs)*10)/10
+  const ymax=Math.ceil(Math.max(...P.map(p=>p.tasa_ajustada||0))/10)*10||10
+  const X=v=>L+(Math.log10(Math.max(v,1))-xmin)/(xmax-xmin||1)*(W-L-R), Y=v=>TP+(1-(v||0)/ymax)*(H-TP-B)
+  const tmax=Math.max(...P.map(p=>p.ton_rechazadas||0),1), rad=t=>3+Math.sqrt((t||0)/tmax)*20
+  const xm=X(d.mediana_piezas), yg=Y(d.tasa_global)
+  let svg=`<svg viewBox="0 0 ${W} ${H}" class="pt-svg">`
+  svg+=`<rect x="${xm}" y="${TP}" width="${W-R-xm}" height="${yg-TP}" fill="#FEF2F2"/><rect x="${L}" y="${TP}" width="${xm-L}" height="${yg-TP}" fill="#FFFBEB"/>`
+  ;[0,0.25,0.5,0.75,1].forEach(k=>{ const v=Math.round(ymax*k); svg+=`<line x1="${L}" x2="${W-R}" y1="${Y(v)}" y2="${Y(v)}" stroke="#F1F5F9"/><text x="${L-6}" y="${Y(v)+3}" text-anchor="end" class="pt-ax">${v}%</text>` })
+  for(let e=Math.ceil(xmin); e<=Math.floor(xmax); e++){ [1,2,5].forEach(m=>{ const v=m*Math.pow(10,e); if(Math.log10(v)>=xmin&&Math.log10(v)<=xmax) svg+=`<text x="${X(v)}" y="${H-B+14}" text-anchor="middle" class="pt-ax">${ptNf(v)}</text>` }) }
+  svg+=`<line x1="${xm}" x2="${xm}" y1="${TP}" y2="${H-B}" stroke="#94A3B8" stroke-dasharray="4 3"/><line x1="${L}" x2="${W-R}" y1="${yg}" y2="${yg}" stroke="#94A3B8" stroke-dasharray="4 3"/>`
+  svg+=`<text x="${W-R-6}" y="${TP+14}" text-anchor="end" class="pt-q" fill="#B91C1C">ATACAR PRIMERO</text><text x="${L+6}" y="${TP+14}" class="pt-q" fill="#B45309">REVISAR DISEÑO O PROCESO</text>`
+  svg+=`<text x="${W-R-6}" y="${H-B-6}" text-anchor="end" class="pt-q" fill="#475569">VIGILAR</text><text x="${L+6}" y="${H-B-6}" class="pt-q" fill="#94A3B8">SIN ACCIÓN</text>`
+  svg+=`<text x="${(L+W-R)/2}" y="${H-4}" text-anchor="middle" class="pt-ax">Piezas producidas en ${_riesgoVentana} meses (escala log) · línea = mediana ${ptNf(Math.round(d.mediana_piezas))}</text>`
+  svg+=`<text x="12" y="${(TP+H-B)/2}" transform="rotate(-90 12 ${(TP+H-B)/2})" text-anchor="middle" class="pt-ax">Tasa ajustada · línea = global ${d.tasa_global}%</text>`
+  const orden=P.slice().sort((a,b)=>b.ton_rechazadas-a.ton_rechazadas)
+  const etiquetas=new Set(orden.slice(0,9).map(p=>p.no_parte))
+  orden.slice().reverse().forEach(p=>{
+    const c=PT_TEND[p.tendencia]||'#CBD5E1', cx=X(p.piezas), cy=Y(p.tasa_ajustada), r=rad(p.ton_rechazadas)
+    const sel=_ptSel===p.no_parte
+    svg+=`<circle cx="${cx}" cy="${cy}" r="${r}" fill="${p.vaciadas_14d?c:'#fff'}" fill-opacity="${p.vaciadas_14d?0.55:1}" stroke="${sel?'#111':c}" stroke-width="${sel?3:1.5}" style="cursor:pointer" onclick="ptSeleccionar('${p.no_parte.replace(/'/g,"\\'")}')"><title>${p.no_parte} · ${ptNf(p.piezas)} pz · real ${p.tasa_real}% · ajustada ${p.tasa_ajustada}% · ${p.ton_rechazadas} t · ${ptUsd(p.costo_usd)}${p.tendencia?' · '+p.tendencia+' '+(p.cambio_pp>0?'+':'')+p.cambio_pp+' pp':''}${p.vaciadas_14d?' · '+p.vaciadas_14d+' vaciadas en 14 días':' · sin producción en 14 días'}</title></circle>`
+    if(etiquetas.has(p.no_parte)){  // a la orilla derecha la etiqueta va a la izquierda del punto
+      const izq=cx>W*0.78
+      svg+=`<text x="${izq?cx-r-3:cx+r+3}" y="${cy+3}" text-anchor="${izq?'end':'start'}" class="pt-lbl">${p.no_parte}</text>`
+    }
+  })
+  svg+='</svg>'
+  const leyenda=`<div class="pt-ley"><span><i style="background:${PT_TEND.empeora}"></i>empeora vs ventana anterior</span><span><i style="background:${PT_TEND.mejora}"></i>mejora</span><span><i style="background:${PT_TEND.estable}"></i>estable</span><span><i style="background:#CBD5E1"></i>sin comparación</span><span><i style="background:#fff;border:1.5px solid #64748B"></i>hueco = no se vació en 14 días</span><span>tamaño = toneladas rechazadas</span></div>`
+
+  // Pareto de costo (20 partes) con % acumulado
+  const tot=P.reduce((a,p)=>a+(p.costo_usd||p.ton_rechazadas||0),0)||1
+  let ac=0
+  const top20=P.slice(0,20), maxc=Math.max(...top20.map(p=>p.costo_usd||p.ton_rechazadas||0),1)
+  const pareto=top20.map(p=>{ const v=p.costo_usd||p.ton_rechazadas||0; ac+=v
+    return `<div class="pt-par" onclick="ptSeleccionar('${p.no_parte.replace(/'/g,"\\'")}')"><div class="pt-par-np">${p.no_parte}</div><div class="fr-et-bar"><div style="width:${v/maxc*100}%;background:${PT_TEND[p.tendencia]||'#94A3B8'}"></div></div><div class="pt-par-v">${ptUsd(p.costo_usd)} <span>${Math.round(ac/tot*100)}% acum.</span></div></div>` }).join('')
+
+  // Quién empeora / mejora (con volumen suficiente)
+  const cmp=P.filter(p=>p.cambio_pp!=null)
+  const lista=(arr,signo)=>arr.map(p=>`<div class="pt-mov" onclick="ptSeleccionar('${p.no_parte.replace(/'/g,"\\'")}')"><b>${p.no_parte}</b><span style="color:${signo>0?'#B91C1C':'#047857'};font-weight:700">${p.cambio_pp>0?'+':''}${p.cambio_pp} pp</span><span class="pt-mov-d">${p.tasa_anterior}% → ${p.tasa_real}% · ${ptNf(p.piezas)} pz${p.vaciadas_14d?' · en producción':''}</span></div>`).join('')
+  const empeoran=lista(cmp.filter(p=>p.tendencia==='empeora').sort((a,b)=>b.cambio_pp-a.cambio_pp).slice(0,6),1)
+  const mejoran=lista(cmp.filter(p=>p.tendencia==='mejora').sort((a,b)=>a.cambio_pp-b.cambio_pp).slice(0,6),-1)
+
+  box.innerHTML=kpis
+    + `<div class="pt-grid"><div><div class="rc-sub">Matriz de prioridad · clic en una parte para ver su ficha</div>${svg}${leyenda}</div>`
+    + `<div><div class="rc-sub">Pareto de costo · 20 partes</div>${pareto}</div></div>`
+    + `<div id="pt-ficha"></div>`
+    + `<div class="pt-grid2"><div><div class="rc-sub">Empeoran · vs ${d.ventana_anterior?d.ventana_anterior.desde.slice(0,7)+' a '+d.ventana_anterior.hasta.slice(0,7):'ventana anterior'}</div>${empeoran||'<div class="empty-msg">Ninguna</div>'}</div>`
+    + `<div><div class="rc-sub">Mejoran</div>${mejoran||'<div class="empty-msg">Ninguna</div>'}</div></div>`
+    + `<div style="margin-top:14px"><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:6px"><div class="rc-sub" style="margin:0">Partes por costo</div>`
+    + `<div style="margin-left:auto;display:flex;gap:6px;font-size:12px"><select id="pt-f" onchange="_ptFiltro=this.value;ptTabla()"><option value="">Todas</option><option value="atacar">Atacar primero</option><option value="revisar">Revisar diseño o proceso</option><option value="empeora">Empeoran</option><option value="prod">En producción (14 días)</option></select>`
+    + `<input id="pt-q" oninput="ptTabla()" placeholder="Buscar No. parte" style="width:140px;padding:3px 6px"></div></div><div id="pt-tabla"></div></div>`
+    + `<div class="ret-leyenda" style="margin-top:8px">Ventana ${d.ventana.desde} a ${d.ventana.hasta}. Costo = toneladas rechazadas × costo de venta por tonelada de Finanzas (promedio de los meses de la ventana con costo). Tendencia = tasa real contra la ventana anterior del mismo largo (≥ 50 piezas en ambas y ≥ 3 pp). Cuadrantes: volumen alto = piezas ≥ mediana; tasa alta = tasa ajustada ≥ global.</div>`
+  ptTabla()
+  if(_ptSel) ptFicha()
+}
+function ptTabla(){
+  const q=(document.getElementById('pt-q')?.value||'').trim().toLowerCase()
+  const P=_ptData.partes.filter(p=>(!q||p.no_parte.toLowerCase().includes(q))
+    && (!_ptFiltro || (_ptFiltro==='prod'?p.vaciadas_14d>0:_ptFiltro==='empeora'?p.tendencia==='empeora':p.cuadrante===_ptFiltro)))
+  const n=_ptTodas?P.length:15
+  document.getElementById('pt-tabla').innerHTML=`<table class="rc-tabla"><thead><tr><th style="text-align:left">No. parte</th><th>Piezas</th><th>Tasa real</th><th>Tasa ajustada</th><th>Toneladas</th><th>Costo</th><th>Tendencia</th><th>Vaciadas 14 d</th><th style="text-align:left">Defecto dominante</th><th style="text-align:left">Cuadrante</th></tr></thead><tbody>`
+    + P.slice(0,n).map(p=>`<tr class="rc-fila" onclick="ptSeleccionar('${p.no_parte.replace(/'/g,"\\'")}')"><td><b>${p.no_parte}</b></td><td style="text-align:right">${ptNf(p.piezas)}</td><td style="text-align:right">${p.tasa_real}%</td><td style="text-align:right">${p.tasa_ajustada}%</td><td style="text-align:right">${p.ton_rechazadas}</td><td style="text-align:right;font-weight:600">${ptUsd(p.costo_usd)}</td>`
+      +`<td style="text-align:right;color:${PT_TEND[p.tendencia]||'var(--color-text-tertiary)'}">${p.cambio_pp==null?'—':(p.cambio_pp>0?'+':'')+p.cambio_pp+' pp'}</td><td style="text-align:right">${p.vaciadas_14d||'·'}</td><td>${(p.defecto_dominante||'—').toLowerCase()}</td><td>${PT_CUAD[p.cuadrante]}</td></tr>`).join('')
+    + '</tbody></table>'
+    + (P.length>15?`<button class="bt-ask" style="margin-top:6px" onclick="_ptTodas=!_ptTodas;ptTabla()">${_ptTodas?'Ver solo 15':'Ver las '+P.length+' partes'}</button>`:'')
+}
+function ptSeleccionar(np){ _ptSel=np; renderTableroPartes(); document.getElementById('pt-ficha').scrollIntoView({behavior:'smooth',block:'nearest'}) }
+function ptFicha(){
+  const p=_ptData.partes.find(x=>x.no_parte===_ptSel); if(!p) return
+  const npq=p.no_parte.replace(/'/g,"\\'")
+  document.getElementById('pt-ficha').innerHTML=`<div class="pt-ficha"><div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap"><div style="font-size:14px;font-weight:700">${p.no_parte} <span style="font-weight:500;font-size:12px;color:var(--color-text-secondary)">· ${PT_CUAD[p.cuadrante]}</span></div>`
+    +`<div style="display:flex;gap:6px"><button class="bt-ask" onclick="ptSimular('${npq}')">Simular esta parte</button><button class="bt-ask" onclick="ptBeta('${npq}')">🤖 Preguntar a Beta</button><button class="bp-x" onclick="_ptSel=null;document.getElementById('pt-ficha').innerHTML=''" title="Cerrar">×</button></div></div>`
+    +`<div class="pt-ficha-g"><div><span>Piezas</span><b>${ptNf(p.piezas)}</b></div><div><span>Tasa real</span><b>${p.tasa_real}%</b></div><div><span>Tasa ajustada</span><b>${p.tasa_ajustada}%</b></div><div><span>Ventana anterior</span><b>${p.tasa_anterior??'—'}${p.tasa_anterior!=null?'%':''}</b></div>`
+    +`<div><span>Toneladas rechazadas</span><b>${p.ton_rechazadas} t</b></div><div><span>Costo</span><b>${ptUsd(p.costo_usd)}</b></div><div><span>Vaciadas en 14 días</span><b>${p.vaciadas_14d||'ninguna'}</b></div><div><span>Defecto dominante</span><b>${(p.defecto_dominante||'—').toLowerCase()}</b></div></div></div>`
+}
+function ptSimular(np){
+  rpSwitchSub('simular')
+  setTimeout(()=>{ const i=document.getElementById('si-np'); if(i){ i.value=np; if(typeof simCalcular==='function') simCalcular() } }, 400)
+}
+function ptBeta(np){
+  switchTab('beta')
+  setTimeout(()=>{ if(window.initBetaPanel) window.initBetaPanel(); BETA_CHAT.preguntar(`¿Por qué la parte ${np} tiene problemas de calidad, por qué defecto rechaza y si su química de las últimas coladas tiene algo que ver?`) }, 300)
+}
+
 function riesgoSetVentana(v) {
   _riesgoVentana = v
   ;[6,12,18,24].forEach(n => {
@@ -3951,6 +4095,7 @@ async function runSimulacion() {
 }
 
 async function initRiesgo() {
+  cargarTableroPartes()
   const tabla = document.getElementById('riesgo-tabla')
   const ventanaEl = document.getElementById('riesgo-ventana')
   tabla.innerHTML = '<div style="padding:40px;text-align:center;color:var(--color-text-tertiary);font-size:12px">Cargando…</div>'
