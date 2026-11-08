@@ -370,8 +370,8 @@ main{padding:16px 20px;max-width:1100px;margin:0 auto}
   </div>
 
   <div id="al-panel-protocolos" class="al-panel collapsed">
-    <div class="al-panel-title">Protocolos de acción — puente Defecto→ElementoControl→Puesto/Proceso
-      (<code>gamamega_02_recomendacionescontrol</code>)</div>
+    <div class="al-panel-title">Protocolos de acción — por punto de control (provisionales, Plan de Control de CSC)
+      y por defecto de rechazo (<code>gamamega_02_recomendacionescontrol</code>)</div>
     <div id="al-lista-protocolos"><div class="loading-msg">Cargando…</div></div>
   </div>
 
@@ -3200,7 +3200,19 @@ function renderAlertas(data){
 }
 
 function renderProtocolos(data){
-  const n = data.n_protocolos || 0
+  // 2026-11-08: además del puente de CSC por defecto (solo alertas de PC-6), los protocolos
+  // provisionales de cada PC con alertas (backend/protocolos.py), agrupados: qué hacer, quién y
+  // en cuántas coladas. Antes el panel salía vacío casi siempre (PC-6 llega ~11 días después).
+  const grupos = {}
+  ;(data.alertas||[]).forEach(a=>{
+    if(!a.accion) return
+    const g = grupos[a.accion.clave] = grupos[a.accion.clave] || {pc:a.id_pc, clave:a.accion.clave, codigo:a.accion.codigo, rojo:0, ambar:0, coladas:[], acc:{}}
+    g[a.estado==='ROJO'?'rojo':'ambar']++
+    g.coladas.push(a.u_colada+' · H'+a.horno)
+    g.acc[a.estado] = a.accion
+  })
+  const lista = Object.values(grupos).sort((x,y)=>y.rojo-x.rojo || (y.rojo+y.ambar)-(x.rojo+x.ambar))
+  const n = (data.n_protocolos || 0) + lista.length
   const btn = document.getElementById('al-btn-protocolos')
   document.getElementById('al-count-protocolos').textContent = n
   btn.classList.toggle('lit-blue', n > 0)
@@ -3208,16 +3220,29 @@ function renderProtocolos(data){
   const cont = document.getElementById('al-lista-protocolos')
   const nRedis = (data.rediseno_flags||[]).length
   if(!n && !nRedis){
-    cont.innerHTML = '<div class="al-empty">Sin protocolos que mostrar — no hay alertas con defecto asociado en la ventana.</div>'
+    cont.innerHTML = '<div class="al-empty">Sin protocolos que mostrar — no hay alertas en la ventana.</div>'
     return
   }
+  let html = ''
+  if(lista.length){
+    html += '<div class="al-proto-defecto" style="margin-bottom:6px">Por punto de control · protocolos provisionales (Plan de Control de CSC)</div>'
+    lista.forEach(g=>{
+      const fila = (est, a) => a ? `<div style="margin-top:3px"><span class="pc-chip pc-${est}" style="font-size:9.5px;padding:0 5px">${est==='ROJO'?'ROJO':'ÁMBAR'} · ${est==='ROJO'?g.rojo:g.ambar}</span> ${a.accion}`
+        + `<div class="al-proto-partes">${a.responsable}${a.tiempo?' · '+a.tiempo:''}${a.liberar?' · liberar: '+a.liberar:''}${(a.variables||[]).length?' · '+a.variables.join(', '):''}</div></div>` : ''
+      html += `<div class="al-proto-group"><div class="al-proto-row">`
+        + `<div class="al-proto-puesto">${g.codigo} · ${g.pc}${g.clave.endsWith('nodular')?' · hierro nodular':''} <span style="font-weight:400;color:var(--muted)">· ${g.rojo+g.ambar} alerta${g.rojo+g.ambar===1?'':'s'}</span></div>`
+        + fila('ROJO', g.acc.ROJO) + fila('AMBAR', g.acc.AMBAR)
+        + `<div class="al-proto-partes" title="${g.coladas.join(', ')}">Coladas: ${g.coladas.slice(0,8).join(', ')}${g.coladas.length>8?' y '+(g.coladas.length-8)+' más':''}</div>`
+        + `</div></div>`
+    })
+  }
+  if((data.protocolos||[]).length) html += '<div class="al-proto-defecto" style="margin:10px 0 6px">Por defecto de rechazo · puente de CSC</div>'
   // Agrupar por defecto
   const porDefecto = {}
   ;(data.protocolos||[]).forEach(p=>{
     porDefecto[p.defecto] = porDefecto[p.defecto] || []
     porDefecto[p.defecto].push(p)
   })
-  let html = ''
   Object.keys(porDefecto).sort().forEach(def=>{
     html += `<div class="al-proto-group"><div class="al-proto-defecto">${def}</div>`
     porDefecto[def].forEach(p=>{
