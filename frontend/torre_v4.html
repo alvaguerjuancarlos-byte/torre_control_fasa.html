@@ -3745,7 +3745,7 @@ function renderClientesFallas(){
   document.getElementById('cf-ventana').textContent=`${d.ventana.desde} a ${d.ventana.hasta} · tendencia vs ${d.ventana_anterior.desde.slice(0,7)} a ${d.ventana_anterior.hasta.slice(0,7)}`
   const kpis='<div class="kpi-grid">'
     + mc('Clientes con embarques', ptNf(T.clientes), 'secondary', ptNf(Math.round(T.ton_embarcadas))+' t · '+ptNf(T.piezas_embarcadas)+' piezas')
-    + mc('Piezas devueltas', ptNf(T.devueltas), 'danger', T.pct_devolucion+'% de lo embarcado · '+T.clientes_con_devolucion+' clientes')
+    + mc('Piezas devueltas', ptNf(T.devueltas), 'danger', T.pct_devolucion+'% de las piezas buenas · '+T.clientes_con_devolucion+' clientes')
     + mc('Rechazo interno de sus partes', ptNf(T.rech_interno), 'warning', 'falla oculta: el cliente no la ve')
     + mc('Costo de no calidad', ptUsd(T.costo_usd), 'danger', 'interno + devoluciones, a $'+ptNf(Math.round(d.costo_ton_usd||0))+'/t')
     + mc('Clientes críticos', T.criticos, 'danger', 'grandes y con devolución sobre el promedio')
@@ -3800,7 +3800,7 @@ function renderClientesFallas(){
     + `<div style="margin-top:14px;max-width:980px"><div class="rc-sub">Matriz de clientes · clic para ver su ficha</div>${svg}${ley}</div>`
     + `<div id="cf-ficha"></div>`
     + `<div style="margin-top:14px"><div class="rc-sub">A quién le fallamos más · ordenado por piezas devueltas · clic para ver su ficha</div>${rank}</div>`
-    + `<div class="ret-leyenda" style="margin-top:8px"><b>Devolución</b> = rechazo externo: la pieza llegó al cliente y la devolvió (se cuenta en el mes en que la devolvió; llega ~2 meses después del vaciado). <b>Interno</b> = se detectó en planta; el cliente no lo ve, pero cuesta y obliga a fundir de más. % devuelto = devueltas / piezas embarcadas en la misma ventana (aproximado: la factura no trae llave a la pieza). Costo = toneladas (internas + devueltas) × $/t de Finanzas; la facturación no trae precio ni fecha compromiso, así que no se mide venta ni puntualidad. Cuadrantes: grande = toneladas ≥ mediana; devuelve = % ≥ promedio.</div>`
+    + `<div class="ret-leyenda" style="margin-top:8px"><b>Devolución</b> = rechazo externo: la pieza llegó al cliente y la devolvió (llega ~2 meses después del vaciado). <b>Interno</b> = se detectó en planta; el cliente no lo ve, pero cuesta y obliga a fundir de más. <b>% devuelto</b> = de las piezas fundidas en la ventana que salieron buenas, cuántas devolvió el cliente (misma población, nunca pasa de 100 %); los últimos ~2 meses siguen acumulando devoluciones y salen algo bajos. Costo = toneladas (internas + devueltas) × $/t de Finanzas; la facturación no trae precio ni fecha compromiso, así que no se mide venta ni puntualidad. Cuadrantes: grande = toneladas ≥ mediana; devuelve = % ≥ promedio.</div>`
   if(_cfSel) cfFicha()
 }
 function cfSel(i){ cfSelNombre(_cfData.clientes[i].cliente) }
@@ -3841,9 +3841,10 @@ async function cfFichaDetalle(c){
   let g=`<svg viewBox="0 0 ${W} ${H}" class="pt-svg">`
   ;[0,0.5,1].forEach(k=>{ g+=`<line x1="${L}" x2="${W-R}" y1="${Yt(tmax*k)}" y2="${Yt(tmax*k)}" stroke="#F1F5F9"/><text x="${L-6}" y="${Yt(tmax*k)+3}" text-anchor="end" class="pt-ax">${Math.round(tmax*k)} t</text><text x="${W-R+6}" y="${Yp(pmax*k)+3}" class="pt-ax">${Math.round(pmax*k)}%</text>` })
   T.forEach((t,i)=>{ g+=`<rect x="${L+bw*i+bw*0.18}" y="${Yt(t.ton)}" width="${bw*0.64}" height="${H-B-Yt(t.ton)}" fill="#CBD5E1" rx="2"><title>${t.mes}: ${t.ton} t · ${t.piezas} pz embarcadas · ${t.devueltas} devueltas · interno ${t.rech_int}/${t.vaciadas}</title></rect><text x="${Xc(i)}" y="${H-B+14}" text-anchor="middle" class="pt-ax">${t.mes.slice(2).replace('-','/')}</text>` })
-  const linea=(campo,col)=>{ let p='', prev=null; T.forEach((t,i)=>{ const v=t[campo]; if(v==null){prev=null;return} const x=Xc(i), y=Yp(v); if(prev) p+=`<line x1="${prev[0]}" y1="${prev[1]}" x2="${x}" y2="${y}" stroke="${col}" stroke-width="2"/>`; p+=`<circle cx="${x}" cy="${y}" r="3.2" fill="${col}"/><text x="${x}" y="${y-7}" text-anchor="middle" class="pt-lbl" style="fill:${col}">${v}%</text>`; prev=[x,y] }); return p }
+  // punto hueco y línea punteada = mes incompleto (sus devoluciones todavía están llegando)
+  const linea=(campo,col)=>{ let p='', prev=null; T.forEach((t,i)=>{ const v=t[campo]; if(v==null){prev=null;return} const x=Xc(i), y=Yp(v), inc=campo==='pct_devuelto'&&t.incompleto; if(prev) p+=`<line x1="${prev[0]}" y1="${prev[1]}" x2="${x}" y2="${y}" stroke="${col}" stroke-width="2"${inc?' stroke-dasharray="4 3"':''}/>`; p+=`<circle cx="${x}" cy="${y}" r="3.2" fill="${inc?'#fff':col}" stroke="${col}" stroke-width="1.5"/><text x="${x}" y="${y-7}" text-anchor="middle" class="pt-lbl" style="fill:${col}">${v}%${inc?'*':''}</text>`; prev=[x,y] }); return p }
   g+=linea('pct_interno','#D97706')+linea('pct_devuelto','#DC2626')+'</svg>'
-  b.innerHTML=g+`<div class="pt-ley"><span><i style="background:#CBD5E1;border-radius:2px"></i>toneladas embarcadas</span><span><i style="background:#DC2626"></i>% devuelto por el cliente</span><span><i style="background:#D97706"></i>% rechazo interno de sus partes</span><span>meses con menos de 20 piezas quedan sin punto</span></div>`
+  b.innerHTML=g+`<div class="pt-ley"><span><i style="background:#CBD5E1;border-radius:2px"></i>toneladas embarcadas</span><span><i style="background:#DC2626"></i>% devuelto por el cliente (de lo fundido ese mes)</span><span>* = incompleto: sus devoluciones siguen llegando</span><span><i style="background:#D97706"></i>% rechazo interno de sus partes</span><span>meses con menos de 20 piezas quedan sin punto</span></div>`
 }
 
 function cfFicha(){
@@ -5713,7 +5714,7 @@ function pedBadgeCliente(cli, rateHist){
   const c=(_cfData&&_cfData.clientes||[]).find(x=>x.cliente===cli)
   if(!c) return pedBadgeCalidad(rateHist)
   const dv=c.pct_devolucion, cls=dv==null?'gris':dv>=5?'rojo':dv>=2?'ambar':'verde'
-  return `<span class="ped-badge ${cls}" title="Devuelto por el cliente (rechazo externo) sobre lo embarcado, ventana del tablero de arriba">${dv??'—'}% devuelto</span>`
+  return `<span class="ped-badge ${cls}" title="Devuelto por el cliente (rechazo externo) sobre las piezas buenas fundidas, ventana del tablero de arriba">${dv??'—'}% devuelto</span>`
     + `<span class="ped-badge gris" title="Rechazo interno de sus partes (el cliente no lo ve)">${c.pct_interno??'—'}% interno</span>`
     + (c.partes_senal_fuerte.length?`<span class="ped-badge rojo" title="Partes con señal fuerte esta semana: ${c.partes_senal_fuerte.join(', ')}">⚑</span>`:'')
     + `<button class="bt-ask" style="padding:1px 8px" onclick="event.stopPropagation();cfSelNombre('${cli.replace(/'/g,"\\'")}','pedidos')">Ficha</button>`

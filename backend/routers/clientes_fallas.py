@@ -8,15 +8,21 @@ histórica de sus partes, mezclando lo que el cliente nunca ve con lo que sí le
 La base de rechazo SÍ distingue (betamega_01_rechazosbyidticket.IntExt, vía core.RECHAZO_PZAS_SQL):
   - EXTERNO ("Ext") = la pieza le llegó al cliente y la devolvió -> falla VISIBLE. Validado el
     8-nov: hay devoluciones todos los meses (70-220), defectos coherentes (sopladura, rechupe,
-    caído) y llegan en promedio 61 días después del vaciado, como una devolución real. Se cuenta
-    por FechaRechazo (cuándo la devolvió) dentro de la ventana.
+    caído) y llegan en promedio 61 días después del vaciado, como una devolución real.
+    % DEVUELTO POR COHORTE (2026-11-09): de las piezas FUNDIDAS en la ventana que salieron buenas
+    (vaciadas - rechazo interno), cuántas devolvió el cliente. Antes era devoluciones por fecha en
+    que regresaron / piezas facturadas en la ventana: dos poblaciones distintas por el desfase de
+    ~2 meses, y con ventanas cortas un cliente salía con más devuelto que embarcado (JC: Carrier
+    24 de 27 en 6 meses, CNH 8 de 0). Validado con X62008071010 (Ingersoll), 2026: 260 vaciadas,
+    109 internas -> 151 buenas (fdbase: 150 embarcadas) y 97 devueltas = 64 %. Los últimos ~2 meses
+    siguen acumulando devoluciones y salen bajos.
   - INTERNO ("Int") = se detectó en planta -> falla OCULTA: el cliente no la ve, pero cuesta y
     obliga a fundir de más para surtir. Se cuenta por fecha de vaciado.
 
 Por cliente (corex_test.modelos + clientes, main._resolver_clientes):
-  - embarcado = piezas y toneladas facturadas en ia_fasa.fdbase en la ventana;
-  - % devolución = piezas devueltas / piezas embarcadas en la misma ventana (aproximado: fdbase
-    no trae llave a la pieza devuelta y la devolución llega ~2 meses después);
+  - embarcado = piezas y toneladas facturadas en ia_fasa.fdbase en la ventana (volumen e
+    importancia del cliente);
+  - % devolución = devueltas / buenas de la misma cohorte (ver arriba);
   - costo de no calidad = (devueltas + rechazo interno) x peso x costo de venta por tonelada de
     Finanzas -- fdbase no trae precio, así que no hay venta en pesos por cliente;
   - piezas a fundir por pieza buena = 1 / (1 - tasa interna): presión oculta sobre capacidad;
@@ -90,7 +96,7 @@ def _por_parte(desde: date, hasta: date) -> dict:
         x = g(r["np"]); x["vaciadas"] += int(r["pz"] or 0); x["rech_int"] += int(r["ri"] or 0)
     for r in run(f"""SELECT TRIM(No_Parte) AS np, nomDefecto AS df, COUNT(*) AS n
                      FROM {RECHAZO_PZAS_SQL} x
-                     WHERE bRechazo = 1 AND IntExt = 'Ext' AND FechaRechazo >= :d AND FechaRechazo < :h
+                     WHERE bRechazo = 1 AND IntExt = 'Ext' AND FHrVaciado >= :d AND FHrVaciado < :h
                      GROUP BY TRIM(No_Parte), nomDefecto""", {"d": d, "h": h}):
         x = g(r["np"]); n = int(r["n"] or 0); x["devueltas"] += n
         df = (r["df"] or "SIN DEFECTO").strip()
@@ -167,21 +173,25 @@ def clientes_fallas(ventana: int = Query(default=12, ge=3, le=24)):
     for c, r in A.items():
         if not (r["embarcadas"] or r["devueltas"]):
             continue
-        pct_dev = round(r["devueltas"] / r["embarcadas"] * 100, 2) if r["embarcadas"] else None
+        buenas = r["vaciadas"] - r["rech_int"]
+        pct_dev = round(r["devueltas"] / buenas * 100, 2) if buenas >= 20 else None
         tasa_int = r["rech_int"] / r["vaciadas"] if r["vaciadas"] else None
         b = B.get(c) or {}
-        pct_ant = round(b["devueltas"] / b["embarcadas"] * 100, 2) if b.get("embarcadas", 0) >= 50 else None
-        cambio = round(pct_dev - pct_ant, 2) if pct_dev is not None and pct_ant is not None and r["embarcadas"] >= 50 else None
+        b_buenas = b.get("vaciadas", 0) - b.get("rech_int", 0)
+        pct_ant = round(b["devueltas"] / b_buenas * 100, 2) if b_buenas >= 50 else None
+        cambio = round(pct_dev - pct_ant, 2) if pct_dev is not None and pct_ant is not None and buenas >= 50 else None
         partes = sorted(r["partes"].values(), key=lambda p: (-p["devueltas"], -p["rech_int"]))
-        tasa_cli = (r["devueltas"] / r["embarcadas"]) if r["embarcadas"] else 0
+        tasa_cli = (r["devueltas"] / buenas) if buenas > 0 else 0
         esperadas = 0.0
         for p in partes:
-            p["tasa_devolucion"] = round((p["devueltas"] / p["embarcadas"] if p["embarcadas"] >= MIN_EMB_TASA else tasa_cli) * 100, 2)
+            pb = p["vaciadas"] - p["rech_int"]
+            p["tasa_devolucion"] = round(min(p["devueltas"] / pb if pb >= MIN_EMB_TASA else tasa_cli, 1) * 100, 2)
             p["embarcadas_en_camino"] = reciente.get(p["no_parte"], 0)
             p["dev_esperadas"] = round(p["embarcadas_en_camino"] * p["tasa_devolucion"] / 100, 1)
             esperadas += p["dev_esperadas"]
         clientes.append({
             "cliente": c, "piezas_embarcadas": r["embarcadas"], "ton_embarcadas": round(r["ton_embarcadas"], 1),
+            "piezas_buenas": buenas,
             "devueltas": r["devueltas"], "pct_devolucion": pct_dev,
             "pct_devolucion_anterior": pct_ant, "cambio_pp": cambio,
             "tendencia": None if cambio is None else "empeora" if cambio >= 0.5 else "mejora" if cambio <= -0.5 else "estable",
@@ -200,7 +210,8 @@ def clientes_fallas(ventana: int = Query(default=12, ge=3, le=24)):
     med_ton = sorted(c["ton_embarcadas"] for c in clientes)[len(clientes) // 2] if clientes else 0
     pz = sum(c["piezas_embarcadas"] for c in clientes)
     dev = sum(c["devueltas"] for c in clientes)
-    g_dev = round(dev / pz * 100, 2) if pz else None
+    bu = sum(max(c["piezas_buenas"], 0) for c in clientes)
+    g_dev = round(dev / bu * 100, 2) if bu else None
     for c in clientes:
         grande = c["ton_embarcadas"] >= med_ton
         alto = (c["pct_devolucion"] or 0) >= (g_dev or 0)
@@ -221,8 +232,9 @@ def clientes_fallas(ventana: int = Query(default=12, ge=3, le=24)):
             "dias_en_camino": DIAS_EN_CAMINO,
         },
         "clientes": clientes,
-        "notas": "Devolución = rechazo EXTERNO (betamega_01.IntExt='Ext') por fecha de rechazo; interno por fecha de "
-                 "vaciado. fdbase no trae precio ni fecha compromiso: costo con $/t de Finanzas y sin puntualidad.",
+        "notas": "Devolución = rechazo EXTERNO (betamega_01.IntExt='Ext'). % devuelto = de las piezas fundidas en la "
+                 "ventana que salieron buenas, cuántas devolvió el cliente (misma población); los últimos ~2 meses "
+                 "siguen acumulando devoluciones. fdbase no trae precio ni fecha compromiso.",
     }
     for k in [k for k in _CACHE if k[1] != clave[1]]:
         _CACHE.pop(k, None)
@@ -281,8 +293,8 @@ def cliente_ficha(cliente: str = Query(...), ventana: int = Query(default=12, ge
                      WHERE fecha >= :d AND UPPER(no_parte) NOT LIKE '%SURCH%' AND TRIM(no_parte) IN ({ph})
                      GROUP BY m, TRIM(no_parte)""", {**prm, "d": desde}):
         x = m_(r["m"]); x["piezas"] += int(r["n"] or 0); x["ton"] += int(r["n"] or 0) * peso.get(r["np"], 0) / 1000
-    for r in run(f"""SELECT DATE_FORMAT(FechaRechazo,'%Y-%m') AS m, COUNT(*) AS n FROM {RECHAZO_PZAS_SQL} x
-                     WHERE bRechazo = 1 AND IntExt = 'Ext' AND FechaRechazo >= :d AND TRIM(No_Parte) IN ({ph})
+    for r in run(f"""SELECT DATE_FORMAT(FHrVaciado,'%Y-%m') AS m, COUNT(*) AS n FROM {RECHAZO_PZAS_SQL} x
+                     WHERE bRechazo = 1 AND IntExt = 'Ext' AND FHrVaciado >= :d AND TRIM(No_Parte) IN ({ph})
                      GROUP BY m""", {**prm, "d": desde}):
         m_(r["m"])["devueltas"] += int(r["n"] or 0)
     for r in run(f"""SELECT DATE_FORMAT(FHrVaciado,'%Y-%m') AS m, SUM(pz) AS pz, SUM(bRechazo = 1 AND IntExt = 'Int') AS ri
@@ -293,7 +305,10 @@ def cliente_ficha(cliente: str = Query(...), ventana: int = Query(default=12, ge
     for k in sorted(meses):
         x = meses[k]
         x["ton"] = round(x["ton"], 1)
-        x["pct_devuelto"] = round(x["devueltas"] / x["piezas"] * 100, 1) if x["piezas"] >= 20 else None
+        buenas = x["vaciadas"] - x["rech_int"]
+        x["pct_devuelto"] = round(x["devueltas"] / buenas * 100, 1) if buenas >= 20 else None
+        # las devoluciones de lo fundido en los últimos ~2 meses todavía no llegan completas
+        x["incompleto"] = k >= _meses_atras(date.today(), 2).strftime("%Y-%m")
         # mes en curso sin % interno: el rechazo se captura días después y saldría falsamente bajo
         x["pct_interno"] = (round(x["rech_int"] / x["vaciadas"] * 100, 1)
                             if x["vaciadas"] >= 20 and k != date.today().strftime("%Y-%m") else None)
@@ -302,5 +317,6 @@ def cliente_ficha(cliente: str = Query(...), ventana: int = Query(default=12, ge
             "pedidos": pedidos[:40], "n_pedidos": len(pedidos),
             "dev_esperadas": round(sum(p["dev_esperadas"] for p in pedidos), 1), "tendencia": tendencia,
             "nota": "Devoluciones esperadas = piezas embarcadas en los últimos 60 días x tasa de devolución de la "
-                    "parte con este cliente (estimación). % devuelto por mes = devoluciones del mes / piezas "
-                    "embarcadas ese mes (meses con >= 20 piezas)."}
+                    "parte con este cliente (estimación). % devuelto por mes = de las piezas fundidas ese mes que "
+                    "salieron buenas, cuántas devolvió el cliente (meses con >= 20); los últimos 2 meses siguen "
+                    "acumulando devoluciones."}
