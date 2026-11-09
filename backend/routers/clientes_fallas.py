@@ -197,6 +197,8 @@ def clientes_fallas(ventana: int = Query(default=12, ge=3, le=24)):
             "tendencia": None if cambio is None else "empeora" if cambio >= 0.5 else "mejora" if cambio <= -0.5 else "estable",
             "rech_interno": r["rech_int"], "pct_interno": round(tasa_int * 100, 1) if tasa_int is not None else None,
             "fundir_por_pieza_buena": round(1 / (1 - tasa_int), 2) if tasa_int is not None and tasa_int < 1 else None,
+            "contencion": round(r["rech_int"] / (r["rech_int"] + r["devueltas"]) * 100, 1) if (r["rech_int"] + r["devueltas"]) >= 10 else None,
+            "ppm": round(r["devueltas"] / buenas * 1e6) if buenas >= 100 else None,
             "ton_no_calidad": round(r["ton_no_calidad"], 1),
             "costo_usd": round(r["ton_no_calidad"] * costo_t) if costo_t else None,
             "defectos_ext": sorted(({"defecto": k, "piezas": v} for k, v in r["defectos_ext"].items()), key=lambda x: -x["piezas"])[:5],
@@ -320,3 +322,88 @@ def cliente_ficha(cliente: str = Query(...), ventana: int = Query(default=12, ge
                     "parte con este cliente (estimación). % devuelto por mes = de las piezas fundidas ese mes que "
                     "salieron buenas, cuántas devolvió el cliente (meses con >= 20); los últimos 2 meses siguen "
                     "acumulando devoluciones."}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Aseguramiento de calidad (2026-11-09): ¿qué tanto evitamos que le lleguen defectos al cliente?
+# ══════════════════════════════════════════════════════════════════════════════
+# Pedido de JC: un indicador de la capacidad de prevenir que piezas defectuosas lleguen al cliente
+# (además del costo, cuesta reputación), en porcentajes, no en costo. Indicadores estándar:
+#   - EFECTIVIDAD DE CONTENCIÓN = defectos atrapados en planta / (atrapados + devueltos por el
+#     cliente). Al 9-nov (12 m): 83.9 % -> de cada 100 defectos, 16 se le escapan al cliente.
+#   - PPM de cliente = devueltas por millón de piezas buenas enviadas (el idioma de los clientes).
+#   - % de piezas que llegan bien = (buenas - devueltas) / buenas.
+# Misma cohorte que el tablero de clientes (piezas FUNDIDAS en la ventana): la contención de los
+# últimos ~2 meses sale inflada porque sus devoluciones todavía no llegan (se marcan incompletos).
+# META_CONTENCION es propuesta de JC/MindBridge mientras Calidad fija la suya: verde >= 95 %,
+# ámbar 85-95 %, rojo < 85 %.
+META_CONTENCION = 95.0
+AMBAR_CONTENCION = 85.0
+
+
+def _semaforo(c):
+    if c is None:
+        return "GRIS"
+    return "VERDE" if c >= META_CONTENCION else "AMBAR" if c >= AMBAR_CONTENCION else "ROJO"
+
+
+@router.get("/v3/clientes/aseguramiento")
+def aseguramiento_calidad(ventana: int = Query(default=12, ge=3, le=24)):
+    clave = ("aseg", ventana, int(time.time() // _TTL))
+    if clave in _CACHE:
+        return _CACHE[clave]
+    hoy = date.today()
+    desde = _meses_atras(hoy, ventana - 1)
+    d, h = desde.isoformat(), (hoy + timedelta(days=1)).isoformat()
+    tot = run(f"""SELECT SUM(pz) AS pz, SUM(bRechazo = 1 AND IntExt = 'Int') AS i, SUM(bRechazo = 1 AND IntExt = 'Ext') AS e
+                  FROM {RECHAZO_PZAS_SQL} x WHERE FHrVaciado >= :d AND FHrVaciado < :h""", {"d": d, "h": h})[0]
+    pz, i, e = int(tot["pz"] or 0), int(tot["i"] or 0), int(tot["e"] or 0)
+    buenas = pz - i
+    cont = round(i / (i + e) * 100, 1) if (i + e) else None
+
+    defectos = []
+    for r in run(f"""SELECT nomDefecto AS df, SUM(IntExt = 'Int') AS i, SUM(IntExt = 'Ext') AS e
+                     FROM {RECHAZO_PZAS_SQL} x WHERE bRechazo = 1 AND FHrVaciado >= :d AND FHrVaciado < :h
+                     GROUP BY nomDefecto""", {"d": d, "h": h}):
+        di, de = int(r["i"] or 0), int(r["e"] or 0)
+        if di + de < 20:
+            continue
+        defectos.append({"defecto": (r["df"] or "SIN DEFECTO").strip(), "internos": di, "escapes": de,
+                         "contencion": round(di / (di + de) * 100, 1),
+                         "pct_de_escapes": round(de / e * 100, 1) if e else None})
+    defectos.sort(key=lambda x: -x["escapes"])
+
+    meses = []
+    desde_t = _meses_atras(hoy, max(ventana, 12) - 1).isoformat()
+    lim_inc = _meses_atras(hoy, 2).strftime("%Y-%m")
+    for r in run(f"""SELECT DATE_FORMAT(FHrVaciado,'%Y-%m') AS m, SUM(pz) AS pz,
+                            SUM(bRechazo = 1 AND IntExt = 'Int') AS i, SUM(bRechazo = 1 AND IntExt = 'Ext') AS e
+                     FROM {RECHAZO_PZAS_SQL} x WHERE FHrVaciado >= :d AND FHrVaciado < :h GROUP BY m ORDER BY m""",
+                 {"d": desde_t, "h": h}):
+        mi, me, mp = int(r["i"] or 0), int(r["e"] or 0), int(r["pz"] or 0)
+        mb = mp - mi
+        meses.append({"mes": r["m"], "internos": mi, "escapes": me,
+                      "contencion": round(mi / (mi + me) * 100, 1) if (mi + me) >= 20 else None,
+                      "ppm": round(me / mb * 1e6) if mb >= 100 else None,
+                      "incompleto": r["m"] >= lim_inc})
+
+    fallas = clientes_fallas(ventana=ventana)
+    por_cliente = sorted(({"cliente": c["cliente"], "contencion": c["contencion"], "ppm": c["ppm"],
+                           "internos": c["rech_interno"], "escapes": c["devueltas"],
+                           "semaforo": _semaforo(c["contencion"])}
+                          for c in fallas["clientes"] if c["contencion"] is not None),
+                         key=lambda x: (x["contencion"], -x["escapes"]))
+    res = {
+        "ventana": {"desde": d, "hasta": hoy.isoformat()},
+        "meta": {"verde": META_CONTENCION, "ambar": AMBAR_CONTENCION,
+                 "nota": "propuesta mientras Calidad fija la meta oficial"},
+        "totales": {"vaciadas": pz, "internos": i, "escapes": e, "buenas": buenas,
+                    "contencion": cont, "semaforo": _semaforo(cont),
+                    "ppm": round(e / buenas * 1e6) if buenas else None,
+                    "llegan_bien": round((buenas - e) / buenas * 100, 2) if buenas else None},
+        "por_defecto": defectos[:12], "tendencia": meses, "por_cliente": por_cliente,
+        "nota": "Contención = defectos atrapados en planta / (atrapados + devueltos por el cliente), de las piezas "
+                "fundidas en la ventana. Los últimos ~2 meses salen inflados: sus devoluciones todavía no llegan.",
+    }
+    _CACHE[clave] = res
+    return res

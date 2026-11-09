@@ -3722,6 +3722,71 @@ function simSetMode(mode) {
 }
 let _riesgoGlobalRate = null
 
+// ── Aseguramiento de calidad (2026-11-09) ────────────────────────────────────────────────
+// Efectividad de contención = defectos atrapados en planta / (atrapados + devueltos por el
+// cliente). Meta propuesta 95 % (verde), 85-95 % ámbar, < 85 % rojo, mientras Calidad fija la suya.
+const AQ_COL={VERDE:'#059669',AMBAR:'#D97706',ROJO:'#DC2626',GRIS:'#94A3B8'}
+async function cargarAseguramiento(){
+  const box=document.getElementById('aq-tablero')
+  box.innerHTML='<div class="loading-msg">Cargando…</div>'
+  let d
+  try{ const r=await fetch(`/v3/clientes/aseguramiento?ventana=${_cfVentana}`); if(!r.ok) throw new Error('HTTP '+r.status+(r.status===404?' · reinicia el servidor con arrancar.bat':'')); d=await r.json() }
+  catch(e){ box.innerHTML='<div style="color:red;font-size:12px">Error al cargar ('+e.message+').</div>'; return }
+  const T=d.totales, M=d.meta
+  document.getElementById('aq-ventana').textContent=`piezas fundidas del ${d.ventana.desde} al ${d.ventana.hasta}`
+  // dona: detectados en planta vs se escaparon al cliente
+  const tot=T.internos+T.escapes, f=tot?T.internos/tot:0, R=70, r0=46, C=90
+  const ang=f*2*Math.PI, x1=C+R*Math.sin(ang), y1=C-R*Math.cos(ang), xi=C+r0*Math.sin(ang), yi=C-r0*Math.cos(ang), big=f>0.5?1:0
+  const dona=`<svg viewBox="0 0 180 180" style="width:180px;height:180px">`
+    +`<circle cx="${C}" cy="${C}" r="${(R+r0)/2}" fill="none" stroke="#FCA5A5" stroke-width="${R-r0}"/>`
+    +(f>0&&f<1?`<path d="M${C},${C-R} A${R},${R} 0 ${big} 1 ${x1},${y1} L${xi},${yi} A${r0},${r0} 0 ${big} 0 ${C},${C-r0} Z" fill="${AQ_COL.VERDE}"/>`:'')
+    +`<text x="${C}" y="${C-2}" text-anchor="middle" style="font-size:24px;font-weight:700;fill:${AQ_COL[T.semaforo]}">${T.contencion}%</text>`
+    +`<text x="${C}" y="${C+16}" text-anchor="middle" style="font-size:10px;fill:#64748B">contención</text></svg>`
+  const lectura=`<div style="font-size:13px;line-height:1.5"><b>De cada 100 piezas defectuosas</b>, detectamos <b style="color:${AQ_COL.VERDE}">${Math.round(f*100)}</b> en planta y <b style="color:${AQ_COL.ROJO}">${100-Math.round(f*100)}</b> le llegaron al cliente.</div>`
+    +`<div class="pt-ley" style="margin-top:6px"><span><i style="background:${AQ_COL.VERDE}"></i>detectados en planta · ${ptNf(T.internos)}</span><span><i style="background:#FCA5A5"></i>se escaparon al cliente · ${ptNf(T.escapes)}</span></div>`
+    +`<div style="font-size:11.5px;margin-top:6px;color:${AQ_COL[T.semaforo]};font-weight:600">${T.semaforo==='VERDE'?'En meta':T.semaforo==='AMBAR'?'Cerca de la meta':'Fuera de meta'} · meta ${M.verde}% (ámbar ${M.ambar}–${M.verde}%, ${M.nota})</div>`
+  const kpis='<div class="kpi-grid" style="flex:1">'
+    + mc('Efectividad de contención', T.contencion+'%', T.semaforo==='VERDE'?'success':T.semaforo==='AMBAR'?'warning':'danger', 'meta '+M.verde+'%')
+    + mc('PPM de cliente', ptNf(T.ppm), 'danger', 'devueltas por millón de piezas buenas enviadas')
+    + mc('Piezas que llegan bien', T.llegan_bien+'%', 'secondary', ptNf(T.buenas)+' piezas buenas fundidas')
+    + mc('Defectos que se escaparon', ptNf(T.escapes), 'danger', 'piezas que devolvió el cliente')
+    + '</div>'
+
+  // tendencia mensual de contención con banda de meta; meses incompletos huecos y punteados
+  const S=d.tendencia, W=560, H=210, L=40, Rr=12, TP=14, B=26, n=S.length, bw=(W-L-Rr)/Math.max(n,1)
+  const ymin=Math.max(0,Math.floor(Math.min(...S.map(x=>x.contencion??100),M.ambar)/10)*10-10)
+  const Y=v=>TP+(1-(v-ymin)/(100-ymin))*(H-TP-B), X=i=>L+bw*i+bw/2
+  let g=`<svg viewBox="0 0 ${W} ${H}" class="pt-svg"><rect x="${L}" y="${Y(100)}" width="${W-L-Rr}" height="${Y(M.verde)-Y(100)}" fill="#ECFDF5"/><rect x="${L}" y="${Y(M.verde)}" width="${W-L-Rr}" height="${Y(M.ambar)-Y(M.verde)}" fill="#FFFBEB"/>`
+  for(let v=ymin; v<=100; v+=10) g+=`<line x1="${L}" x2="${W-Rr}" y1="${Y(v)}" y2="${Y(v)}" stroke="#F1F5F9"/><text x="${L-5}" y="${Y(v)+3}" text-anchor="end" class="pt-ax">${v}%</text>`
+  g+=`<line x1="${L}" x2="${W-Rr}" y1="${Y(M.verde)}" y2="${Y(M.verde)}" stroke="${AQ_COL.VERDE}" stroke-dasharray="4 3"/><text x="${W-Rr-4}" y="${Y(M.verde)-4}" text-anchor="end" class="pt-ax" style="fill:${AQ_COL.VERDE}">meta ${M.verde}%</text>`
+  let prev=null
+  S.forEach((m,i)=>{ g+=`<text x="${X(i)}" y="${H-B+14}" text-anchor="middle" class="pt-ax">${m.mes.slice(2).replace('-','/')}</text>`
+    if(m.contencion==null){ prev=null; return }
+    const x=X(i), y=Y(m.contencion), col=m.incompleto?'#94A3B8':(m.contencion>=M.verde?AQ_COL.VERDE:m.contencion>=M.ambar?AQ_COL.AMBAR:AQ_COL.ROJO)
+    if(prev) g+=`<line x1="${prev[0]}" y1="${prev[1]}" x2="${x}" y2="${y}" stroke="#475569" stroke-width="1.6"${m.incompleto?' stroke-dasharray="4 3"':''}/>`
+    g+=`<circle cx="${x}" cy="${y}" r="4" fill="${m.incompleto?'#fff':col}" stroke="${col}" stroke-width="1.8"><title>${m.mes}: contención ${m.contencion}% · ${m.internos} detectados · ${m.escapes} escaparon${m.ppm!=null?' · '+ptNf(m.ppm)+' PPM':''}${m.incompleto?' · incompleto: sus devoluciones siguen llegando':''}</title></circle>`
+    g+=`<text x="${x}" y="${y-8}" text-anchor="middle" class="pt-lbl">${Math.round(m.contencion)}${m.incompleto?'*':''}</text>`
+    prev=[x,y] })
+  g+='</svg>'
+
+  // por defecto: dónde falla la inspección
+  const defs=`<table class="rc-tabla"><thead><tr><th style="text-align:left">Defecto</th><th style="text-align:left;width:40%">Contención</th><th>Se escaparon</th><th>% de las devoluciones</th></tr></thead><tbody>`
+    + d.por_defecto.slice(0,8).map(x=>{ const col=x.contencion>=M.verde?AQ_COL.VERDE:x.contencion>=M.ambar?AQ_COL.AMBAR:AQ_COL.ROJO
+      return `<tr><td>${x.defecto.toLowerCase()}</td><td><div class="cf-rk-b"><div class="fr-et-bar"><div style="width:${x.contencion}%;background:${col}"></div></div><span style="color:${col};font-weight:700">${x.contencion}%</span></div></td><td style="text-align:right;font-weight:600">${ptNf(x.escapes)}</td><td style="text-align:right">${x.pct_de_escapes}%</td></tr>` }).join('')
+    + '</tbody></table>'
+  // por cliente: los de menor contención
+  const clis=`<table class="rc-tabla"><thead><tr><th style="text-align:left">Cliente</th><th>Contención</th><th>PPM</th><th>Escaparon</th></tr></thead><tbody>`
+    + d.por_cliente.slice(0,8).map(c=>`<tr class="rc-fila" onclick="cfSelNombre('${c.cliente.replace(/'/g,"\\'")}','calidad')"><td><b title="${c.cliente}">${cfCorto(c.cliente)}</b></td><td style="text-align:right;font-weight:700;color:${AQ_COL[c.semaforo]}">${c.contencion}%</td><td style="text-align:right">${c.ppm!=null?ptNf(c.ppm):'—'}</td><td style="text-align:right">${ptNf(c.escapes)}</td></tr>`).join('')
+    + '</tbody></table>'
+
+  box.innerHTML=`<div style="display:flex;gap:18px;align-items:center;flex-wrap:wrap">${dona}<div style="flex:1;min-width:240px">${lectura}</div></div>`
+    + `<div style="margin-top:10px">${kpis}</div>`
+    + `<div class="pt-grid" style="grid-template-columns:minmax(420px,1.2fr) minmax(320px,1fr)"><div><div class="rc-sub">Contención por mes · * = incompleto</div>${g}</div>`
+    + `<div><div class="rc-sub">¿Dónde falla la inspección? · por defecto</div>${defs}</div></div>`
+    + `<div style="margin-top:12px;max-width:620px"><div class="rc-sub">Clientes con menor contención · clic para ver su ficha</div>${clis}</div>`
+    + `<div class="ret-leyenda" style="margin-top:8px">${d.nota} PPM = piezas devueltas por millón de piezas buenas enviadas. Sopladura y rechupe son defectos internos que no se ven por fuera: la inspección visual no los atrapa y aparecen cuando el cliente maquina la pieza.</div>`
+}
+
 // ── ¿A qué clientes les estamos fallando? (2026-11-08) ───────────────────────────────────
 // Devolución = rechazo EXTERNO (el cliente la recibió y la devolvió): falla visible. Interno = se
 // detectó en planta: falla oculta (costo y piezas de más para surtir). backend/routers/clientes_fallas.py
@@ -3729,6 +3794,7 @@ let _cfData=null, _cfVentana=12, _cfSel=null
 const CF_CUAD={critico:'Crítico: grande y devuelve', atencion:'Atención: devuelve mucho', cuidar:'Cuidar: grande', estable:'Estable'}
 function cfVentana(v){ _cfVentana=v; document.querySelectorAll('[data-cfv]').forEach(b=>b.classList.toggle('active',+b.dataset.cfv===v)); cargarClientesFallas() }
 async function cargarClientesFallas(){
+  cargarAseguramiento()
   const box=document.getElementById('cf-tablero')
   box.innerHTML='<div class="loading-msg">Cargando clientes (≈15 s la primera vez)…</div>'
   try{
@@ -3860,7 +3926,7 @@ function cfFicha(){
   if(_cfTab!=='calidad'){ document.getElementById('cf-ficha').innerHTML=cab+'<div id="cf-ficha-body" style="margin-top:8px"><div class="loading-msg">Cargando…</div></div></div>'; cfFichaDetalle(c); return }
   document.getElementById('cf-ficha').innerHTML=cab
     +`<div class="pt-ficha-g"><div><span>Embarcado</span><b>${ptNf(c.piezas_embarcadas)} pz · ${c.ton_embarcadas} t</b></div><div><span>Devueltas · de las piezas buenas fundidas</span><b style="color:#B91C1C">${ptNf(c.devueltas)} de ${ptNf(c.piezas_buenas)} (${c.pct_devolucion??'—'}%)</b></div><div><span>Ventana anterior</span><b>${c.pct_devolucion_anterior??'—'}${c.pct_devolucion_anterior!=null?'%':''}</b></div><div><span>Rechazo interno</span><b>${ptNf(c.rech_interno)} (${c.pct_interno??'—'}%)</b></div>`
-    +`<div><span>Fundir por pieza buena</span><b>${c.fundir_por_pieza_buena??'—'}</b></div><div><span>Costo de no calidad</span><b>${ptUsd(c.costo_usd)}</b></div><div style="grid-column:span 2"><span>Por qué devuelve</span><b style="font-size:12.5px">${defs}</b></div></div>`
+    +`<div><span>Contención · PPM</span><b>${c.contencion??'—'}${c.contencion!=null?'%':''} · ${c.ppm!=null?ptNf(c.ppm)+' PPM':'—'}</b></div><div><span>Fundir por pieza buena</span><b>${c.fundir_por_pieza_buena??'—'}</b></div><div><span>Costo de no calidad</span><b>${ptUsd(c.costo_usd)}</b></div><div style="grid-column:span 2"><span>Por qué devuelve</span><b style="font-size:12.5px">${defs}</b></div></div>`
     +(c.partes_senal_fuerte.length?`<div style="margin-top:8px;font-size:12.5px;color:#B91C1C"><b>⚑ Alerta temprana:</b> ${c.partes_senal_fuerte.join(', ')} ${c.partes_senal_fuerte.length===1?'tiene':'tienen'} coladas con señal fuerte esta semana (Control del Proceso): puede llegarle mal.</div>`:'')
     +`<table class="rc-tabla" style="margin-top:8px"><thead><tr><th style="text-align:left">Parte</th><th>Embarcadas</th><th>Devueltas</th><th>% devuelto</th><th>Rechazo interno</th><th>% interno</th><th style="text-align:left">Defecto que más devuelve</th></tr></thead><tbody>${filas}</tbody></table></div>`
 }
@@ -5280,6 +5346,16 @@ function plcRenderContenido(){
 <section id="p-ped">
 
   <div class="ped-eyebrow">Clientes · Pedidos · Números de Parte</div>
+
+  <!-- Aseguramiento de calidad (2026-11-09): efectividad de contención, PPM, % que llega bien
+       /v3/clientes/aseguramiento -->
+  <div class="pt-card" style="margin-bottom:18px">
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      <div style="font-size:15px;font-weight:600">Aseguramiento de calidad · ¿evitamos que el defecto llegue al cliente?</div>
+      <div id="aq-ventana" style="font-size:11px;color:var(--color-text-tertiary)"></div>
+    </div>
+    <div id="aq-tablero" style="margin-top:10px"><div class="loading-msg">Cargando…</div></div>
+  </div>
 
   <!-- ¿A qué clientes les estamos fallando? (2026-11-08) /v3/clientes/fallas -->
   <div class="pt-card" style="margin-bottom:18px">
