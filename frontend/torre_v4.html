@@ -211,9 +211,9 @@ main{padding:16px 20px;max-width:1100px;margin:0 auto}
 .pt-grid2{display:grid;grid-template-columns:1fr 1fr;gap:22px;margin-top:14px}
 @media (max-width:1150px){.pt-grid,.pt-grid2{grid-template-columns:1fr}}
 .pt-svg{width:100%;height:auto;display:block}
-.pt-ax{font-size:10px;fill:#94A3B8}
-.pt-q{font-size:10.5px;font-weight:700;letter-spacing:.04em}
-.pt-lbl{font-size:10px;fill:#334155;font-weight:600}
+.pt-ax{font-size:10px;fill:#64748B;paint-order:stroke;stroke:#fff;stroke-width:3px;stroke-linejoin:round}
+.pt-q{font-size:10.5px;font-weight:700;letter-spacing:.04em;paint-order:stroke;stroke:#fff;stroke-width:3px;stroke-linejoin:round}
+.pt-lbl{font-size:10px;fill:#334155;font-weight:600;paint-order:stroke;stroke:#fff;stroke-width:3px;stroke-linejoin:round}
 .pt-ley{font-size:11px;color:var(--color-text-tertiary);display:flex;flex-wrap:wrap;gap:4px 12px;margin-top:4px}
 .pt-ley i{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:4px;vertical-align:-1px}
 .pt-par{display:grid;grid-template-columns:110px 1fr 120px;gap:8px;align-items:center;font-size:11.5px;margin:4px 0;cursor:pointer}
@@ -3750,29 +3750,36 @@ function renderClientesFallas(){
     + '</div>'
 
   // Matriz: x = toneladas embarcadas (log), y = % devolución; tamaño = costo; color = tendencia
-  const W=760, H=360, L=46, R=14, TP=16, B=36, P=C.filter(c=>c.ton_embarcadas>0)
+  const W=760, H=380, L=46, R=14, TP=16, B=46, P=C.filter(c=>c.ton_embarcadas>0)
   const xs=P.map(c=>Math.log10(c.ton_embarcadas)), xmin=Math.floor(Math.min(...xs)*10)/10, xmax=Math.ceil(Math.max(...xs)*10)/10
   // escala con los clientes de >= 100 piezas: uno chico (8 de 13 devueltas) aplastaba a todos; los
   // que pasan del tope se dibujan pegados arriba con su valor real en el tooltip
   const ymax=Math.max(5,Math.ceil(Math.max(...P.filter(c=>c.piezas_embarcadas>=100).map(c=>c.pct_devolucion||0))*1.1/5)*5)
-  const X=v=>L+(Math.log10(Math.max(v,0.1))-xmin)/(xmax-xmin||1)*(W-L-R), Y=v=>TP+(1-Math.min(v||0,ymax)/ymax)*(H-TP-B)
+  // eje vertical en escala raíz: Ingersoll (65 %) aplastaba a los clientes de 0-10 % contra el piso
+  const X=v=>L+(Math.log10(Math.max(v,0.1))-xmin)/(xmax-xmin||1)*(W-L-R), Y=v=>TP+(1-Math.sqrt(Math.min(v||0,ymax)/ymax))*(H-TP-B)
   const cmax=Math.max(...P.map(c=>c.costo_usd||c.ton_no_calidad||0),1), rad=c=>4+Math.sqrt((c.costo_usd||c.ton_no_calidad||0)/cmax)*22
   const xm=X(d.mediana_ton), yg=Y(T.pct_devolucion)
-  let svg=`<svg viewBox="0 0 ${W} ${H}" class="pt-svg"><rect x="${xm}" y="${TP}" width="${W-R-xm}" height="${yg-TP}" fill="#FEF2F2"/><rect x="${L}" y="${TP}" width="${xm-L}" height="${yg-TP}" fill="#FFFBEB"/>`
-  ;[0,0.25,0.5,0.75,1].forEach(k=>{ const v=Math.round(ymax*k*10)/10; svg+=`<line x1="${L}" x2="${W-R}" y1="${Y(v)}" y2="${Y(v)}" stroke="#F1F5F9"/><text x="${L-6}" y="${Y(v)+3}" text-anchor="end" class="pt-ax">${v}%</text>` })
-  for(let e=Math.ceil(xmin); e<=Math.floor(xmax); e++){ [1,2,5].forEach(m=>{ const v=m*Math.pow(10,e); if(Math.log10(v)>=xmin&&Math.log10(v)<=xmax) svg+=`<text x="${X(v)}" y="${H-B+14}" text-anchor="middle" class="pt-ax">${ptNf(v)} t</text>` }) }
+  let svg=`<svg viewBox="0 0 ${W} ${H}" class="pt-svg"><defs><clipPath id="cf-clip"><rect x="${L}" y="${TP}" width="${W-L-R}" height="${H-TP-B}"/></clipPath></defs>`
+    +`<rect x="${xm}" y="${TP}" width="${W-R-xm}" height="${yg-TP}" fill="#FEF2F2"/><rect x="${L}" y="${TP}" width="${xm-L}" height="${yg-TP}" fill="#FFFBEB"/>`
+    +`<line x1="${L}" x2="${W-R}" y1="${H-B}" y2="${H-B}" stroke="#CBD5E1"/>`
+  const ticksY=[0,1,2,5,10,20,40,60,80].filter(v=>v<=ymax)
+  ticksY.forEach(v=>{ svg+=`<line x1="${L}" x2="${W-R}" y1="${Y(v)}" y2="${Y(v)}" stroke="#F1F5F9"/><text x="${L-6}" y="${Y(v)+3}" text-anchor="end" class="pt-ax">${v}%</text>` })
+  let ejeX=''
+  for(let e=Math.ceil(xmin); e<=Math.floor(xmax); e++){ [1,2,5].forEach(m=>{ const v=m*Math.pow(10,e); if(Math.log10(v)>=xmin&&Math.log10(v)<=xmax) ejeX+=`<line x1="${X(v)}" x2="${X(v)}" y1="${H-B}" y2="${H-B+4}" stroke="#CBD5E1"/><text x="${X(v)}" y="${H-B+16}" text-anchor="middle" class="pt-ax">${ptNf(v)} t</text>` }) }
   svg+=`<line x1="${xm}" x2="${xm}" y1="${TP}" y2="${H-B}" stroke="#94A3B8" stroke-dasharray="4 3"/><line x1="${L}" x2="${W-R}" y1="${yg}" y2="${yg}" stroke="#94A3B8" stroke-dasharray="4 3"/>`
-  svg+=`<text x="${W-R-6}" y="${TP+14}" text-anchor="end" class="pt-q" fill="#B91C1C">CRÍTICO · GRANDE Y DEVUELVE</text><text x="${L+6}" y="${TP+14}" class="pt-q" fill="#B45309">ATENCIÓN · DEVUELVE MUCHO</text>`
-  svg+=`<text x="${W-R-6}" y="${H-B-6}" text-anchor="end" class="pt-q" fill="#475569">CUIDAR · GRANDE</text><text x="${L+6}" y="${H-B-6}" class="pt-q" fill="#94A3B8">ESTABLE</text>`
-  svg+=`<text x="${(L+W-R)/2}" y="${H-4}" text-anchor="middle" class="pt-ax">Toneladas embarcadas (escala log) · línea = mediana ${d.mediana_ton} t</text>`
-  svg+=`<text x="12" y="${(TP+H-B)/2}" transform="rotate(-90 12 ${(TP+H-B)/2})" text-anchor="middle" class="pt-ax">% devuelto · línea = promedio ${T.pct_devolucion}%</text>`
+  let rotulos=`<text x="${W-R-6}" y="${TP+14}" text-anchor="end" class="pt-q" fill="#B91C1C">CRÍTICO · GRANDE Y DEVUELVE</text><text x="${L+6}" y="${TP+14}" class="pt-q" fill="#B45309">ATENCIÓN · DEVUELVE MUCHO</text>`
+    +`<text x="${W-R-6}" y="${yg+14}" text-anchor="end" class="pt-q" fill="#475569">CUIDAR · GRANDE</text><text x="${L+6}" y="${yg+14}" class="pt-q" fill="#94A3B8">ESTABLE</text>`
+    +`<text x="${(L+W-R)/2}" y="${H-6}" text-anchor="middle" class="pt-ax">Toneladas embarcadas (escala log) · línea = mediana ${d.mediana_ton} t</text>`
+    +`<text x="12" y="${(TP+H-B)/2}" transform="rotate(-90 12 ${(TP+H-B)/2})" text-anchor="middle" class="pt-ax">% devuelto (escala raíz) · línea = promedio ${T.pct_devolucion}%</text>`
+  svg+='<g clip-path="url(#cf-clip)">' 
   P.slice().sort((a,b)=>(b.costo_usd||0)-(a.costo_usd||0)).reverse().forEach((c,i,arr)=>{
     const col=PT_TEND[c.tendencia]||'#CBD5E1', cx=X(c.ton_embarcadas), cy=Y(c.pct_devolucion), r=rad(c), sel=_cfSel===c.cliente
     const ci=C.indexOf(c)
     svg+=`<circle cx="${cx}" cy="${cy}" r="${r}" fill="${col}" fill-opacity=".5" stroke="${sel?'#111':col}" stroke-width="${sel?3:1.5}" style="cursor:pointer" onclick="cfSel(${ci})"><title>${c.cliente} · ${c.ton_embarcadas} t embarcadas · ${c.devueltas} devueltas (${c.pct_devolucion}%) · interno ${c.pct_interno??'—'}% · ${ptUsd(c.costo_usd)}${c.tendencia?' · '+c.tendencia:''}</title></circle>`
-    if(i>=arr.length-8 && (c.cuadrante==='critico'||c.cuadrante==='atencion') && c.piezas_embarcadas>=100){ const izq=cx>W*0.72; svg+=`<text x="${izq?cx-r-3:cx+r+3}" y="${cy+3}" text-anchor="${izq?'end':'start'}" class="pt-lbl">${cfCorto(c.cliente)}</text>` }
+    if(i>=arr.length-8 && (c.cuadrante==='critico'||c.cuadrante==='atencion') && c.piezas_embarcadas>=100){ const izq=cx>W*0.72; rotulos+=`<text x="${izq?cx-r-3:cx+r+3}" y="${cy+3}" text-anchor="${izq?'end':'start'}" class="pt-lbl">${cfCorto(c.cliente)}</text>` }
   })
-  svg+='</svg>'
+  // burbujas recortadas al área; ejes y rótulos encima, con contorno blanco
+  svg+='</g>'+ejeX+rotulos+'</svg>'
   const ley=`<div class="pt-ley"><span><i style="background:${PT_TEND.empeora}"></i>devuelve más que la ventana anterior</span><span><i style="background:${PT_TEND.mejora}"></i>devuelve menos</span><span><i style="background:${PT_TEND.estable}"></i>igual</span><span><i style="background:#CBD5E1"></i>sin comparación</span><span>tamaño = costo de no calidad</span></div>`
 
   // Ranking: falla visible (devoluciones) vs oculta (interno)
@@ -3836,21 +3843,23 @@ function renderTableroPartes(){
     + '</div>'
 
   // Matriz de prioridad: x = piezas (log), y = tasa ajustada
-  const W=760, H=380, L=46, R=14, TP=16, B=36
+  const W=760, H=390, L=46, R=14, TP=16, B=46
   const xs=P.map(p=>Math.log10(Math.max(p.piezas,1))), xmin=Math.floor(Math.min(...xs)*10)/10, xmax=Math.ceil(Math.max(...xs)*10)/10
   const ymax=Math.ceil(Math.max(...P.map(p=>p.tasa_ajustada||0))/10)*10||10
   const X=v=>L+(Math.log10(Math.max(v,1))-xmin)/(xmax-xmin||1)*(W-L-R), Y=v=>TP+(1-(v||0)/ymax)*(H-TP-B)
   const tmax=Math.max(...P.map(p=>p.ton_rechazadas||0),1), rad=t=>3+Math.sqrt((t||0)/tmax)*20
   const xm=X(d.mediana_piezas), yg=Y(d.tasa_global)
-  let svg=`<svg viewBox="0 0 ${W} ${H}" class="pt-svg">`
-  svg+=`<rect x="${xm}" y="${TP}" width="${W-R-xm}" height="${yg-TP}" fill="#FEF2F2"/><rect x="${L}" y="${TP}" width="${xm-L}" height="${yg-TP}" fill="#FFFBEB"/>`
-  ;[0,0.25,0.5,0.75,1].forEach(k=>{ const v=Math.round(ymax*k); svg+=`<line x1="${L}" x2="${W-R}" y1="${Y(v)}" y2="${Y(v)}" stroke="#F1F5F9"/><text x="${L-6}" y="${Y(v)+3}" text-anchor="end" class="pt-ax">${v}%</text>` })
-  for(let e=Math.ceil(xmin); e<=Math.floor(xmax); e++){ [1,2,5].forEach(m=>{ const v=m*Math.pow(10,e); if(Math.log10(v)>=xmin&&Math.log10(v)<=xmax) svg+=`<text x="${X(v)}" y="${H-B+14}" text-anchor="middle" class="pt-ax">${ptNf(v)}</text>` }) }
+  let svg=`<svg viewBox="0 0 ${W} ${H}" class="pt-svg"><defs><clipPath id="pt-clip"><rect x="${L}" y="${TP}" width="${W-L-R}" height="${H-TP-B}"/></clipPath></defs>`
+  svg+=`<rect x="${xm}" y="${TP}" width="${W-R-xm}" height="${yg-TP}" fill="#FEF2F2"/><rect x="${L}" y="${TP}" width="${xm-L}" height="${yg-TP}" fill="#FFFBEB"/><line x1="${L}" x2="${W-R}" y1="${H-B}" y2="${H-B}" stroke="#CBD5E1"/>`
+  for(let v=0; v<=ymax; v+=(ymax>60?20:10)){ svg+=`<line x1="${L}" x2="${W-R}" y1="${Y(v)}" y2="${Y(v)}" stroke="#F1F5F9"/><text x="${L-6}" y="${Y(v)+3}" text-anchor="end" class="pt-ax">${v}%</text>` }
+  let ejeX=''  // marcas del eje X: se dibujan después de los puntos para que no queden tapadas
+  for(let e=Math.ceil(xmin); e<=Math.floor(xmax); e++){ [1,2,5].forEach(m=>{ const v=m*Math.pow(10,e); if(Math.log10(v)>=xmin&&Math.log10(v)<=xmax) ejeX+=`<line x1="${X(v)}" x2="${X(v)}" y1="${H-B}" y2="${H-B+4}" stroke="#CBD5E1"/><text x="${X(v)}" y="${H-B+16}" text-anchor="middle" class="pt-ax">${ptNf(v)}</text>` }) }
   svg+=`<line x1="${xm}" x2="${xm}" y1="${TP}" y2="${H-B}" stroke="#94A3B8" stroke-dasharray="4 3"/><line x1="${L}" x2="${W-R}" y1="${yg}" y2="${yg}" stroke="#94A3B8" stroke-dasharray="4 3"/>`
   svg+=`<text x="${W-R-6}" y="${TP+14}" text-anchor="end" class="pt-q" fill="#B91C1C">ATACAR PRIMERO</text><text x="${L+6}" y="${TP+14}" class="pt-q" fill="#B45309">REVISAR DISEÑO O PROCESO</text>`
-  svg+=`<text x="${W-R-6}" y="${H-B-6}" text-anchor="end" class="pt-q" fill="#475569">VIGILAR</text><text x="${L+6}" y="${H-B-6}" class="pt-q" fill="#94A3B8">SIN ACCIÓN</text>`
-  svg+=`<text x="${(L+W-R)/2}" y="${H-4}" text-anchor="middle" class="pt-ax">Piezas producidas en ${_riesgoVentana} meses (escala log) · línea = mediana ${ptNf(Math.round(d.mediana_piezas))}</text>`
+  let rotulosAbajo=`<text x="${W-R-6}" y="${yg+14}" text-anchor="end" class="pt-q" fill="#475569">VIGILAR</text><text x="${L+6}" y="${yg+14}" class="pt-q" fill="#94A3B8">SIN ACCIÓN</text>`
+  svg+=`<text x="${(L+W-R)/2}" y="${H-6}" text-anchor="middle" class="pt-ax">Piezas producidas en ${_riesgoVentana} meses (escala log) · línea = mediana ${ptNf(Math.round(d.mediana_piezas))}</text>`
   svg+=`<text x="12" y="${(TP+H-B)/2}" transform="rotate(-90 12 ${(TP+H-B)/2})" text-anchor="middle" class="pt-ax">Tasa ajustada · línea = global ${d.tasa_global}%</text>`
+  svg+='<g clip-path="url(#pt-clip)">'
   const orden=P.slice().sort((a,b)=>b.ton_rechazadas-a.ton_rechazadas)
   const etiquetas=new Set(orden.slice(0,9).map(p=>p.no_parte))
   orden.slice().reverse().forEach(p=>{
@@ -3859,10 +3868,10 @@ function renderTableroPartes(){
     svg+=`<circle cx="${cx}" cy="${cy}" r="${r}" fill="${p.vaciadas_14d?c:'#fff'}" fill-opacity="${p.vaciadas_14d?0.55:1}" stroke="${sel?'#111':c}" stroke-width="${sel?3:1.5}" style="cursor:pointer" onclick="ptSeleccionar('${p.no_parte.replace(/'/g,"\\'")}')"><title>${p.no_parte} · ${ptNf(p.piezas)} pz · real ${p.tasa_real}% · ajustada ${p.tasa_ajustada}% · ${p.ton_rechazadas} t · ${ptUsd(p.costo_usd)}${p.tendencia?' · '+p.tendencia+' '+(p.cambio_pp>0?'+':'')+p.cambio_pp+' pp':''}${p.vaciadas_14d?' · '+p.vaciadas_14d+' vaciadas en 14 días':' · sin producción en 14 días'}</title></circle>`
     if(etiquetas.has(p.no_parte)){  // a la orilla derecha la etiqueta va a la izquierda del punto
       const izq=cx>W*0.78
-      svg+=`<text x="${izq?cx-r-3:cx+r+3}" y="${cy+3}" text-anchor="${izq?'end':'start'}" class="pt-lbl">${p.no_parte}</text>`
+      rotulosAbajo+=`<text x="${izq?cx-r-3:cx+r+3}" y="${cy+3}" text-anchor="${izq?'end':'start'}" class="pt-lbl">${p.no_parte}</text>`
     }
   })
-  svg+='</svg>'
+  svg+='</g>'+ejeX+rotulosAbajo+'</svg>'
   const leyenda=`<div class="pt-ley"><span><i style="background:${PT_TEND.empeora}"></i>empeora vs ventana anterior</span><span><i style="background:${PT_TEND.mejora}"></i>mejora</span><span><i style="background:${PT_TEND.estable}"></i>estable</span><span><i style="background:#CBD5E1"></i>sin comparación</span><span><i style="background:#fff;border:1.5px solid #64748B"></i>hueco = no se vació en 14 días</span><span>tamaño = toneladas rechazadas</span></div>`
 
   // Pareto de costo (20 partes) con % acumulado
