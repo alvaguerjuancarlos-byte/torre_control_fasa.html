@@ -75,6 +75,7 @@ from backend.routers import causa_raiz as _causa_raiz_router_module
 from backend.routers import control_resumen as _control_resumen_router_module
 from backend.routers import flujo_rastreo as _flujo_rastreo_router_module
 from backend.routers import calidad_partes as _calidad_partes_router_module
+from backend.routers import clientes_fallas as _clientes_fallas_router_module
 from backend.protocolos import protocolo as _protocolo_provisional
 app.include_router(_beta_router_module.router)
 app.include_router(_alfa_router_module.router)
@@ -86,6 +87,7 @@ app.include_router(_arenas_router_module.router)
 app.include_router(_control_resumen_router_module.router)
 app.include_router(_flujo_rastreo_router_module.router)
 app.include_router(_calidad_partes_router_module.router)
+app.include_router(_clientes_fallas_router_module.router)
 app.include_router(_pronostico_semanal_router_module.router)
 app.include_router(_causa_raiz_router_module.router)
 

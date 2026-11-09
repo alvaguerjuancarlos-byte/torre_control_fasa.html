@@ -198,6 +198,14 @@ main{padding:16px 20px;max-width:1100px;margin:0 auto}
 .fr-dia{position:absolute;top:-2px;bottom:-2px;border-left:1px dashed #CBD5E1}
 .fr-dia span{position:absolute;top:-15px;left:2px;font-size:9.5px;color:var(--color-text-tertiary)}
 .fr-tiempo{padding-top:12px}
+.cf-rk{display:grid;grid-template-columns:150px 1fr 1fr 70px;gap:8px;align-items:center;font-size:11.5px;padding:3px 0;cursor:pointer}
+.cf-rk:hover{background:#F8FAFC}
+.cf-rk-h{font-size:10px;color:var(--color-text-tertiary);cursor:default;font-weight:600}
+.cf-rk-h:hover{background:none}
+.cf-rk-n{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cf-rk-b{display:grid;grid-template-columns:1fr 110px;gap:6px;align-items:center}
+.cf-rk-b span{font-size:10.5px;color:var(--color-text-secondary);white-space:nowrap}
+.cf-rk-c{text-align:right;font-weight:600}
 .pt-card{background:#fff;border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-lg);padding:14px 16px}
 .pt-grid{display:grid;grid-template-columns:minmax(480px,1.7fr) minmax(300px,1fr);gap:22px;margin-top:14px}
 .pt-grid2{display:grid;grid-template-columns:1fr 1fr;gap:22px;margin-top:14px}
@@ -1604,7 +1612,7 @@ function switchTab(name) {
     if (name === 'flujo') cargarControlProceso()
     if (name === 'riesgo') rpSwitchSub('semana')
     if (name === 'pron') initPronPanel()
-    if (name === 'pedidos') initPedidosPanel()
+    if (name === 'pedidos') { initPedidosPanel(); if(!_cfData) cargarClientesFallas() }
     if (name === 'riesgoplan') initRiesgoPlanPanel()
     if (name === 'plancontrol') initPlanControlPanel()
     if (name === 'beta') window.initBetaPanel()
@@ -3712,6 +3720,90 @@ function simSetMode(mode) {
 }
 let _riesgoGlobalRate = null
 
+// ── ¿A qué clientes les estamos fallando? (2026-11-08) ───────────────────────────────────
+// Devolución = rechazo EXTERNO (el cliente la recibió y la devolvió): falla visible. Interno = se
+// detectó en planta: falla oculta (costo y piezas de más para surtir). backend/routers/clientes_fallas.py
+let _cfData=null, _cfVentana=12, _cfSel=null
+const CF_CUAD={critico:'Crítico: grande y devuelve', atencion:'Atención: devuelve mucho', cuidar:'Cuidar: grande', estable:'Estable'}
+function cfVentana(v){ _cfVentana=v; document.querySelectorAll('[data-cfv]').forEach(b=>b.classList.toggle('active',+b.dataset.cfv===v)); cargarClientesFallas() }
+async function cargarClientesFallas(){
+  const box=document.getElementById('cf-tablero')
+  box.innerHTML='<div class="loading-msg">Cargando clientes (≈15 s la primera vez)…</div>'
+  try{
+    const r=await fetch(`/v3/clientes/fallas?ventana=${_cfVentana}`)
+    if(!r.ok) throw new Error('HTTP '+r.status+(r.status===404?' · reinicia el servidor con arrancar.bat':''))
+    _cfData=await r.json()
+  }catch(e){ box.innerHTML='<div style="color:red;font-size:12px">Error al cargar ('+e.message+').</div>'; return }
+  _cfSel=null; renderClientesFallas()
+}
+const cfCorto=c=>c.length>34?c.slice(0,32)+'…':c
+function renderClientesFallas(){
+  const d=_cfData, T=d.totales, C=d.clientes, box=document.getElementById('cf-tablero')
+  document.getElementById('cf-ventana').textContent=`${d.ventana.desde} a ${d.ventana.hasta} · tendencia vs ${d.ventana_anterior.desde.slice(0,7)} a ${d.ventana_anterior.hasta.slice(0,7)}`
+  const kpis='<div class="kpi-grid">'
+    + mc('Clientes con embarques', ptNf(T.clientes), 'secondary', ptNf(Math.round(T.ton_embarcadas))+' t · '+ptNf(T.piezas_embarcadas)+' piezas')
+    + mc('Piezas devueltas', ptNf(T.devueltas), 'danger', T.pct_devolucion+'% de lo embarcado · '+T.clientes_con_devolucion+' clientes')
+    + mc('Rechazo interno de sus partes', ptNf(T.rech_interno), 'warning', 'falla oculta: el cliente no la ve')
+    + mc('Costo de no calidad', ptUsd(T.costo_usd), 'danger', 'interno + devoluciones, a $'+ptNf(Math.round(d.costo_ton_usd||0))+'/t')
+    + mc('Clientes críticos', T.criticos, 'danger', 'grandes y con devolución sobre el promedio')
+    + mc('Con señal fuerte hoy', T.con_senal_fuerte, 'warning', 'clientes con partes en riesgo esta semana')
+    + '</div>'
+
+  // Matriz: x = toneladas embarcadas (log), y = % devolución; tamaño = costo; color = tendencia
+  const W=760, H=360, L=46, R=14, TP=16, B=36, P=C.filter(c=>c.ton_embarcadas>0)
+  const xs=P.map(c=>Math.log10(c.ton_embarcadas)), xmin=Math.floor(Math.min(...xs)*10)/10, xmax=Math.ceil(Math.max(...xs)*10)/10
+  // escala con los clientes de >= 100 piezas: uno chico (8 de 13 devueltas) aplastaba a todos; los
+  // que pasan del tope se dibujan pegados arriba con su valor real en el tooltip
+  const ymax=Math.max(5,Math.ceil(Math.max(...P.filter(c=>c.piezas_embarcadas>=100).map(c=>c.pct_devolucion||0))*1.1/5)*5)
+  const X=v=>L+(Math.log10(Math.max(v,0.1))-xmin)/(xmax-xmin||1)*(W-L-R), Y=v=>TP+(1-Math.min(v||0,ymax)/ymax)*(H-TP-B)
+  const cmax=Math.max(...P.map(c=>c.costo_usd||c.ton_no_calidad||0),1), rad=c=>4+Math.sqrt((c.costo_usd||c.ton_no_calidad||0)/cmax)*22
+  const xm=X(d.mediana_ton), yg=Y(T.pct_devolucion)
+  let svg=`<svg viewBox="0 0 ${W} ${H}" class="pt-svg"><rect x="${xm}" y="${TP}" width="${W-R-xm}" height="${yg-TP}" fill="#FEF2F2"/><rect x="${L}" y="${TP}" width="${xm-L}" height="${yg-TP}" fill="#FFFBEB"/>`
+  ;[0,0.25,0.5,0.75,1].forEach(k=>{ const v=Math.round(ymax*k*10)/10; svg+=`<line x1="${L}" x2="${W-R}" y1="${Y(v)}" y2="${Y(v)}" stroke="#F1F5F9"/><text x="${L-6}" y="${Y(v)+3}" text-anchor="end" class="pt-ax">${v}%</text>` })
+  for(let e=Math.ceil(xmin); e<=Math.floor(xmax); e++){ [1,2,5].forEach(m=>{ const v=m*Math.pow(10,e); if(Math.log10(v)>=xmin&&Math.log10(v)<=xmax) svg+=`<text x="${X(v)}" y="${H-B+14}" text-anchor="middle" class="pt-ax">${ptNf(v)} t</text>` }) }
+  svg+=`<line x1="${xm}" x2="${xm}" y1="${TP}" y2="${H-B}" stroke="#94A3B8" stroke-dasharray="4 3"/><line x1="${L}" x2="${W-R}" y1="${yg}" y2="${yg}" stroke="#94A3B8" stroke-dasharray="4 3"/>`
+  svg+=`<text x="${W-R-6}" y="${TP+14}" text-anchor="end" class="pt-q" fill="#B91C1C">CRÍTICO · GRANDE Y DEVUELVE</text><text x="${L+6}" y="${TP+14}" class="pt-q" fill="#B45309">ATENCIÓN · DEVUELVE MUCHO</text>`
+  svg+=`<text x="${W-R-6}" y="${H-B-6}" text-anchor="end" class="pt-q" fill="#475569">CUIDAR · GRANDE</text><text x="${L+6}" y="${H-B-6}" class="pt-q" fill="#94A3B8">ESTABLE</text>`
+  svg+=`<text x="${(L+W-R)/2}" y="${H-4}" text-anchor="middle" class="pt-ax">Toneladas embarcadas (escala log) · línea = mediana ${d.mediana_ton} t</text>`
+  svg+=`<text x="12" y="${(TP+H-B)/2}" transform="rotate(-90 12 ${(TP+H-B)/2})" text-anchor="middle" class="pt-ax">% devuelto · línea = promedio ${T.pct_devolucion}%</text>`
+  P.slice().sort((a,b)=>(b.costo_usd||0)-(a.costo_usd||0)).reverse().forEach((c,i,arr)=>{
+    const col=PT_TEND[c.tendencia]||'#CBD5E1', cx=X(c.ton_embarcadas), cy=Y(c.pct_devolucion), r=rad(c), sel=_cfSel===c.cliente
+    const ci=C.indexOf(c)
+    svg+=`<circle cx="${cx}" cy="${cy}" r="${r}" fill="${col}" fill-opacity=".5" stroke="${sel?'#111':col}" stroke-width="${sel?3:1.5}" style="cursor:pointer" onclick="cfSel(${ci})"><title>${c.cliente} · ${c.ton_embarcadas} t embarcadas · ${c.devueltas} devueltas (${c.pct_devolucion}%) · interno ${c.pct_interno??'—'}% · ${ptUsd(c.costo_usd)}${c.tendencia?' · '+c.tendencia:''}</title></circle>`
+    if(i>=arr.length-8 && (c.cuadrante==='critico'||c.cuadrante==='atencion') && c.piezas_embarcadas>=100){ const izq=cx>W*0.72; svg+=`<text x="${izq?cx-r-3:cx+r+3}" y="${cy+3}" text-anchor="${izq?'end':'start'}" class="pt-lbl">${cfCorto(c.cliente)}</text>` }
+  })
+  svg+='</svg>'
+  const ley=`<div class="pt-ley"><span><i style="background:${PT_TEND.empeora}"></i>devuelve más que la ventana anterior</span><span><i style="background:${PT_TEND.mejora}"></i>devuelve menos</span><span><i style="background:${PT_TEND.estable}"></i>igual</span><span><i style="background:#CBD5E1"></i>sin comparación</span><span>tamaño = costo de no calidad</span></div>`
+
+  // Ranking: falla visible (devoluciones) vs oculta (interno)
+  const maxd=Math.max(...C.map(c=>c.devueltas),1), maxi=Math.max(...C.map(c=>c.rech_interno),1)
+  const rank=`<table class="rc-tabla"><thead><tr><th style="text-align:left">Cliente</th><th style="text-align:left;width:26%">Devueltas · falla visible</th><th style="text-align:left;width:26%">Rechazo interno · falla oculta</th><th>Tendencia</th><th>Costo</th><th style="text-align:left">Por qué devuelve</th></tr></thead><tbody>`
+    + C.map((c,i)=>`<tr class="rc-fila" onclick="cfSel(${i})"><td style="white-space:nowrap"><b title="${c.cliente}">${cfCorto(c.cliente)}</b>${c.partes_senal_fuerte.length?' <span title="Partes con señal fuerte esta semana: '+c.partes_senal_fuerte.join(', ')+'" style="color:#B91C1C;font-weight:700">⚑</span>':''}</td>`
+      +`<td><div class="cf-rk-b"><div class="fr-et-bar"><div style="width:${c.devueltas/maxd*100}%;background:#DC2626"></div></div><span>${ptNf(c.devueltas)} · ${c.pct_devolucion??'—'}%</span></div></td>`
+      +`<td><div class="cf-rk-b"><div class="fr-et-bar"><div style="width:${c.rech_interno/maxi*100}%;background:#F59E0B"></div></div><span>${ptNf(c.rech_interno)} · ${c.pct_interno??'—'}%</span></div></td>`
+      +`<td style="text-align:right;white-space:nowrap;color:${PT_TEND[c.tendencia]||'var(--color-text-tertiary)'}">${c.cambio_pp==null?'—':(c.cambio_pp>0?'+':'')+c.cambio_pp.toFixed(1)+' pp'}</td>`
+      +`<td style="text-align:right;font-weight:600;white-space:nowrap">${ptUsd(c.costo_usd)}</td><td style="font-size:11.5px">${c.defectos_ext.slice(0,2).map(x=>x.defecto.toLowerCase()).join(', ')||'—'}</td></tr>`).join('')
+    + '</tbody></table>'
+
+  box.innerHTML=kpis
+    + `<div style="margin-top:14px;max-width:980px"><div class="rc-sub">Matriz de clientes · clic para ver su ficha</div>${svg}${ley}</div>`
+    + `<div id="cf-ficha"></div>`
+    + `<div style="margin-top:14px"><div class="rc-sub">A quién le fallamos más · ordenado por piezas devueltas · clic para ver su ficha</div>${rank}</div>`
+    + `<div class="ret-leyenda" style="margin-top:8px"><b>Devolución</b> = rechazo externo: la pieza llegó al cliente y la devolvió (se cuenta en el mes en que la devolvió; llega ~2 meses después del vaciado). <b>Interno</b> = se detectó en planta; el cliente no lo ve, pero cuesta y obliga a fundir de más. % devuelto = devueltas / piezas embarcadas en la misma ventana (aproximado: la factura no trae llave a la pieza). Costo = toneladas (internas + devueltas) × $/t de Finanzas; la facturación no trae precio ni fecha compromiso, así que no se mide venta ni puntualidad. Cuadrantes: grande = toneladas ≥ mediana; devuelve = % ≥ promedio.</div>`
+  if(_cfSel) cfFicha()
+}
+function cfSel(i){ _cfSel=_cfData.clientes[i].cliente; renderClientesFallas(); document.getElementById('cf-ficha').scrollIntoView({behavior:'smooth',block:'nearest'}) }
+function cfFicha(){
+  const c=_cfData.clientes.find(x=>x.cliente===_cfSel); if(!c) return
+  const defs=c.defectos_ext.map(x=>`${x.defecto.toLowerCase()} (${x.piezas})`).join(' · ')||'sin devoluciones'
+  const filas=c.partes.map(p=>`<tr><td><b>${p.no_parte}</b>${p.senal_fuerte_7d?' <span style="color:#B91C1C;font-weight:700" title="Señal fuerte en '+p.senal_fuerte_7d+' coladas esta semana">⚑</span>':''}</td><td style="text-align:right">${ptNf(p.embarcadas)}</td><td style="text-align:right;color:#B91C1C;font-weight:${p.devueltas?700:400}">${p.devueltas||'·'}</td><td style="text-align:right">${p.embarcadas?(p.devueltas/p.embarcadas*100).toFixed(1)+'%':'—'}</td><td style="text-align:right">${p.rech_int||'·'}</td><td style="text-align:right">${p.vaciadas?(p.rech_int/p.vaciadas*100).toFixed(1)+'%':'—'}</td><td>${(p.defecto_ext||'—').toLowerCase()}</td></tr>`).join('')
+  document.getElementById('cf-ficha').innerHTML=`<div class="pt-ficha"><div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap"><div style="font-size:14px;font-weight:700">${c.cliente} <span style="font-weight:500;font-size:12px;color:var(--color-text-secondary)">· ${CF_CUAD[c.cuadrante]}</span></div><button class="bp-x" onclick="_cfSel=null;document.getElementById('cf-ficha').innerHTML=''" title="Cerrar">×</button></div>`
+    +`<div class="pt-ficha-g"><div><span>Embarcado</span><b>${ptNf(c.piezas_embarcadas)} pz · ${c.ton_embarcadas} t</b></div><div><span>Devueltas</span><b style="color:#B91C1C">${ptNf(c.devueltas)} (${c.pct_devolucion??'—'}%)</b></div><div><span>Ventana anterior</span><b>${c.pct_devolucion_anterior??'—'}${c.pct_devolucion_anterior!=null?'%':''}</b></div><div><span>Rechazo interno</span><b>${ptNf(c.rech_interno)} (${c.pct_interno??'—'}%)</b></div>`
+    +`<div><span>Fundir por pieza buena</span><b>${c.fundir_por_pieza_buena??'—'}</b></div><div><span>Costo de no calidad</span><b>${ptUsd(c.costo_usd)}</b></div><div style="grid-column:span 2"><span>Por qué devuelve</span><b style="font-size:12.5px">${defs}</b></div></div>`
+    +(c.partes_senal_fuerte.length?`<div style="margin-top:8px;font-size:12.5px;color:#B91C1C"><b>⚑ Alerta temprana:</b> ${c.partes_senal_fuerte.join(', ')} ${c.partes_senal_fuerte.length===1?'tiene':'tienen'} coladas con señal fuerte esta semana (Control del Proceso): puede llegarle mal.</div>`:'')
+    +`<table class="rc-tabla" style="margin-top:8px"><thead><tr><th style="text-align:left">Parte</th><th>Embarcadas</th><th>Devueltas</th><th>% devuelto</th><th>Rechazo interno</th><th>% interno</th><th style="text-align:left">Defecto que más devuelve</th></tr></thead><tbody>${filas}</tbody></table></div>`
+}
+
 // ── Tablero de riesgo por parte (2026-11-08) ─────────────────────────────────────────────
 // Indicadores con costo, matriz de prioridad (volumen x tasa ajustada, tamaño = toneladas
 // rechazadas, color = tendencia vs ventana anterior, relleno = se vació en 14 días), Pareto de
@@ -5126,6 +5218,20 @@ function plcRenderContenido(){
 
   <div class="ped-eyebrow">Clientes · Pedidos · Números de Parte</div>
 
+  <!-- ¿A qué clientes les estamos fallando? (2026-11-08) /v3/clientes/fallas -->
+  <div class="pt-card" style="margin-bottom:18px">
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      <div style="font-size:15px;font-weight:600">¿A qué clientes les estamos fallando?</div>
+      <div id="cf-ventana" style="font-size:11px;color:var(--color-text-tertiary)"></div>
+      <div style="margin-left:auto;display:flex;gap:3px;background:#F3F4F6;border-radius:6px;padding:3px">
+        <button class="pb" data-cfv="6" onclick="cfVentana(6)" style="font-size:11px;padding:3px 9px;border-radius:4px">6m</button>
+        <button class="pb active" data-cfv="12" onclick="cfVentana(12)" style="font-size:11px;padding:3px 9px;border-radius:4px">12m</button>
+        <button class="pb" data-cfv="24" onclick="cfVentana(24)" style="font-size:11px;padding:3px 9px;border-radius:4px">24m</button>
+      </div>
+    </div>
+    <div id="cf-tablero" style="margin-top:10px"><div class="loading-msg">Cargando…</div></div>
+  </div>
+
   <div class="ped-ton-card">
     <div class="ped-ton-head">
       <div>
@@ -5138,9 +5244,9 @@ function plcRenderContenido(){
     <div class="ped-ton-nota">
       <b>Ventana:</b> la misma que el filtro Año/Trimestre/Mes/Semana de abajo (Año y Trimestre agrupan
       por mes; Mes y Semana agrupan por semana). <b>Toneladas:</b> piezas embarcadas (<code>fdbase</code>)
-      × peso real de parte (<code>PesoKgs</code>). <b>% rechazo:</b> dato real de producción del período —
-      congelada desde 2025-12-29; los períodos posteriores quedan en blanco (sin línea) por falta de
-      dato, no se aproxima.
+      × peso real de parte (<code>PesoKgs</code>). <b>% rechazo:</b> dato real de producción del período
+      (<code>betamega_01_rechazosbyidticket</code>, vigente); el mes en curso sale bajo porque el rechazo se
+      captura días después. Sin línea = sin dato, no se aproxima.
     </div>
   </div>
 
@@ -5188,7 +5294,8 @@ function plcRenderContenido(){
     capturado — es la base informativa más cercana disponible hoy. Capa informativa, aún no
     ligada al control de proceso.
     <b>Calidad:</b> el % de rechazo mostrado por cliente/parte es la <b>tasa histórica del No. Parte</b>
-    (todo el histórico en <code>alfamega_01_rechazosbyidticket</code>, congelado desde 2025-12-29) —
+    (todo el histórico en <code>betamega_01_rechazosbyidticket</code>, 2023 a hoy; interno y externo juntos —
+    el tablero de arriba los separa) —
     no el rechazo real de las piezas de este pedido; no existe llave entre facturación y colada/ticket.
     <b>Ubicación:</b> etapa de la <b>última colada</b> que produjo ese No. Parte, sin importar cuándo —
     no es necesariamente la colada de las piezas de este pedido específico.
