@@ -24,6 +24,16 @@ Por cliente (corex_test.modelos + clientes, main._resolver_clientes):
     llegarle mal.
 Tendencia = % devolución contra la ventana anterior del mismo largo. No hay fecha compromiso
 en fdbase: la puntualidad de entrega no se puede medir todavía.
+
+Devoluciones esperadas (2026-11-09, JC: ligar la lista de pedidos con el tablero): la devolución
+llega ~2 meses después, así que lo embarcado en los últimos DIAS_EN_CAMINO días todavía puede
+regresar. Esperadas = piezas embarcadas en ese lapso x tasa de devolución de la parte en la
+ventana (si la parte tiene < MIN_EMB_TASA piezas embarcadas, la del cliente). Es una estimación
+para anticiparse con el cliente, no un conteo.
+
+/v3/clientes/ficha: la ficha única del cliente -- sus pedidos recientes (fdbase) con las partes
+que ya devuelve, la señal fuerte de hoy y las devoluciones esperadas por pedido, y su tendencia
+mensual (toneladas, % devuelto, % interno).
 """
 import time
 from datetime import date, datetime, timedelta
@@ -37,6 +47,8 @@ from backend.routers.costo_calidad import COSTO_TON_USD
 router = APIRouter()
 _CACHE: dict = {}
 _TTL = 1800
+DIAS_EN_CAMINO = 60
+MIN_EMB_TASA = 30
 
 
 def _meses_atras(d: date, n: int) -> date:
@@ -84,6 +96,14 @@ def _por_parte(desde: date, hasta: date) -> dict:
         df = (r["df"] or "SIN DEFECTO").strip()
         x["defectos_ext"][df] = x["defectos_ext"].get(df, 0) + n
     return out
+
+
+def _embarques_recientes(dias: int) -> dict:
+    """{no_parte: piezas embarcadas en los últimos `dias`} (sin renglones de recargo -SURCH)."""
+    d = (date.today() - timedelta(days=dias)).isoformat()
+    return {r["np"]: int(r["n"] or 0) for r in run("""
+        SELECT TRIM(no_parte) AS np, SUM(cant) AS n FROM fdbase
+        WHERE fecha >= :d AND UPPER(no_parte) NOT LIKE '%SURCH%' GROUP BY TRIM(no_parte)""", {"d": d})}
 
 
 def _peso_partes() -> dict:
@@ -142,6 +162,7 @@ def clientes_fallas(ventana: int = Query(default=12, ge=3, le=24)):
         return res
 
     A, B = acumula(act), acumula(ant)
+    reciente = _embarques_recientes(DIAS_EN_CAMINO)
     clientes = []
     for c, r in A.items():
         if not (r["embarcadas"] or r["devueltas"]):
@@ -152,6 +173,13 @@ def clientes_fallas(ventana: int = Query(default=12, ge=3, le=24)):
         pct_ant = round(b["devueltas"] / b["embarcadas"] * 100, 2) if b.get("embarcadas", 0) >= 50 else None
         cambio = round(pct_dev - pct_ant, 2) if pct_dev is not None and pct_ant is not None and r["embarcadas"] >= 50 else None
         partes = sorted(r["partes"].values(), key=lambda p: (-p["devueltas"], -p["rech_int"]))
+        tasa_cli = (r["devueltas"] / r["embarcadas"]) if r["embarcadas"] else 0
+        esperadas = 0.0
+        for p in partes:
+            p["tasa_devolucion"] = round((p["devueltas"] / p["embarcadas"] if p["embarcadas"] >= MIN_EMB_TASA else tasa_cli) * 100, 2)
+            p["embarcadas_en_camino"] = reciente.get(p["no_parte"], 0)
+            p["dev_esperadas"] = round(p["embarcadas_en_camino"] * p["tasa_devolucion"] / 100, 1)
+            esperadas += p["dev_esperadas"]
         clientes.append({
             "cliente": c, "piezas_embarcadas": r["embarcadas"], "ton_embarcadas": round(r["ton_embarcadas"], 1),
             "devueltas": r["devueltas"], "pct_devolucion": pct_dev,
@@ -163,6 +191,8 @@ def clientes_fallas(ventana: int = Query(default=12, ge=3, le=24)):
             "costo_usd": round(r["ton_no_calidad"] * costo_t) if costo_t else None,
             "defectos_ext": sorted(({"defecto": k, "piezas": v} for k, v in r["defectos_ext"].items()), key=lambda x: -x["piezas"])[:5],
             "partes_senal_fuerte": [p["no_parte"] for p in partes if p["senal_fuerte_7d"]],
+            "dev_esperadas": round(esperadas),
+            "tasas_partes": {p["no_parte"]: p["tasa_devolucion"] for p in partes},
             "partes": partes[:15],
         })
     clientes.sort(key=lambda x: (-(x["devueltas"] or 0), -(x["costo_usd"] or 0)))
@@ -187,6 +217,8 @@ def clientes_fallas(ventana: int = Query(default=12, ge=3, le=24)):
             "costo_usd": sum(c["costo_usd"] or 0 for c in clientes) if costo_t else None,
             "criticos": sum(1 for c in clientes if c["cuadrante"] == "critico"),
             "con_senal_fuerte": sum(1 for c in clientes if c["partes_senal_fuerte"]),
+            "devoluciones_esperadas": sum(c["dev_esperadas"] for c in clientes),
+            "dias_en_camino": DIAS_EN_CAMINO,
         },
         "clientes": clientes,
         "notas": "Devolución = rechazo EXTERNO (betamega_01.IntExt='Ext') por fecha de rechazo; interno por fecha de "
@@ -196,3 +228,79 @@ def clientes_fallas(ventana: int = Query(default=12, ge=3, le=24)):
         _CACHE.pop(k, None)
     _CACHE[clave] = res
     return res
+
+
+@router.get("/v3/clientes/ficha")
+def cliente_ficha(cliente: str = Query(...), ventana: int = Query(default=12, ge=3, le=24),
+                  dias_pedidos: int = Query(default=90, ge=14, le=365)):
+    """Ficha única del cliente: pedidos recientes con riesgo por parte y tendencia mensual."""
+    tablero = clientes_fallas(ventana=ventana)
+    c = next((x for x in tablero["clientes"] if x["cliente"] == cliente), None)
+    tasas = (c or {}).get("tasas_partes") or {}
+    tasa_cli = ((c or {}).get("pct_devolucion") or 0)
+    senal = set((c or {}).get("partes_senal_fuerte") or [])
+    partes = [r["np"] for r in run("""
+        SELECT DISTINCT TRIM(m.NoParte) AS np FROM corex_test.modelos m
+        JOIN corex_test.clientes cl ON cl.IdCliente = m.IdCliente WHERE cl.Cliente = :c""", {"c": cliente})]
+    if not partes:
+        return {"cliente": cliente, "pedidos": [], "tendencia": [], "motivo": "sin partes ligadas al cliente en Corex"}
+    ph = ",".join(f":p{i}" for i in range(len(partes)))
+    prm = {f"p{i}": p for i, p in enumerate(partes)}
+    peso = _peso_partes()
+
+    # Pedidos recientes: fdbase por pedido y parte
+    d_ped = (date.today() - timedelta(days=dias_pedidos)).isoformat()
+    camino = date.today() - timedelta(days=DIAS_EN_CAMINO)
+    ped: dict = {}
+    for r in run(f"""SELECT nopedido, TRIM(no_parte) AS np, MIN(fecha) AS f0, MAX(fecha) AS f1, SUM(cant) AS n,
+                            SUM(CASE WHEN fecha >= :cam THEN cant ELSE 0 END) AS n_cam
+                     FROM fdbase WHERE fecha >= :d AND UPPER(no_parte) NOT LIKE '%SURCH%' AND TRIM(no_parte) IN ({ph})
+                     GROUP BY nopedido, TRIM(no_parte)""", {**prm, "d": d_ped, "cam": camino.isoformat()}):
+        p = ped.setdefault(r["nopedido"], {"nopedido": r["nopedido"], "fecha_ini": str(r["f0"])[:10],
+                                          "fecha_fin": str(r["f1"])[:10], "piezas": 0, "dev_esperadas": 0.0, "partes": []})
+        p["fecha_ini"] = min(p["fecha_ini"], str(r["f0"])[:10]); p["fecha_fin"] = max(p["fecha_fin"], str(r["f1"])[:10])
+        n, n_cam = int(r["n"] or 0), int(r["n_cam"] or 0)
+        tasa = tasas.get(r["np"], tasa_cli)
+        esp = round(n_cam * tasa / 100, 1)
+        p["piezas"] += n; p["dev_esperadas"] += esp
+        p["partes"].append({"no_parte": r["np"], "piezas": n, "tasa_devolucion": tasa,
+                            "en_camino": n_cam, "dev_esperadas": esp, "senal_fuerte": r["np"] in senal})
+    pedidos = sorted(ped.values(), key=lambda x: x["fecha_fin"], reverse=True)
+    for p in pedidos:
+        p["dev_esperadas"] = round(p["dev_esperadas"], 1)
+        p["partes"].sort(key=lambda x: (-x["dev_esperadas"], -x["piezas"]))
+        p["en_riesgo"] = any(x["senal_fuerte"] or x["tasa_devolucion"] >= 5 for x in p["partes"])
+
+    # Tendencia mensual: toneladas embarcadas, % devuelto (por mes de devolución) y % interno
+    desde = _meses_atras(date.today(), ventana - 1).isoformat()
+    meses: dict = {}
+
+    def m_(k):
+        return meses.setdefault(k, {"mes": k, "piezas": 0, "ton": 0.0, "devueltas": 0, "vaciadas": 0, "rech_int": 0})
+    for r in run(f"""SELECT DATE_FORMAT(fecha,'%Y-%m') AS m, TRIM(no_parte) AS np, SUM(cant) AS n FROM fdbase
+                     WHERE fecha >= :d AND UPPER(no_parte) NOT LIKE '%SURCH%' AND TRIM(no_parte) IN ({ph})
+                     GROUP BY m, TRIM(no_parte)""", {**prm, "d": desde}):
+        x = m_(r["m"]); x["piezas"] += int(r["n"] or 0); x["ton"] += int(r["n"] or 0) * peso.get(r["np"], 0) / 1000
+    for r in run(f"""SELECT DATE_FORMAT(FechaRechazo,'%Y-%m') AS m, COUNT(*) AS n FROM {RECHAZO_PZAS_SQL} x
+                     WHERE bRechazo = 1 AND IntExt = 'Ext' AND FechaRechazo >= :d AND TRIM(No_Parte) IN ({ph})
+                     GROUP BY m""", {**prm, "d": desde}):
+        m_(r["m"])["devueltas"] += int(r["n"] or 0)
+    for r in run(f"""SELECT DATE_FORMAT(FHrVaciado,'%Y-%m') AS m, SUM(pz) AS pz, SUM(bRechazo = 1 AND IntExt = 'Int') AS ri
+                     FROM {RECHAZO_PZAS_SQL} x WHERE FHrVaciado >= :d AND TRIM(No_Parte) IN ({ph}) GROUP BY m""",
+                 {**prm, "d": desde}):
+        x = m_(r["m"]); x["vaciadas"] += int(r["pz"] or 0); x["rech_int"] += int(r["ri"] or 0)
+    tendencia = []
+    for k in sorted(meses):
+        x = meses[k]
+        x["ton"] = round(x["ton"], 1)
+        x["pct_devuelto"] = round(x["devueltas"] / x["piezas"] * 100, 1) if x["piezas"] >= 20 else None
+        # mes en curso sin % interno: el rechazo se captura días después y saldría falsamente bajo
+        x["pct_interno"] = (round(x["rech_int"] / x["vaciadas"] * 100, 1)
+                            if x["vaciadas"] >= 20 and k != date.today().strftime("%Y-%m") else None)
+        tendencia.append(x)
+    return {"cliente": cliente, "dias_pedidos": dias_pedidos, "dias_en_camino": DIAS_EN_CAMINO,
+            "pedidos": pedidos[:40], "n_pedidos": len(pedidos),
+            "dev_esperadas": round(sum(p["dev_esperadas"] for p in pedidos), 1), "tendencia": tendencia,
+            "nota": "Devoluciones esperadas = piezas embarcadas en los últimos 60 días x tasa de devolución de la "
+                    "parte con este cliente (estimación). % devuelto por mes = devoluciones del mes / piezas "
+                    "embarcadas ese mes (meses con >= 20 piezas)."}

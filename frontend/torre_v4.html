@@ -198,6 +198,8 @@ main{padding:16px 20px;max-width:1100px;margin:0 auto}
 .fr-dia{position:absolute;top:-2px;bottom:-2px;border-left:1px dashed #CBD5E1}
 .fr-dia span{position:absolute;top:-15px;left:2px;font-size:9.5px;color:var(--color-text-tertiary)}
 .fr-tiempo{padding-top:12px}
+.cf-tab{font-size:11.5px;padding:3px 10px;border:1px solid #C7D2FE;background:#fff;color:#3730A3;border-radius:14px;cursor:pointer}
+.cf-tab.on{background:#3730A3;color:#fff}
 .cf-rk{display:grid;grid-template-columns:150px 1fr 1fr 70px;gap:8px;align-items:center;font-size:11.5px;padding:3px 0;cursor:pointer}
 .cf-rk:hover{background:#F8FAFC}
 .cf-rk-h{font-size:10px;color:var(--color-text-tertiary);cursor:default;font-weight:600}
@@ -3734,7 +3736,8 @@ async function cargarClientesFallas(){
     if(!r.ok) throw new Error('HTTP '+r.status+(r.status===404?' · reinicia el servidor con arrancar.bat':''))
     _cfData=await r.json()
   }catch(e){ box.innerHTML='<div style="color:red;font-size:12px">Error al cargar ('+e.message+').</div>'; return }
-  _cfSel=null; renderClientesFallas()
+  _cfSel=null; _cfFichaCache={}; renderClientesFallas()
+  if(_pedArbolArgs) pedRenderArbol(..._pedArbolArgs)  // la lista toma las métricas nuevas
 }
 const cfCorto=c=>c.length>34?c.slice(0,32)+'…':c
 function renderClientesFallas(){
@@ -3747,6 +3750,7 @@ function renderClientesFallas(){
     + mc('Costo de no calidad', ptUsd(T.costo_usd), 'danger', 'interno + devoluciones, a $'+ptNf(Math.round(d.costo_ton_usd||0))+'/t')
     + mc('Clientes críticos', T.criticos, 'danger', 'grandes y con devolución sobre el promedio')
     + mc('Con señal fuerte hoy', T.con_senal_fuerte, 'warning', 'clientes con partes en riesgo esta semana')
+    + mc('Devoluciones esperadas', '~'+ptNf(T.devoluciones_esperadas)+' pz', 'warning', 'de lo embarcado en '+T.dias_en_camino+' días, por la tasa de cada parte')
     + '</div>'
 
   // Matriz: x = toneladas embarcadas (log), y = % devolución; tamaño = costo; color = tendencia
@@ -3799,12 +3803,57 @@ function renderClientesFallas(){
     + `<div class="ret-leyenda" style="margin-top:8px"><b>Devolución</b> = rechazo externo: la pieza llegó al cliente y la devolvió (se cuenta en el mes en que la devolvió; llega ~2 meses después del vaciado). <b>Interno</b> = se detectó en planta; el cliente no lo ve, pero cuesta y obliga a fundir de más. % devuelto = devueltas / piezas embarcadas en la misma ventana (aproximado: la factura no trae llave a la pieza). Costo = toneladas (internas + devueltas) × $/t de Finanzas; la facturación no trae precio ni fecha compromiso, así que no se mide venta ni puntualidad. Cuadrantes: grande = toneladas ≥ mediana; devuelve = % ≥ promedio.</div>`
   if(_cfSel) cfFicha()
 }
-function cfSel(i){ _cfSel=_cfData.clientes[i].cliente; renderClientesFallas(); document.getElementById('cf-ficha').scrollIntoView({behavior:'smooth',block:'nearest'}) }
+function cfSel(i){ cfSelNombre(_cfData.clientes[i].cliente) }
+function cfSelNombre(nombre, tab){
+  _cfSel=nombre; _cfTab=tab||_cfTab||'calidad'
+  renderClientesFallas()
+  // un solo cliente para toda la pestaña: la gráfica de toneladas se va al mismo cliente
+  const sel=document.getElementById('ped-ton-cliente')
+  if(sel && [...sel.options].some(o=>o.value===nombre) && sel.value!==nombre){ sel.value=nombre; if(typeof pedTonSincronizar==='function') pedTonSincronizar() }
+  document.getElementById('cf-ficha').scrollIntoView({behavior:'smooth',block:'nearest'})
+}
+let _cfTab='calidad', _cfFichaCache={}
+function cfTab(t){ _cfTab=t; cfFicha() }
+// Pedidos y tendencia del cliente: /v3/clientes/ficha (pedidos de 90 días con devoluciones
+// esperadas por parte; tendencia mensual de toneladas, % devuelto y % interno).
+async function cfFichaDetalle(c){
+  const k=c.cliente+'|'+_cfVentana
+  if(!_cfFichaCache[k]){
+    try{ const r=await fetch(`/v3/clientes/ficha?cliente=${encodeURIComponent(c.cliente)}&ventana=${_cfVentana}`); if(!r.ok) throw new Error('HTTP '+r.status); _cfFichaCache[k]=await r.json() }
+    catch(e){ const b=document.getElementById('cf-ficha-body'); if(b) b.innerHTML='<div style="color:red;font-size:12px">Error al cargar ('+e.message+').</div>'; return }
+  }
+  const d=_cfFichaCache[k], b=document.getElementById('cf-ficha-body'); if(!b||_cfSel!==c.cliente) return
+  if(_cfTab==='pedidos'){
+    if(!d.pedidos.length){ b.innerHTML=`<div class="empty-msg">Sin embarques en los últimos ${d.dias_pedidos} días.</div>`; return }
+    b.innerHTML=`<div style="font-size:12px;color:var(--color-text-secondary);margin-bottom:6px">${d.n_pedidos} pedidos con embarques en ${d.dias_pedidos} días · <b style="color:#B45309">~${Math.round(d.dev_esperadas)} piezas de vuelta esperadas</b> de lo embarcado en los últimos ${d.dias_en_camino} días. Primero los pedidos con partes que este cliente ya devuelve (≥ 5 %) o con ⚑ señal fuerte hoy.</div>`
+      + `<table class="rc-tabla"><thead><tr><th style="text-align:left">Pedido</th><th style="text-align:left">Embarques</th><th>Piezas</th><th style="text-align:left">Partes (tasa de devolución con este cliente)</th><th>De vuelta esperadas</th></tr></thead><tbody>`
+      + d.pedidos.slice().sort((a,b2)=>(b2.en_riesgo-a.en_riesgo)||(b2.dev_esperadas-a.dev_esperadas)||b2.fecha_fin.localeCompare(a.fecha_fin)).map(p=>`<tr style="${p.en_riesgo?'background:#FFFBEB':''}"><td style="white-space:nowrap"><b>${p.nopedido}</b></td><td style="white-space:nowrap;color:var(--color-text-secondary)">${p.fecha_ini===p.fecha_fin?p.fecha_ini.slice(5):p.fecha_ini.slice(5)+' a '+p.fecha_fin.slice(5)}</td><td style="text-align:right">${ptNf(p.piezas)}</td>`
+        +`<td style="font-size:11.5px">${p.partes.map(x=>`<span style="white-space:nowrap;margin-right:8px">${x.senal_fuerte?'<b style="color:#B91C1C">⚑</b> ':''}<b>${x.no_parte}</b> ${x.piezas} pz <span style="color:${x.tasa_devolucion>=5?'#B91C1C':'var(--color-text-tertiary)'}">(${x.tasa_devolucion}%)</span></span>`).join('')}</td>`
+        +`<td style="text-align:right;font-weight:700;color:${p.dev_esperadas>=1?'#B45309':'var(--color-text-tertiary)'}">${p.dev_esperadas>=0.5?'~'+Math.round(p.dev_esperadas):'·'}</td></tr>`).join('')
+      + `</tbody></table><div class="ret-leyenda" style="margin-top:6px">${d.nota}</div>`
+    return
+  }
+  // Tendencia: barras = toneladas embarcadas; líneas = % devuelto (rojo) y % interno (ámbar)
+  const T=d.tendencia; if(!T.length){ b.innerHTML='<div class="empty-msg">Sin datos en la ventana.</div>'; return }
+  const W=760, H=250, L=44, R=44, TP=18, B=28, n=T.length, bw=(W-L-R)/n
+  const tmax=Math.max(...T.map(t=>t.ton),1), pmax=Math.max(10,Math.ceil(Math.max(...T.flatMap(t=>[t.pct_devuelto||0,t.pct_interno||0]))/10)*10)
+  const Yt=v=>TP+(1-v/tmax)*(H-TP-B), Yp=v=>TP+(1-v/pmax)*(H-TP-B), Xc=i=>L+bw*i+bw/2
+  let g=`<svg viewBox="0 0 ${W} ${H}" class="pt-svg">`
+  ;[0,0.5,1].forEach(k=>{ g+=`<line x1="${L}" x2="${W-R}" y1="${Yt(tmax*k)}" y2="${Yt(tmax*k)}" stroke="#F1F5F9"/><text x="${L-6}" y="${Yt(tmax*k)+3}" text-anchor="end" class="pt-ax">${Math.round(tmax*k)} t</text><text x="${W-R+6}" y="${Yp(pmax*k)+3}" class="pt-ax">${Math.round(pmax*k)}%</text>` })
+  T.forEach((t,i)=>{ g+=`<rect x="${L+bw*i+bw*0.18}" y="${Yt(t.ton)}" width="${bw*0.64}" height="${H-B-Yt(t.ton)}" fill="#CBD5E1" rx="2"><title>${t.mes}: ${t.ton} t · ${t.piezas} pz embarcadas · ${t.devueltas} devueltas · interno ${t.rech_int}/${t.vaciadas}</title></rect><text x="${Xc(i)}" y="${H-B+14}" text-anchor="middle" class="pt-ax">${t.mes.slice(2).replace('-','/')}</text>` })
+  const linea=(campo,col)=>{ let p='', prev=null; T.forEach((t,i)=>{ const v=t[campo]; if(v==null){prev=null;return} const x=Xc(i), y=Yp(v); if(prev) p+=`<line x1="${prev[0]}" y1="${prev[1]}" x2="${x}" y2="${y}" stroke="${col}" stroke-width="2"/>`; p+=`<circle cx="${x}" cy="${y}" r="3.2" fill="${col}"/><text x="${x}" y="${y-7}" text-anchor="middle" class="pt-lbl" style="fill:${col}">${v}%</text>`; prev=[x,y] }); return p }
+  g+=linea('pct_interno','#D97706')+linea('pct_devuelto','#DC2626')+'</svg>'
+  b.innerHTML=g+`<div class="pt-ley"><span><i style="background:#CBD5E1;border-radius:2px"></i>toneladas embarcadas</span><span><i style="background:#DC2626"></i>% devuelto por el cliente</span><span><i style="background:#D97706"></i>% rechazo interno de sus partes</span><span>meses con menos de 20 piezas quedan sin punto</span></div>`
+}
+
 function cfFicha(){
   const c=_cfData.clientes.find(x=>x.cliente===_cfSel); if(!c) return
   const defs=c.defectos_ext.map(x=>`${x.defecto.toLowerCase()} (${x.piezas})`).join(' · ')||'sin devoluciones'
   const filas=c.partes.map(p=>`<tr><td><b>${p.no_parte}</b>${p.senal_fuerte_7d?' <span style="color:#B91C1C;font-weight:700" title="Señal fuerte en '+p.senal_fuerte_7d+' coladas esta semana">⚑</span>':''}</td><td style="text-align:right">${ptNf(p.embarcadas)}</td><td style="text-align:right;color:#B91C1C;font-weight:${p.devueltas?700:400}">${p.devueltas||'·'}</td><td style="text-align:right">${p.embarcadas?(p.devueltas/p.embarcadas*100).toFixed(1)+'%':'—'}</td><td style="text-align:right">${p.rech_int||'·'}</td><td style="text-align:right">${p.vaciadas?(p.rech_int/p.vaciadas*100).toFixed(1)+'%':'—'}</td><td>${(p.defecto_ext||'—').toLowerCase()}</td></tr>`).join('')
-  document.getElementById('cf-ficha').innerHTML=`<div class="pt-ficha"><div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap"><div style="font-size:14px;font-weight:700">${c.cliente} <span style="font-weight:500;font-size:12px;color:var(--color-text-secondary)">· ${CF_CUAD[c.cuadrante]}</span></div><button class="bp-x" onclick="_cfSel=null;document.getElementById('cf-ficha').innerHTML=''" title="Cerrar">×</button></div>`
+  const tabs=['calidad','pedidos','tendencia'].map(t=>`<button class="cf-tab${_cfTab===t?' on':''}" onclick="cfTab('${t}')">${{calidad:'Calidad',pedidos:'Pedidos'+(c.dev_esperadas?' · ~'+c.dev_esperadas+' en camino':''),tendencia:'Tendencia mensual'}[t]}</button>`).join('')
+  const cab=`<div class="pt-ficha"><div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;align-items:center"><div style="font-size:14px;font-weight:700">${c.cliente} <span style="font-weight:500;font-size:12px;color:var(--color-text-secondary)">· ${CF_CUAD[c.cuadrante]}</span></div><div style="display:flex;gap:4px;align-items:center">${tabs}<button class="bp-x" onclick="_cfSel=null;document.getElementById('cf-ficha').innerHTML=''" title="Cerrar">×</button></div></div>`
+  if(_cfTab!=='calidad'){ document.getElementById('cf-ficha').innerHTML=cab+'<div id="cf-ficha-body" style="margin-top:8px"><div class="loading-msg">Cargando…</div></div></div>'; cfFichaDetalle(c); return }
+  document.getElementById('cf-ficha').innerHTML=cab
     +`<div class="pt-ficha-g"><div><span>Embarcado</span><b>${ptNf(c.piezas_embarcadas)} pz · ${c.ton_embarcadas} t</b></div><div><span>Devueltas</span><b style="color:#B91C1C">${ptNf(c.devueltas)} (${c.pct_devolucion??'—'}%)</b></div><div><span>Ventana anterior</span><b>${c.pct_devolucion_anterior??'—'}${c.pct_devolucion_anterior!=null?'%':''}</b></div><div><span>Rechazo interno</span><b>${ptNf(c.rech_interno)} (${c.pct_interno??'—'}%)</b></div>`
     +`<div><span>Fundir por pieza buena</span><b>${c.fundir_por_pieza_buena??'—'}</b></div><div><span>Costo de no calidad</span><b>${ptUsd(c.costo_usd)}</b></div><div style="grid-column:span 2"><span>Por qué devuelve</span><b style="font-size:12.5px">${defs}</b></div></div>`
     +(c.partes_senal_fuerte.length?`<div style="margin-top:8px;font-size:12.5px;color:#B91C1C"><b>⚑ Alerta temprana:</b> ${c.partes_senal_fuerte.join(', ')} ${c.partes_senal_fuerte.length===1?'tiene':'tienen'} coladas con señal fuerte esta semana (Control del Proceso): puede llegarle mal.</div>`:'')
@@ -5658,6 +5707,17 @@ function pedSafeId(s){ return String(s).replace(/[^a-zA-Z0-9]/g, '_') }
 
 // Badge de tasa histórica de rechazo (No. Parte o promedio ponderado por cliente).
 // null/undefined = sin historial de rechazo para esa(s) parte(s).
+// Badges del cliente con las métricas del tablero (2026-11-09): % devuelto (visible) y % interno
+// (oculto) en lugar de la tasa histórica mezclada; si el tablero no ha cargado, la de siempre.
+function pedBadgeCliente(cli, rateHist){
+  const c=(_cfData&&_cfData.clientes||[]).find(x=>x.cliente===cli)
+  if(!c) return pedBadgeCalidad(rateHist)
+  const dv=c.pct_devolucion, cls=dv==null?'gris':dv>=5?'rojo':dv>=2?'ambar':'verde'
+  return `<span class="ped-badge ${cls}" title="Devuelto por el cliente (rechazo externo) sobre lo embarcado, ventana del tablero de arriba">${dv??'—'}% devuelto</span>`
+    + `<span class="ped-badge gris" title="Rechazo interno de sus partes (el cliente no lo ve)">${c.pct_interno??'—'}% interno</span>`
+    + (c.partes_senal_fuerte.length?`<span class="ped-badge rojo" title="Partes con señal fuerte esta semana: ${c.partes_senal_fuerte.join(', ')}">⚑</span>`:'')
+    + `<button class="bt-ask" style="padding:1px 8px" onclick="event.stopPropagation();cfSelNombre('${cli.replace(/'/g,"\\'")}','pedidos')">Ficha</button>`
+}
 function pedBadgeCalidad(rate){
   if (rate === null || rate === undefined) return '<span class="ped-badge gris">sin dato</span>'
   const cls = rate >= 15 ? 'rojo' : rate >= 7 ? 'ambar' : 'verde'
@@ -5689,7 +5749,9 @@ function pedBadgeUbicacion(ubicacion){
 }
 
 // Árbol fijo Cliente > Pedido > Parte — agrupa la lista plana de pedidos por cliente_principal.
+let _pedArbolArgs=null
 function pedRenderArbol(pedidos, calidadClientes){
+  _pedArbolArgs=[pedidos, calidadClientes]
   const wrap = document.getElementById('ped-tabla-wrap')
   if (!pedidos || !pedidos.length) {
     wrap.innerHTML = '<div class="empty-msg">Sin pedidos en el período/filtro seleccionado.</div>'
@@ -5732,7 +5794,7 @@ function pedRenderArbol(pedidos, calidadClientes){
       + '<div class="ped-cli-head" onclick="pedToggleCliente(\''+cid+'\')">'
       +   '<span class="ped-chevron">▾</span>'
       +   '<span class="ped-cli-nombre">'+cli+'</span>'
-      +   pedBadgeCalidad(cal ? cal.rate : null)
+      +   pedBadgeCliente(cli, cal ? cal.rate : null)
       +   '<span class="ped-meta">'+info.pedidos.length+' pedidos</span>'
       +   '<span class="ped-piezas">'+Number(info.piezas).toLocaleString('es-MX')+' pzas</span>'
       + '</div>'
