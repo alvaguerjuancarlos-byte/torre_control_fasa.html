@@ -3780,7 +3780,11 @@ function renderClientesFallas(){
     const col=PT_TEND[c.tendencia]||'#CBD5E1', cx=X(c.ton_embarcadas), cy=Y(c.pct_devolucion), r=rad(c), sel=_cfSel===c.cliente
     const ci=C.indexOf(c)
     svg+=`<circle cx="${cx}" cy="${cy}" r="${r}" fill="${col}" fill-opacity=".5" stroke="${sel?'#111':col}" stroke-width="${sel?3:1.5}" style="cursor:pointer" onclick="cfSel(${ci})"><title>${c.cliente}&#10;Embarcadas: ${ptNf(c.piezas_embarcadas)} piezas (${c.ton_embarcadas} t)&#10;Devueltas: ${ptNf(c.devueltas)} de ${ptNf(c.piezas_buenas)} piezas buenas fundidas en la ventana = ${c.pct_devolucion??'—'}%&#10;Rechazo interno: ${c.pct_interno??'—'}%&#10;Costo de no calidad: ${ptUsd(c.costo_usd)}${c.tendencia?'&#10;Tendencia: '+c.tendencia:''}</title></circle>`
-    if(i>=arr.length-8 && (c.cuadrante==='critico'||c.cuadrante==='atencion') && c.piezas_embarcadas>=100){ const izq=cx>W*0.72; rotulos+=`<text x="${izq?cx-r-3:cx+r+3}" y="${cy+3}" text-anchor="${izq?'end':'start'}" class="pt-lbl">${cfCorto(c.cliente)}</text>` }
+    if(i>=arr.length-8 && (c.cuadrante==='critico'||c.cuadrante==='atencion') && c.piezas_embarcadas>=100){
+      // si la burbuja está pegada arriba, el nombre va debajo para no encimarse con el rótulo del cuadrante
+      if(cy-TP<34) rotulos+=`<text x="${cx}" y="${cy+r+12}" text-anchor="middle" class="pt-lbl">${cfCorto(c.cliente)}</text>`
+      else { const izq=cx>W*0.72; rotulos+=`<text x="${izq?cx-r-3:cx+r+3}" y="${cy+3}" text-anchor="${izq?'end':'start'}" class="pt-lbl">${cfCorto(c.cliente)}</text>` }
+    }
   })
   // burbujas recortadas al área; ejes y rótulos encima, con contorno blanco
   svg+='</g>'+ejeX+rotulos+'</svg>'
@@ -3797,7 +3801,7 @@ function renderClientesFallas(){
     + '</tbody></table>'
 
   box.innerHTML=kpis
-    + `<div style="margin-top:14px;max-width:980px"><div class="rc-sub">Matriz de clientes · clic para ver su ficha</div>${svg}${ley}</div>`
+    + `<div style="margin-top:14px;max-width:980px"><div class="rc-sub">Matriz de clientes · últimos ${_cfVentana} meses (${d.ventana.desde} a ${d.ventana.hasta}) · clic para ver su ficha</div>${svg}${ley}</div>`
     + `<div id="cf-ficha"></div>`
     + `<div style="margin-top:14px"><div class="rc-sub">A quién le fallamos más · ordenado por piezas devueltas · clic para ver su ficha</div>${rank}</div>`
     + `<div class="ret-leyenda" style="margin-top:8px"><b>Devolución</b> = rechazo externo: la pieza llegó al cliente y la devolvió (llega ~2 meses después del vaciado). <b>Interno</b> = se detectó en planta; el cliente no lo ve, pero cuesta y obliga a fundir de más. <b>% devuelto</b> = de las piezas fundidas en la ventana que salieron buenas, cuántas devolvió el cliente (misma población, nunca pasa de 100 %); los últimos ~2 meses siguen acumulando devoluciones y salen algo bajos. Costo = toneladas (internas + devueltas) × $/t de Finanzas; la facturación no trae precio ni fecha compromiso, así que no se mide venta ni puntualidad. Cuadrantes: grande = toneladas ≥ mediana; devuelve = % ≥ promedio.</div>`
