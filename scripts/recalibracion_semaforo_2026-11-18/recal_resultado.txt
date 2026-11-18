@@ -1,0 +1,182 @@
+coladas 1905 · piezas 11715 · rechazo global 13.7 %
+
+## Estado actual del semáforo
+  PC-1 VERDE                         coladas  1904 | total ×1.00 [0.96–1.04]          | ligados ×1.00 [0.87–1.14]         
+  PC-1 AMBAR                         coladas     0 | total   n<8                      | ligados   n<8                     
+  PC-1 ROJO                          coladas     0 | total   n<8                      | ligados   n<8                     
+  PC-1 GRIS                          coladas     1 | total   n<8                      | ligados   n<8                     
+  PC-2 VERDE                         coladas   462 | total ×1.08 [0.98–1.18]          | ligados ×1.02 [0.82–1.21]         
+  PC-2 AMBAR                         coladas   107 | total ×0.52 [0.28–0.78] ▼        | ligados ×0.31 [0.00–0.78] ▼       
+  PC-2 ROJO                          coladas   399 | total ×0.94 [0.85–1.02]          | ligados ×0.97 [0.75–1.20]         
+  PC-2 GRIS                          coladas   937 | total ×1.00 [0.94–1.06]          | ligados ×1.04 [0.88–1.19]         
+  PC-3 VERDE                         coladas   470 | total ×1.01 [0.93–1.08]          | ligados ×0.80 [0.63–0.97] ▼       
+  PC-3 AMBAR                         coladas    95 | total ×0.91 [0.77–1.02]          | ligados ×1.03 [0.70–1.41]         
+  PC-3 ROJO                          coladas   157 | total ×1.07 [0.88–1.28]          | ligados ×1.08 [0.71–1.50]         
+  PC-3 GRIS                          coladas  1183 | total ×1.00 [0.94–1.05]          | ligados ×1.08 [0.95–1.20]         
+  PC-4 VERDE                         coladas  1126 | total ×0.98 [0.93–1.04]          | ligados ×1.08 [0.90–1.25]         
+  PC-4 AMBAR                         coladas   437 | total ×1.09 [0.99–1.20]          | ligados ×0.88 [0.67–1.10]         
+  PC-4 ROJO                          coladas   224 | total ×1.04 [0.91–1.15]          | ligados ×0.96 [0.74–1.18]         
+  PC-4 GRIS                          coladas   118 | total ×0.78 [0.60–0.97] ▼        | ligados ×0.99 [0.59–1.48]         
+
+## PC-1 · peor desviación de un material (% de su receta)
+  (con dato: 1904 de 1905)
+  [-1e+18, 1)                        coladas  1902 | total ×1.00 [0.95–1.04]          | ligados ×1.00 [0.86–1.14]         
+  [1, 2)                             coladas     2 | total   n<8                      | ligados   n<8                     
+  [2, 5)                             coladas     0 | total   n<8                      | ligados   n<8                     
+  [5, 10)                            coladas     0 | total   n<8                      | ligados   n<8                     
+  [10, 20)                           coladas     0 | total   n<8                      | ligados   n<8                     
+  [20, 1e+18)                        coladas     0 | total   n<8                      | ligados   n<8                     
+
+## PC-1 · desviación del total de la carga (%)
+  (con dato: 1904 de 1905)
+  [-1e+18, 0.5)                      coladas  1888 | total ×1.00 [0.95–1.04]          | ligados ×0.99 [0.86–1.14]         
+  [0.5, 1)                           coladas    16 | total ×1.53 [1.05–1.99] ▲        | ligados ×2.93 [0.94–5.46]         
+  [1, 2)                             coladas     0 | total   n<8                      | ligados   n<8                     
+  [2, 5)                             coladas     0 | total   n<8                      | ligados   n<8                     
+  [5, 1e+18)                         coladas     0 | total   n<8                      | ligados   n<8                     
+
+## PC-1 · % retornos
+  (con dato: 1904 de 1905)
+  [-1e+18, 20)                       coladas   320 | total ×0.93 [0.83–1.04]          | ligados ×0.95 [0.67–1.23]         
+  [20, 30)                           coladas   738 | total ×1.00 [0.92–1.07]          | ligados ×1.05 [0.86–1.29]         
+  [30, 40)                           coladas   569 | total ×1.01 [0.94–1.09]          | ligados ×1.11 [0.79–1.43]         
+  [40, 50)                           coladas   264 | total ×1.08 [0.98–1.18]          | ligados ×0.77 [0.48–1.11]         
+  [50, 1e+18)                        coladas    13 | total ×1.05 [0.77–1.36]          | ligados ×1.18 [0.63–1.83]         
+
+## PC-2 · C: (valor − centro) / tolerancia
+  (con dato: 968 de 1905)
+  [-1e+18, -1.5)                     coladas   501 | total ×1.07 [0.98–1.15]          | ligados ×1.01 [0.79–1.22]         
+  [-1.5, -1)                         coladas   117 | total ×0.98 [0.79–1.15]          | ligados ×1.18 [0.82–1.57]         
+  [-1, -0.5)                         coladas    84 | total ×0.85 [0.66–1.03]          | ligados ×0.52 [0.22–0.91] ▼       
+  [-0.5, 0.5)                        coladas   111 | total ×0.83 [0.69–0.98] ▼        | ligados ×0.68 [0.37–1.04]         
+  [0.5, 1)                           coladas    42 | total ×0.88 [0.63–1.16]          | ligados ×1.08 [0.35–1.73]         
+  [1, 1.5)                           coladas    24 | total ×1.20 [0.81–1.60]          | ligados ×0.98 [0.45–1.74]         
+  [1.5, 1e+18)                       coladas    89 | total ×1.10 [0.83–1.36]          | ligados ×1.45 [0.70–2.29]         
+
+## PC-2 · Si: (valor − centro) / tolerancia
+  (con dato: 968 de 1905)
+  [-1e+18, -1.5)                     coladas    11 | total ×0.71 [0.30–0.93] ▼        | ligados ×0.82 [0.00–0.95] ▼       
+  [-1.5, -1)                         coladas    82 | total ×0.87 [0.62–1.12]          | ligados ×1.22 [0.82–1.67]         
+  [-1, -0.5)                         coladas   289 | total ×1.04 [0.92–1.18]          | ligados ×1.27 [0.94–1.65]         
+  [-0.5, 0.5)                        coladas   484 | total ×0.96 [0.88–1.05]          | ligados ×0.77 [0.63–0.94] ▼       
+  [0.5, 1)                           coladas    58 | total ×1.25 [0.97–1.58]          | ligados ×1.37 [0.67–2.46]         
+  [1, 1.5)                           coladas    16 | total ×1.05 [0.71–1.44]          | ligados ×0.41 [0.00–0.98] ▼       
+  [1.5, 1e+18)                       coladas    28 | total ×1.08 [0.83–1.39]          | ligados ×1.11 [0.30–2.20]         
+
+## PC-2 · Mg: (valor − centro) / tolerancia
+  (con dato: 163 de 1905)
+  [-1e+18, -1.5)                     coladas   156 | total ×0.93 [0.70–1.17]          | ligados ×0.90 [0.39–1.53]         
+  [-1.5, -1)                         coladas     0 | total   n<8                      | ligados   n<8                     
+  [-1, -0.5)                         coladas     1 | total   n<8                      | ligados   n<8                     
+  [-0.5, 0.5)                        coladas     6 | total   n<8                      | ligados   n<8                     
+  [0.5, 1)                           coladas     0 | total   n<8                      | ligados   n<8                     
+  [1, 1.5)                           coladas     0 | total   n<8                      | ligados   n<8                     
+  [1.5, 1e+18)                       coladas     0 | total   n<8                      | ligados   n<8                     
+
+## PC-2 · S: (valor − centro) / tolerancia
+  (con dato: 964 de 1905)
+  [-1e+18, -1.5)                     coladas    34 | total ×0.94 [0.69–1.22]          | ligados ×1.68 [1.06–2.26] ▲       
+  [-1.5, -1)                         coladas    98 | total ×0.82 [0.68–0.96] ▼        | ligados ×0.59 [0.27–0.88] ▼       
+  [-1, -0.5)                         coladas   165 | total ×1.05 [0.90–1.19]          | ligados ×1.08 [0.71–1.45]         
+  [-0.5, 0.5)                        coladas   450 | total ×1.01 [0.93–1.10]          | ligados ×0.85 [0.66–1.05]         
+  [0.5, 1)                           coladas   139 | total ×0.92 [0.71–1.12]          | ligados ×0.84 [0.47–1.19]         
+  [1, 1.5)                           coladas    38 | total ×1.17 [0.78–1.57]          | ligados ×1.34 [0.47–2.17]         
+  [1.5, 1e+18)                       coladas    40 | total ×1.48 [1.03–2.10] ▲        | ligados ×2.29 [0.55–4.22]         
+
+## PC-2 · P relativo a su máximo (valor/máx)
+  (con dato: 964 de 1905)
+  [-1e+18, 0.8)                      coladas   881 | total ×1.00 [0.94–1.08]          | ligados ×0.98 [0.81–1.14]         
+  [0.8, 1)                           coladas    83 | total ×0.93 [0.75–1.11]          | ligados ×0.92 [0.45–1.52]         
+  [1, 1.2)                           coladas     0 | total   n<8                      | ligados   n<8                     
+  [1.2, 1.5)                         coladas     0 | total   n<8                      | ligados   n<8                     
+  [1.5, 1e+18)                       coladas     0 | total   n<8                      | ligados   n<8                     
+
+## PC-2 · Mn: (valor − centro) / tolerancia
+  (con dato: 964 de 1905)
+  [-1e+18, -1.5)                     coladas     5 | total   n<8                      | ligados   n<8                     
+  [-1.5, -1)                         coladas   103 | total ×1.04 [0.92–1.17]          | ligados ×0.79 [0.49–1.11]         
+  [-1, -0.5)                         coladas   169 | total ×0.89 [0.76–1.03]          | ligados ×0.80 [0.44–1.20]         
+  [-0.5, 0.5)                        coladas   451 | total ×1.11 [1.01–1.23] ▲        | ligados ×1.17 [0.96–1.42]         
+  [0.5, 1)                           coladas   153 | total ×0.95 [0.77–1.13]          | ligados ×0.76 [0.48–1.11]         
+  [1, 1.5)                           coladas    57 | total ×0.59 [0.39–0.78] ▼        | ligados ×0.52 [0.00–1.27]         
+  [1.5, 1e+18)                       coladas    26 | total ×0.75 [0.41–1.05]          | ligados ×1.20 [0.60–2.06]         
+
+## PC-2 · nº de elementos FAIL
+  (con dato: 968 de 1905)
+  [-1e+18, 1)                        coladas   462 | total ×1.08 [0.99–1.19]          | ligados ×1.02 [0.82–1.22]         
+  [1, 2)                             coladas   346 | total ×0.89 [0.79–0.99] ▼        | ligados ×0.85 [0.61–1.15]         
+  [2, 3)                             coladas   145 | total ×0.95 [0.82–1.08]          | ligados ×1.06 [0.66–1.42]         
+  [3, 1e+18)                         coladas    15 | total ×1.12 [0.64–1.71]          | ligados ×0.87 [0.00–2.81]         
+
+## PC-3 · score ITACA (mínimo de alertas)
+  (con dato: 722 de 1905)
+  [-1e+18, 30)                       coladas    95 | total ×1.10 [0.79–1.39]          | ligados ×1.35 [0.74–1.98]         
+  [30, 50)                           coladas    62 | total ×1.04 [0.81–1.28]          | ligados ×0.69 [0.32–1.19]         
+  [50, 70)                           coladas    95 | total ×0.91 [0.77–1.04]          | ligados ×1.03 [0.70–1.40]         
+  [70, 85)                           coladas   449 | total ×1.00 [0.92–1.09]          | ligados ×0.79 [0.62–0.98] ▼       
+  [85, 1e+18)                        coladas    21 | total ×1.20 [0.73–1.77]          | ligados ×1.00 [0.33–1.73]         
+
+## PC-3 · ITACA Porosity
+  (con dato: 720 de 1905)
+  [-1e+18, 30)                       coladas    69 | total ×1.28 [0.87–1.70]          | ligados ×1.56 [0.73–2.50]         
+  [30, 50)                           coladas    40 | total ×1.07 [0.77–1.42]          | ligados ×0.85 [0.38–1.52]         
+  [50, 70)                           coladas    59 | total ×0.87 [0.71–1.05]          | ligados ×0.83 [0.47–1.18]         
+  [70, 85)                           coladas    38 | total ×0.82 [0.65–1.02]          | ligados ×0.61 [0.18–1.07]         
+  [85, 1e+18)                        coladas   514 | total ×1.01 [0.92–1.08]          | ligados ×0.85 [0.70–1.04]         
+
+## PC-3 · ITACA MacroShrinkage
+  (con dato: 628 de 1905)
+  [-1e+18, 30)                       coladas    21 | total ×0.74 [0.52–1.00]          | ligados ×0.72 [0.33–1.07]         
+  [30, 50)                           coladas    30 | total ×0.97 [0.65–1.40]          | ligados ×1.54 [0.59–2.72]         
+  [50, 70)                           coladas    41 | total ×1.01 [0.73–1.38]          | ligados ×1.59 [0.61–3.07]         
+  [70, 85)                           coladas    80 | total ×1.03 [0.82–1.26]          | ligados ×0.79 [0.31–1.40]         
+  [85, 1e+18)                        coladas   456 | total ×0.99 [0.91–1.07]          | ligados ×0.78 [0.62–0.96] ▼       
+
+## PC-3 · ITACA Cementite
+  (con dato: 722 de 1905)
+  [-1e+18, 30)                       coladas    16 | total ×1.08 [0.71–1.56]          | ligados ×0.89 [0.00–1.94]         
+  [30, 50)                           coladas     7 | total   n<8                      | ligados   n<8                     
+  [50, 70)                           coladas    25 | total ×1.00 [0.73–1.36]          | ligados ×1.71 [0.50–3.11]         
+  [70, 85)                           coladas   131 | total ×1.06 [0.90–1.22]          | ligados ×1.36 [0.81–2.03]         
+  [85, 1e+18)                        coladas   543 | total ×0.98 [0.91–1.06]          | ligados ×0.78 [0.64–0.93] ▼       
+
+## PC-3 · ITACA Nodularization
+  (con dato: 722 de 1905)
+  [-1e+18, 30)                       coladas     0 | total   n<8                      | ligados   n<8                     
+  [30, 50)                           coladas     1 | total   n<8                      | ligados   n<8                     
+  [50, 70)                           coladas     6 | total   n<8                      | ligados   n<8                     
+  [70, 85)                           coladas   570 | total ×0.99 [0.91–1.08]          | ligados ×0.83 [0.67–0.99] ▼       
+  [85, 1e+18)                        coladas   145 | total ×1.03 [0.86–1.21]          | ligados ×1.16 [0.81–1.52]         
+
+## PC-3 · ITACA InverseChill
+  (con dato: 721 de 1905)
+  [-1e+18, 30)                       coladas     0 | total   n<8                      | ligados   n<8                     
+  [30, 50)                           coladas     0 | total   n<8                      | ligados   n<8                     
+  [50, 70)                           coladas     5 | total   n<8                      | ligados   n<8                     
+  [70, 85)                           coladas     4 | total   n<8                      | ligados   n<8                     
+  [85, 1e+18)                        coladas   712 | total ×1.00 [0.93–1.07]          | ligados ×0.89 [0.75–1.04]         
+
+## PC-4 · fracción de tickets FRÍOS (< mín)
+  (con dato: 1801 de 1905)
+  [-1e+18, 0.001)                    coladas  1714 | total ×1.00 [0.95–1.04]          | ligados ×0.96 [0.83–1.07]         
+  [0.001, 0.2)                       coladas    32 | total ×1.34 [1.05–1.62] ▲        | ligados ×0.97 [0.53–1.48]         
+  [0.2, 0.34)                        coladas    30 | total ×1.27 [0.99–1.55]          | ligados ×2.19 [1.34–3.19] ▲       
+  [0.34, 0.6)                        coladas    12 | total ×1.09 [0.69–1.44]          | ligados ×2.69 [0.00–4.78]         
+  [0.6, 1e+18)                       coladas    13 | total ×0.75 [0.31–1.39]          | ligados ×0.00 [0.00–0.00] ▼       
+
+## PC-4 · fracción de tickets graves (frío o >15 °C arriba)
+  (con dato: 1801 de 1905)
+  [-1e+18, 0.001)                    coladas  1378 | total ×0.99 [0.94–1.04]          | ligados ×1.06 [0.90–1.21]         
+  [0.001, 0.2)                       coladas    66 | total ×1.15 [0.92–1.37]          | ligados ×0.71 [0.40–1.02]         
+  [0.2, 0.34)                        coladas   128 | total ×1.05 [0.89–1.22]          | ligados ×0.89 [0.55–1.24]         
+  [0.34, 0.6)                        coladas   124 | total ×1.07 [0.92–1.22]          | ligados ×0.84 [0.60–1.12]         
+  [0.6, 1e+18)                       coladas   105 | total ×0.98 [0.81–1.16]          | ligados ×1.05 [0.67–1.43]         
+
+## PC-4 · temp. promedio − centro del rango de la parte (°C)
+  (con dato: 1801 de 1905)
+  [-1e+18, -15)                      coladas     2 | total   n<8                      | ligados   n<8                     
+  [-15, -5)                          coladas    36 | total ×1.13 [0.79–1.45]          | ligados ×1.18 [0.54–1.80]         
+  [-5, 5)                            coladas   210 | total ×0.97 [0.87–1.07]          | ligados ×1.16 [0.81–1.55]         
+  [5, 15)                            coladas  1094 | total ×0.99 [0.94–1.05]          | ligados ×0.95 [0.79–1.12]         
+  [15, 25)                           coladas   303 | total ×1.06 [0.94–1.19]          | ligados ×0.96 [0.75–1.17]         
+  [25, 1e+18)                        coladas   156 | total ×1.07 [0.90–1.23]          | ligados ×1.00 [0.69–1.32]         

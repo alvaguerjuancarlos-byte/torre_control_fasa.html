@@ -151,7 +151,8 @@ CARRILES: List[CarrilControl] = [
         "corex_test.vistaanalisisquimicoparaitaca vía betamega_02_pks_idticketsidmuestras, spec de corex_test.clases",
         VentanaControl("completitud", 100.0, 80.0, "pct"),
         "fin_fusion",
-        "% elementos clave (C,Si,Mg,S,P,Mn) con flag _F = pass ; 100%→VERDE ; ≥80%→ÁMBAR ; <80%→ROJO",
+        "% elementos clave (C,Si,S,P,Mn) con flag _F = pass ; 100%→VERDE ; ≥80%→ÁMBAR ; <80%→ROJO ; "
+        "Mg fuera = ÁMBAR «por confirmar», no cuenta para el % (2026-11-18, pendiente de Calidad)",
         "P-02", 10, "activo",
     ),
     CarrilControl(
@@ -164,13 +165,12 @@ CARRILES: List[CarrilControl] = [
         "P-03", 10, "activo",
     ),
     CarrilControl(
-        "PC-4", "temperatura de vaciado (% tickets en tolerancia)",
+        "PC-4", "temperatura de vaciado (% tickets sin vaciado frío)",
         "ia_fasa.betamega_06_vaciado.vt_TemperaturaVaciado vs m_tmin/m_tmax de la parte",
         VentanaControl("completitud", 95.0, 80.0, "pct"),
         "inicio_vaciado",
-        "por ticket: en rango o ≤5 °C arriba = OK ; 6–15 °C arriba = leve ; frío o >15 °C arriba = grave ; "
-        "colada: >1/3 graves→ROJO ; algún grave o >1/3 leves→ÁMBAR ; si no→VERDE "
-        "(calibración propuesta 2026-11-08, pendiente de Calidad)",
+        "por ticket: debajo del mínimo de la parte = frío ; colada: algún ticket frío→ROJO ; si no→VERDE ; "
+        "arriba del máximo = informativo, no colorea (recalibración propuesta 2026-11-18, pendiente de Calidad)",
         "P-04", 5, "activo",
     ),
     CarrilControl(
@@ -1247,7 +1247,7 @@ def causas_pcs(e: dict) -> dict:
             continue
         valor, centro, tol = q.get(elem), q.get(f"{pref}_F"), float(q.get(f"{pref}_Fl") or 0)
         alto = valor is not None and centro is not None and float(valor) > float(centro) + tol
-        pc2.append({"causa": f"{elem} {'alto' if alto else 'bajo'}", "valor": valor,
+        pc2.append({"causa": f"{elem} {'alto' if alto else 'bajo'}" + (" (por confirmar)" if elem == "Mg" else ""), "valor": valor,
                     "spec": f"≤ {centro}" if not tol else f"{float(centro) - tol:g}–{float(centro) + tol:g}"})
     out["PC-2"] = pc2
     it = e["itaca"] or {}
@@ -1257,11 +1257,12 @@ def causas_pcs(e: dict) -> dict:
     pc4 = []
     if int(t.get("n_frio") or 0):
         pc4.append({"causa": "vaciado frío", "tickets": int(t["n_frio"]), "grave": True})
+    # Caliente: informativo desde 2026-11-18 (no colorea; ver evaluar_pcs_colada).
     cal = int(t.get("n_grave") or 0) - int(t.get("n_frio") or 0)
     if cal > 0:
-        pc4.append({"causa": "> 15 °C arriba", "tickets": cal, "grave": True})
+        pc4.append({"causa": "> 15 °C arriba (informativo)", "tickets": cal, "grave": False})
     if int(t.get("n_leve") or 0):
-        pc4.append({"causa": "6–15 °C arriba", "tickets": int(t["n_leve"]), "grave": False})
+        pc4.append({"causa": "6–15 °C arriba (informativo)", "tickets": int(t["n_leve"]), "grave": False})
     out["PC-4"] = pc4
     out["PC-6"] = [{"causa": d, "parte": p, "piezas": n} for (d, p), n in e["resumen"]["combos_defecto"][:5]]
     return out
@@ -1286,11 +1287,21 @@ def evaluar_pcs_colada(col: dict, datos: dict, no_conf: set) -> dict:
 
     q = datos["quim"].get(cid, {})
     q_elem = evaluar_quimica(q)
-    _q_tot = sum(1 for v in q_elem.values() if v is not None)
-    pct_quim = _pct(sum(1 for v in q_elem.values() if v == "PASS"), _q_tot)
+    # Recalibración 2026-11-18 (propuesta, pendiente de Calidad): el Mg fuera de especificación
+    # no cuenta para el % ni pinta rojo; deja la colada en ÁMBAR "por confirmar". En ago-nov 2026
+    # salió muy por debajo de su spec en 156 coladas sin más rechazo ni peor nodularización en
+    # ITACA: huele a que se liga la muestra de antes del tratamiento o a que la spec no aplica.
+    _q_ev = {k: v for k, v in q_elem.items() if v is not None and k != "Mg"}
+    mg_fuera = q_elem.get("Mg") == "FAIL"
+    pct_quim = _pct(sum(1 for v in _q_ev.values() if v == "PASS"), len(_q_ev)) if _q_ev else (100.0 if mg_fuera else None)
+    e2 = None
+    if pct_quim is not None:
+        e2 = "VERDE" if pct_quim >= 100 else "AMBAR" if pct_quim >= 80 else "ROJO"
+        if mg_fuera and e2 == "VERDE":
+            e2 = "AMBAR"
     ev2 = evaluar_carril(pc["PC-2"], pct_quim, q.get("AnalysisTime"), cid,
                          "sin análisis FINAL del SpectroMAX con el número de colada y horno en el Note"
-                         if not q else "la clase de la colada no define elementos a evaluar")
+                         if not q else "la clase de la colada no define elementos a evaluar", e2)
 
     it = datos["itaca"].get(cid, {})
     ev3 = evaluar_carril(pc["PC-3"], it.get("score"), it.get("ts"), cid,
@@ -1299,12 +1310,17 @@ def evaluar_pcs_colada(col: dict, datos: dict, no_conf: set) -> dict:
     tr = datos["temp"].get(cid, {})
     n_t = int(tr.get("n_tickets") or 0)
     n_v = int(tr.get("n_validos") or 0)
-    pct_temp = _pct(int(tr.get("n_tol") or 0), n_v)
+    # Recalibración 2026-11-18 (propuesta, pendiente de Calidad): solo el vaciado FRÍO colorea
+    # (algún ticket debajo del mínimo de la parte = ROJO). El caliente queda informativo: en
+    # 1,905 coladas de ago-nov 2026 las coladas con tickets >15 °C arriba rechazaron lo esperado
+    # por sus partes en las dos mitades del periodo (×0.98 y ×1.02), y prendía el 37 % de las
+    # coladas. El frío es la causa metalúrgica de fierro frío / no lleno (señal leve, ×1.21).
+    n_frio = int(tr.get("n_frio") or 0)
+    pct_temp = _pct(n_v - n_frio, n_v)
     m4 = _motivo_cobertura("temperatura de vaciado", n_t, n, "betamega_06_vaciado")
     e4 = None
     if not m4 and n_v:
-        g, l = int(tr.get("n_grave") or 0), int(tr.get("n_leve") or 0)
-        e4 = "ROJO" if g * 3 > n_v else "AMBAR" if g or l * 3 > n_v else "VERDE"
+        e4 = "ROJO" if n_frio else "VERDE"
     ev4 = evaluar_carril(pc["PC-4"], None if m4 or not n_v else pct_temp, tr.get("ts_primer_vaci"), cid,
                          m4 or "sin lecturas de temperatura válidas (1100-1600 °C)", e4)
 

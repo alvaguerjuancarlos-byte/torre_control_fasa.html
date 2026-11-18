@@ -231,7 +231,8 @@ def desglose_punto_control(id_pc: str, horas: int = 48) -> str:
     """Desglose de UN punto de control (PC-1 a PC-7) en las últimas `horas`: qué lo saca de
     verde (Pareto de causas: material fuera en PC-1; elemento alto/bajo con valor y spec en
     PC-2; alerta ITACA con puntaje en PC-3 -- Porosity, MacroShrinkage, Cementite,
-    Nodularization, InverseChill; frío / >15 °C / 6-15 °C en PC-4; defecto por parte en PC-6),
+    Nodularization, InverseChill; vaciado frío en PC-4 -- caliente sale como informativo, no colorea;
+    defecto por parte en PC-6; Mg fuera en PC-2 es "por confirmar", solo ámbar),
     dónde (horno x día y % fuera por clase de hierro), las coladas fuera de verde con su causa
     (máx. 20, peor primero) y el protocolo provisional del PC. Úsala para "¿por qué falla
     PC-3?", "¿es un horno o es todo?", "¿qué clase de hierro falla?".

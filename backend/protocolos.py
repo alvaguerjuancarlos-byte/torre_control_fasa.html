@@ -77,7 +77,7 @@ PROTOCOLOS = {
     "PC-4": {
         "variables": ["OPE-FUS-019", "OPE-FUS-018"],
         "ambar": "Corregir la temperatura en los siguientes moldes según la etiqueta FOR-OPE-FUS-009.",
-        "rojo": "Frío: no vaciar piezas de pared delgada, recalentar. Más de 15 °C arriba: esperar a que baje. Rango de la etiqueta FOR-OPE-FUS-009. Piezas ya vaciadas frías: revisar fierro frío y no lleno.",
+        "rojo": "Vaciado frío: no vaciar piezas de pared delgada, recalentar al rango de la etiqueta FOR-OPE-FUS-009. Piezas ya vaciadas frías: revisar fierro frío y no lleno. (Caliente: informativo desde 18-nov, no pinta rojo.)",
         "responsable": "Vaciador",
         "liberar": "Temperatura en rango",
     },

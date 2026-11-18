@@ -2813,8 +2813,10 @@ async function cargarResumenControl(){
     '<b>Cómo se lee:</b> la colada toma el peor estado de PC-1 a PC-4 (riesgo de producto); PC-5 a PC-7 llegan días después del vaciado (desmoldeo, rechazo y cierre) y se cuentan aparte. '
     + '«Piezas expuestas» = piezas de coladas en rojo. «Cobertura» = coladas en que el PC se pudo evaluar. '
     + '<b>Señal fuerte (Agente Beta):</b> colada en rojo con una parte que ya rechaza ≥ 3 % por el defecto ligado a ese PC (temperatura → fierro frío, no lleno; ITACA y química → sopladura, porosidad, rechupe, microestructura…); la liga defecto–PC es propuesta, pendiente de Calidad. '
-    + '<b>Calibración propuesta el 8-nov-2026, pendiente de Calidad:</b> PC-1 cuenta un material fuera arriba de 2× la tolerancia de báscula y rojo arriba del 5 % de su receta; '
-    + 'PC-4 da 5 °C de margen sobre el máximo de la parte y es grave si el vaciado va frío o más de 15 °C arriba (rojo si más de un tercio de los tickets son graves). '
+    + '<b>Qué significan los colores:</b> si la colada cumplió su especificación, NO si va a rechazar. La validación del 18-nov-2026 (1,905 coladas de ago a nov) no encontró ningún umbral de fusión que anticipe el rechazo de forma consistente: los defectos que más rechazan no vienen de la fusión. '
+    + '<b>Calibración propuesta, pendiente de Calidad:</b> PC-1 cuenta un material fuera arriba de 2× la tolerancia de báscula y rojo arriba del 5 % de su receta (8-nov); '
+    + 'PC-4 solo pinta rojo si algún ticket se vació frío, debajo del mínimo de la parte; el vaciado caliente se muestra como informativo y no colorea (18-nov: no se asoció a más rechazo y prendía el 37 % de las coladas); '
+    + 'PC-2: el magnesio fuera de especificación deja la colada en ámbar «por confirmar» y no cuenta para el %, hasta que Calidad confirme qué muestra se debe ligar (18-nov). '
     + 'Clic en un punto de control para ver qué lo saca de verde y dónde.'
   if(_drillAbierto) abrirDrillPC(_drillAbierto, true)  // al recargar la ventana se queda abierto el mismo PC
 }
