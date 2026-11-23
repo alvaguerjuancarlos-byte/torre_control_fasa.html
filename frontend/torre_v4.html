@@ -2690,6 +2690,7 @@ async function renderFlujoRastreo(){
     + `<div><div class="rc-sub">Piezas moldeadas sin registro de vaciado · ${E.ventana}</div>${envej}`
     + `<div class="ret-leyenda" style="margin-top:6px">El hueco no se cierra con los días: no es trabajo en proceso, es rastro perdido. La fuente es <i>betamega_00_ticketsconvaciadodirecto</i>; si los vaciados indirectos viven en otra tabla, IT debe integrarla.</div></div>`
     + `</div>`
+    + `<div id="fr-espera" style="margin-top:16px"></div>`
     + `<div style="margin-top:16px"><div class="rc-sub">Coladas por horno · ${d.linea_tiempo.desde.slice(5,16)} a ${d.linea_tiempo.hasta.slice(5,16)}</div>${linea}</div>`
     + `<div style="margin-top:16px"><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px">`
     + `<div class="rc-sub" style="margin:0">Lista de coladas · clic para ver sus puntos de control y sus piezas</div>`
@@ -2699,6 +2700,42 @@ async function renderFlujoRastreo(){
     + `<input id="fr-f-buscar" oninput="renderListaColadas()" placeholder="Colada o No. parte" style="width:150px;padding:3px 6px">`
     + `</div></div><div id="fr-lista"></div></div>`
   renderListaColadas()
+  cargarEsperaMoldeo(ref,horas)
+}
+
+// ── Espera molde → vaciado (2026-11-23): INDICADOR INFORMATIVO, no colorea coladas. Validado por
+// pieza en dos mitades de 2026 (> 24 h: fierro frío + tierra suelta ~37 % más; < 2 h: tirado +
+// corazón ~30-40 % más); por colada no predice rechazo. /v3/gestion/espera-moldeo (flujo_rastreo.py).
+async function cargarEsperaMoldeo(ref,horas){
+  const box=document.getElementById('fr-espera'); if(!box) return
+  box.innerHTML='<div class="loading-msg">Cargando espera molde → vaciado…</div>'
+  let d
+  try{
+    const r=await fetch(`/v3/gestion/espera-moldeo?referencia=${encodeURIComponent(ref)}&horas=${horas}`)
+    if(r.status===404){ box.innerHTML='<div style="color:#B45309;font-size:12px">Reinicia el servidor con arrancar.bat para ver la espera molde → vaciado.</div>'; return }
+    if(!r.ok) throw new Error('HTTP '+r.status)
+    d=await r.json()
+  }catch(e){ box.innerHTML='<div style="color:red;font-size:12px">Error al cargar la espera molde → vaciado ('+e.message+').</div>'; return }
+  const nf=v=>Number(v||0).toLocaleString('es-MX'), B={}; d.bandas.forEach(b=>B[b.banda]=b)
+  const COL={corta:'#F59E0B',normal:'#94A3B8',larga:'#7C3AED'}
+  const ETQ={corta:`< ${d.umbrales_h.corta} h`,normal:`${d.umbrales_h.corta}–${d.umbrales_h.larga} h`,larga:`> ${d.umbrales_h.larga} h`}
+  if(!d.piezas){ box.innerHTML=`<div class="rc-sub">Espera molde → vaciado · informativo</div><div class="empty-msg">Sin piezas vaciadas con fecha de moldeo en la ventana.</div>`; return }
+  const barra=`<div style="display:flex;height:14px;border-radius:7px;overflow:hidden;margin:6px 0">`
+    + ['corta','normal','larga'].map(k=>`<div title="${ETQ[k]}: ${nf(B[k].piezas)} pz (${B[k].pct}%)" style="width:${B[k].pct}%;background:${COL[k]}"></div>`).join('')+`</div>`
+  const ley=['corta','normal','larga'].map(k=>`<span><i style="background:${COL[k]}"></i>${ETQ[k]} · <b>${nf(B[k].piezas)}</b> pz (${B[k].pct}%)</span>`).join('')
+  const sem=d.semanas.map(w=>`<tr><td>${w.desde.slice(5).replace('-','/')} – ${w.hasta.slice(5).replace('-','/')}</td><td style="text-align:right">${nf(w.piezas)}</td><td style="text-align:right">${w.mediana_h??'—'} h</td><td style="text-align:right;color:#B45309">${w.pct_corta??'—'}%</td><td style="text-align:right;color:#6D28D9">${w.pct_larga??'—'}%</td></tr>`).join('')
+  const partes=d.partes.length?`<table class="rc-tabla"><thead><tr><th style="text-align:left">Parte</th><th>Piezas</th><th>< ${d.umbrales_h.corta} h</th><th>> ${d.umbrales_h.larga} h</th><th>% fuera</th></tr></thead><tbody>`
+    + d.partes.map(p=>`<tr><td>${p.parte}</td><td style="text-align:right">${p.piezas}</td><td style="text-align:right;color:#B45309">${p.corta||''}</td><td style="text-align:right;color:#6D28D9">${p.larga||''}</td><td style="text-align:right">${p.pct_fuera}%</td></tr>`).join('')+`</tbody></table>`
+    : '<div class="empty-msg">Todas las piezas de la ventana esperaron entre 2 y 24 h.</div>'
+  const lista=d.piezas_fuera.length?`<details style="margin-top:6px"><summary style="cursor:pointer;font-size:12px">Ver piezas fuera de rango (${d.piezas_fuera.length} más extremas)</summary><table class="rc-tabla"><thead><tr><th style="text-align:left">Ticket</th><th style="text-align:left">Parte</th><th style="text-align:left">Moldeo</th><th style="text-align:left">Vaciado</th><th>Espera</th></tr></thead><tbody>`
+    + d.piezas_fuera.map(x=>`<tr><td>${x.ticket}</td><td>${x.parte}</td><td>${x.moldeo.slice(5).replace('-','/')}</td><td>${x.vaciado.slice(5).replace('-','/')}</td><td style="text-align:right;color:${x.banda==='corta'?'#B45309':'#6D28D9'}">${x.horas} h</td></tr>`).join('')+`</tbody></table></details>`:''
+  box.innerHTML=`<div class="rc-sub">Espera molde → vaciado · <span style="font-weight:400">informativo, no colorea coladas</span></div>`
+    + `<div style="font-size:12px;color:var(--color-text-secondary)">${nf(d.piezas)} piezas vaciadas en la ventana · mediana ${d.mediana_h} h</div>${barra}`
+    + `<div class="fr-leyenda">${ley}</div>`
+    + `<div class="ret-leyenda" style="margin:4px 0 8px"><b style="color:#B45309">< ${d.umbrales_h.corta} h:</b> ${d.riesgo.corta}. <b style="color:#6D28D9">> ${d.umbrales_h.larga} h:</b> ${d.riesgo.larga}. ${d.nota}</div>`
+    + `<div class="fr-grid"><div><div class="rc-sub" style="font-size:12px">Partes con más piezas fuera de rango</div>${partes}</div>`
+    + `<div><div class="rc-sub" style="font-size:12px">Últimas 5 semanas</div><table class="rc-tabla"><thead><tr><th style="text-align:left">Semana</th><th>Piezas</th><th>Mediana</th><th>< ${d.umbrales_h.corta} h</th><th>> ${d.umbrales_h.larga} h</th></tr></thead><tbody>${sem}</tbody></table></div></div>`
+    + lista
 }
 
 // Lista de coladas (2026-11-08): la vista colada por colada que daba el kanban, filtrable; clic
