@@ -1,0 +1,49 @@
+
+## Rechupe · RESISTENCIA AF3 A LOS 15 MINUTOS · alto 77.4
+   límites Corex 60.0-90.0 · días con dato 264 · mediciones/día mediana 3 · días fuera 6 % de 264
+   valor diario p10 65.53 · mediana 74.00 · p90 84.67
+   mediana por mes: 01 74.0 · 02 69.0 · 03 72.4 · 04 70.3 · 05 78.8 · 06 77.4 · 07 74.0 · 08 71.6 · 09 74.2 · 10 73.6 · 11 74.2
+   ene-may: O/E grupo 1.52 (339 rech, 48 días) vs resto 0.75
+   ago-nov: O/E grupo 0.75 (20 rech, 21 días) vs resto 0.97
+
+## Rechupe · TIEMPO DE TRABAJO AF3 (Minutos y Segundos) · alto 2.47
+   límites Corex 2.0-4.0 · días con dato 264 · mediciones/día mediana 3 · días fuera 11 % de 264
+   valor diario p10 2.02 · mediana 2.36 · p90 2.85
+   mediana por mes: 01 1.5 · 02 1.8 · 03 2.8 · 04 2.3 · 05 2.4 · 06 2.5 · 07 2.3 · 08 2.3 · 09 2.4 · 10 2.5 · 11 2.6
+   ene-may: O/E grupo 1.42 (381 rech, 46 días) vs resto 0.73
+   ago-nov: O/E grupo 0.69 (29 rech, 27 días) vs resto 1.04
+
+## Rechupe · AFS ARENA MECANICA · bajo 41.3
+   límites 48.0-54.0 · días 263 · sin evaluar límite
+   valor diario p10 40.23 · mediana 42.07 · p90 44.23
+   mediana por mes: 01 41.1 · 02 40.9 · 03 41.8 · 04 40.8 · 05 41.3 · 06 42.5 · 07 42.5 · 08 43.2 · 09 42.6 · 10 42.7 · 11 42.7
+   ene-may: O/E grupo 1.31 (515 rech, 66 días) vs resto 0.67
+   ago-nov: O/E grupo 0.56 (4 rech, 8 días) vs resto 0.97
+
+## Tierra suelta · TEMPERATURA DE LA ARENA EN AF2 AL 1.2% DE RESINA · alto 32.0
+   límites Corex 20.0-40.0 · días con dato 106 · mediciones/día mediana 2 · días fuera 2 % de 106
+   valor diario p10 25.00 · mediana 31.00 · p90 34.00
+   mediana por mes: 01 25.0 · 02 29.5 · 03 29.0 · 04 30.5 · 05 31.5 · 06 31.0 · 07 32.0 · 08 33.0 · 09 32.8 · 10 29.0 · 11 30.0
+   ene-may: O/E grupo 1.73 (17 rech, 12 días) vs resto 0.78
+   ago-nov: O/E grupo 1.37 (17 rech, 13 días) vs resto 0.61
+
+## Tierra suelta · FINOS ARENA TERMICA · bajo 0.621
+   límites Corex 0.0-3.0 · días con dato 251 · mediciones/día mediana 2 · días fuera 2 % de 251
+   valor diario p10 0.14 · mediana 0.95 · p90 1.86
+   mediana por mes: 01 0.9 · 02 1.7 · 03 1.2 · 04 0.9 · 05 0.7 · 06 0.9 · 07 1.1 · 08 0.6 · 09 0.6 · 10 1.1 · 11 2.0
+   ene-may: O/E grupo 1.21 (25 rech, 30 días) vs resto 0.90
+   ago-nov: O/E grupo 1.42 (35 rech, 36 días) vs resto 0.58
+
+## Corazón · RESISTENCIA AF2 A LOS 15 MINUTOS · bajo 68.0
+   límites Corex 60.0-90.0 · días con dato 289 · mediciones/día mediana 3 · días fuera 4 % de 289
+   valor diario p10 63.00 · mediana 70.00 · p90 77.33
+   mediana por mes: 01 70.5 · 02 69.8 · 03 69.3 · 04 68.0 · 05 74.5 · 06 70.7 · 07 70.5 · 08 69.3 · 09 70.2 · 10 67.7 · 11 68.3
+   ene-may: O/E grupo 1.22 (22 rech, 37 días) vs resto 0.92
+   ago-nov: O/E grupo 1.35 (61 rech, 33 días) vs resto 0.80
+
+## Sopladura · AFS ARENA TERMICA · bajo 39.7
+   límites 48.0-54.0 · días 251 · sin evaluar límite
+   valor diario p10 37.55 · mediana 40.96 · p90 44.77
+   mediana por mes: 01 39.4 · 02 43.2 · 03 42.1 · 04 40.4 · 05 40.5 · 06 42.1 · 07 40.6 · 08 41.4 · 09 39.3 · 10 43.5 · 11 43.9
+   ene-may: O/E grupo 1.21 (138 rech, 42 días) vs resto 0.88
+   ago-nov: O/E grupo 1.13 (50 rech, 25 días) vs resto 0.94
